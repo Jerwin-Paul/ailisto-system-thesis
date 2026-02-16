@@ -7,7 +7,7 @@ import { z } from "zod";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(), // email
+  email: text("email").notNull().unique(),
   password: text("password").notNull(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
@@ -69,7 +69,7 @@ export type InsertSubject = z.infer<typeof insertSubjectSchema>;
 export type Session = typeof sessions.$inferSelect;
 
 // Auth
-export type LoginRequest = { username: string; password: string };
+export type LoginRequest = { email: string; password: string };
 export type RegisterRequest = InsertUser;
 
 // Subjects

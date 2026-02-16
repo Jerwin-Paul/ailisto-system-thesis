@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, Loader2, Video } from "lucide-react";
 
 const loginSchema = z.object({
-  username: z.string().min(1, "Username is required"),
+  email: z.string().email("Please enter a valid email"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -26,19 +26,19 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [, setLocation] = useLocation();
 
+  const form = useForm<z.infer<typeof loginSchema>>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
   // Redirect if already logged in
   if (user) {
     setLocation("/");
     return null;
   }
-
-  const form = useForm<z.infer<typeof loginSchema>>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      username: "",
-      password: "",
-    },
-  });
 
   function onSubmit(values: z.infer<typeof loginSchema>) {
     loginMutation.mutate(values);
@@ -57,7 +57,7 @@ export default function LoginPage() {
             <span className="text-2xl font-bold font-display">Ai-Listo</span>
           </div>
         </div>
-        
+
         <div className="relative z-10 max-w-lg">
           <h1 className="text-5xl font-bold font-display mb-6 leading-tight">
             Monitor Student Attention in Real-Time
@@ -84,15 +84,16 @@ export default function LoginPage() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <FormField
                 control={form.control}
-                name="username"
+                name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Username</FormLabel>
+                    <FormLabel>Email</FormLabel>
                     <FormControl>
-                      <Input 
-                        placeholder="Enter your username" 
+                      <Input
+                        type="email"
+                        placeholder="Enter your email"
                         className="h-12 rounded-xl bg-slate-50 border-slate-200 focus:bg-white transition-all"
-                        {...field} 
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
@@ -136,8 +137,8 @@ export default function LoginPage() {
                 </Link>
               </div>
 
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 disabled={loginMutation.isPending}
                 className="w-full h-12 rounded-xl text-lg font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all"
               >

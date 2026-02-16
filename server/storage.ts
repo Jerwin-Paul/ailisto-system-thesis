@@ -10,9 +10,10 @@ const MemoryStore = createMemoryStore(session);
 export interface IStorage {
   // User
   getUser(id: number): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  
+  updateUserPassword(id: number, hashedPassword: string): Promise<void>;
+
   // Subject
   getSubjects(teacherId: number): Promise<Subject[]>;
   createSubject(subject: InsertSubject): Promise<Subject>;
@@ -39,14 +40,18 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
   }
 
   async createUser(user: InsertUser): Promise<User> {
     const [newUser] = await db.insert(users).values(user).returning();
     return newUser;
+  }
+
+  async updateUserPassword(id: number, hashedPassword: string): Promise<void> {
+    await db.update(users).set({ password: hashedPassword }).where(eq(users.id, id));
   }
 
   async getSubjects(teacherId: number): Promise<Subject[]> {
@@ -67,10 +72,10 @@ export class DatabaseStorage implements IStorage {
       session: sessions,
       subject: subjects,
     })
-    .from(sessions)
-    .innerJoin(subjects, eq(sessions.subjectId, subjects.id))
-    .where(eq(subjects.teacherId, teacherId))
-    .orderBy(desc(sessions.startTime));
+      .from(sessions)
+      .innerJoin(subjects, eq(sessions.subjectId, subjects.id))
+      .where(eq(subjects.teacherId, teacherId))
+      .orderBy(desc(sessions.startTime));
 
     return rows.map(r => ({ ...r.session, subject: r.subject }));
   }

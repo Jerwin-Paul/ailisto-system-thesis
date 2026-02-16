@@ -19,7 +19,7 @@ import { Eye, EyeOff, Loader2, Video } from "lucide-react";
 const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
+  email: z.string().email("Please enter a valid email"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string().min(6, "Confirm password is required"),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -32,21 +32,21 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [, setLocation] = useLocation();
 
-  if (user) {
-    setLocation("/");
-    return null;
-  }
-
   const form = useForm<z.infer<typeof registerSchema>>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
       firstName: "",
       lastName: "",
-      username: "",
+      email: "",
       password: "",
       confirmPassword: "",
     },
   });
+
+  if (user) {
+    setLocation("/");
+    return null;
+  }
 
   function onSubmit(values: z.infer<typeof registerSchema>) {
     const { confirmPassword, ...data } = values;
@@ -99,12 +99,12 @@ export default function RegisterPage() {
 
             <FormField
               control={form.control}
-              name="username"
+              name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Username</FormLabel>
+                  <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input className="h-11 rounded-xl" placeholder="johndoe123" {...field} />
+                    <Input type="email" className="h-11 rounded-xl" placeholder="teacher@school.com" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type LoginRequest, type RegisterRequest } from "@shared/routes";
+import { api } from "@shared/routes";
+import type { LoginRequest, RegisterRequest } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
 export function useAuth() {
@@ -26,7 +27,7 @@ export function useAuth() {
       });
 
       if (!res.ok) {
-        if (res.status === 401) throw new Error("Invalid username or password");
+        if (res.status === 401) throw new Error("Invalid email or password");
         throw new Error("Login failed");
       }
       return await res.json();

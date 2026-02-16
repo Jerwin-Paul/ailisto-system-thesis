@@ -72,24 +72,24 @@ export async function registerRoutes(
 }
 
 async function seed() {
-  const existingUser = await storage.getUserByUsername("teacher@school.com");
+  const existingUser = await storage.getUserByEmail("teacher@school.com");
   if (!existingUser) {
     const { scrypt, randomBytes } = await import("crypto");
     const { promisify } = await import("util");
     const scryptAsync = promisify(scrypt);
-    
+
     const salt = randomBytes(16).toString("hex");
     const buf = (await scryptAsync("password123", salt, 64)) as Buffer;
     const hashedPassword = `${buf.toString("hex")}.${salt}`;
-    
+
     const user = await storage.createUser({
-      username: "teacher@school.com",
+      email: "teacher@school.com",
       password: hashedPassword,
       firstName: "Jane",
       lastName: "Doe",
       role: "teacher"
     });
-    
+
     // Create subjects
     const sub1 = await storage.createSubject({
       teacherId: user.id,
@@ -98,7 +98,7 @@ async function seed() {
       section: "Grade 5 - A",
       schedule: "Mon/Wed 10:00 AM"
     });
-    
+
     await storage.createSubject({
       teacherId: user.id,
       name: "Science",

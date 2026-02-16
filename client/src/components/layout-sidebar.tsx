@@ -41,7 +41,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           </div>
           Ai-Listo
         </h1>
-        <p className="text-xs text-muted-foreground mt-1">Vilage Elementary School</p>
+        <p className="text-xs text-muted-foreground mt-1">SSS Vilage Elementary School</p>
       </div>
 
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
@@ -50,11 +50,10 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           return (
             <Link key={item.name} href={item.href}>
               <div
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
-                  isActive
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${isActive
                     ? "bg-primary text-white shadow-lg shadow-primary/25"
                     : "text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-sm"
-                }`}
+                  }`}
                 onClick={() => setIsOpen(false)}
               >
                 <item.icon className={`w-5 h-5 ${isActive ? "text-white" : "text-slate-400"}`} />
@@ -99,7 +98,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile Sidebar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-2">
-           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white">
             <Video className="w-5 h-5" />
           </div>
           <span className="font-bold text-lg font-display text-slate-900">Ai-Listo</span>
