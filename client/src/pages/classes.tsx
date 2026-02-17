@@ -325,6 +325,109 @@ function EditScheduleDialog({
   );
 }
 
+// ── Schedule Overview Panel ──
+
+function SchedulePanel({ subjects, isLoading }: { subjects: any[]; isLoading: boolean }) {
+  const today = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]; // Sunday=6, Mon=0
+
+  // Build a flat list of all schedule entries across all subjects
+  const allEntries: { courseCode: string; section: string; day: string; startTime: string; endTime: string; room: string }[] = [];
+  for (const subj of subjects) {
+    if (Array.isArray(subj.schedules)) {
+      for (const s of subj.schedules) {
+        allEntries.push({
+          courseCode: subj.courseCode,
+          section: subj.section,
+          day: s.day,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          room: s.room || "",
+        });
+      }
+    }
+  }
+
+  const todayEntries = allEntries.filter(e => e.day === today);
+
+  // Group by day for weekly view (only days that have entries, ordered by DAYS array)
+  const weeklyGrouped: { day: string; entries: typeof allEntries }[] = [];
+  for (const day of DAYS) {
+    const dayEntries = allEntries.filter(e => e.day === day);
+    if (dayEntries.length > 0) {
+      weeklyGrouped.push({ day, entries: dayEntries });
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Today's Schedule */}
+      <div>
+        <h2 className="text-lg font-bold font-display text-slate-900 mb-1">Today's Schedule</h2>
+        <p className="text-xs text-slate-400 mb-3">{today}</p>
+        {todayEntries.length > 0 ? (
+          <div className="space-y-2">
+            {todayEntries.map((entry, i) => (
+              <ScheduleRow key={i} entry={entry} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 italic py-4 text-center">No classes today</p>
+        )}
+      </div>
+
+      {/* Divider */}
+      <hr className="border-slate-200" />
+
+      {/* Weekly Schedule */}
+      <div>
+        <h2 className="text-lg font-bold font-display text-slate-900 mb-3">Weekly Schedule</h2>
+        {weeklyGrouped.length > 0 ? (
+          <div className="space-y-4">
+            {weeklyGrouped.map(group => (
+              <div key={group.day}>
+                <h3 className="text-sm font-semibold text-slate-600 mb-2">{group.day}</h3>
+                <div className="space-y-2">
+                  {group.entries.map((entry, i) => (
+                    <ScheduleRow key={i} entry={entry} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 italic py-4 text-center">No schedules set</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleRow({ entry }: { entry: { courseCode: string; section: string; startTime: string; endTime: string; room: string } }) {
+  return (
+    <div className="flex items-center justify-between bg-slate-100 rounded-xl px-4 py-3 text-sm">
+      <span className="font-medium text-slate-700 truncate">
+        {entry.courseCode} - {entry.section}
+      </span>
+      <span className="text-slate-500 whitespace-nowrap ml-2">
+        {entry.startTime} - {entry.endTime}
+      </span>
+      {entry.room && (
+        <span className="text-slate-400 whitespace-nowrap ml-2">{entry.room}</span>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ──
 
 export default function ClassesPage() {
@@ -446,92 +549,103 @@ export default function ClassesPage() {
           </Dialog>
         </div>
 
-        {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map(i => <div key={i} className="h-40 bg-slate-100 rounded-2xl animate-pulse"></div>)}
+        {/* Two-column layout: Schedule Panel (left) + Class Cards (right) */}
+        <div className="flex gap-6">
+          {/* ── Left: Schedule Overview Panel ── */}
+          <div className="w-80 flex-shrink-0 space-y-6">
+            <SchedulePanel subjects={subjects || []} isLoading={isLoading} />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {subjects?.map((subject: any) => (
-              <Card key={subject.id} className="group hover:shadow-lg transition-all duration-300 border-slate-200">
-                <CardContent className="p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                      <BookOpen className="w-6 h-6" />
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-slate-400 hover:text-slate-600"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem
-                          className="gap-2 cursor-pointer"
-                          onClick={() => setEditSubject(subject)}
-                        >
-                          <Pencil className="w-4 h-4" />
-                          Edit Schedule
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="gap-2 cursor-pointer text-destructive focus:text-destructive"
-                          onClick={() => {
-                            if (confirm("Are you sure you want to delete this class?")) {
-                              deleteSubject(subject.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Delete Subject
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  <h3 className="font-bold font-display text-lg text-slate-900">{subject.name}</h3>
-                  <div className="flex gap-2 text-sm text-slate-500 mt-1">
-                    <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-xs">{subject.courseCode}</span>
-                    <span>•</span>
-                    <span>{subject.section}</span>
-                  </div>
-                  {/* Schedule display */}
-                  {Array.isArray(subject.schedules) && subject.schedules.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-1.5">
-                      {subject.schedules.map((entry: any, idx: number) => (
-                        <div key={idx} className="flex items-center gap-3 text-xs text-slate-500">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-slate-400" />
-                            {entry.day}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-slate-400" />
-                            {entry.startTime} - {entry.endTime}
-                          </span>
-                          {entry.room && (
-                            <span className="flex items-center gap-1">
-                              <MapPin className="w-3 h-3 text-slate-400" />
-                              {entry.room}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
 
-            {subjects?.length === 0 && (
-              <div className="col-span-full flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
-                <BookOpen className="w-12 h-12 mb-4 opacity-50" />
-                <p>No classes found. Add your first class to get started.</p>
+          {/* ── Right: Class Cards ── */}
+          <div className="flex-1 min-w-0">
+            {isLoading ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {[1, 2, 3].map(i => <div key={i} className="h-40 bg-slate-100 rounded-2xl animate-pulse"></div>)}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {subjects?.map((subject: any) => (
+                  <Card key={subject.id} className="group hover:shadow-lg transition-all duration-300 border-slate-200">
+                    <CardContent className="p-6">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                          <BookOpen className="w-6 h-6" />
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-slate-400 hover:text-slate-600"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem
+                              className="gap-2 cursor-pointer"
+                              onClick={() => setEditSubject(subject)}
+                            >
+                              <Pencil className="w-4 h-4" />
+                              Edit Schedule
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                              onClick={() => {
+                                if (confirm("Are you sure you want to delete this class?")) {
+                                  deleteSubject(subject.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete Subject
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      <h3 className="font-bold font-display text-lg text-slate-900">{subject.name}</h3>
+                      <div className="flex gap-2 text-sm text-slate-500 mt-1">
+                        <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-xs">{subject.courseCode}</span>
+                        <span>•</span>
+                        <span>{subject.section}</span>
+                      </div>
+                      {/* Schedule display */}
+                      {Array.isArray(subject.schedules) && subject.schedules.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-slate-100 space-y-1.5">
+                          {subject.schedules.map((entry: any, idx: number) => (
+                            <div key={idx} className="flex items-center gap-3 text-xs text-slate-500">
+                              <span className="flex items-center gap-1">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                {entry.day}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                {entry.startTime} - {entry.endTime}
+                              </span>
+                              {entry.room && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="w-3 h-3 text-slate-400" />
+                                  {entry.room}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+
+                {subjects?.length === 0 && (
+                  <div className="col-span-full flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
+                    <BookOpen className="w-12 h-12 mb-4 opacity-50" />
+                    <p>No classes found. Add your first class to get started.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Edit Schedule Dialog */}
