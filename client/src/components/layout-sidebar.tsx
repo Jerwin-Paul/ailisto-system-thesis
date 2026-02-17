@@ -51,8 +51,8 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             <Link key={item.name} href={item.href}>
               <div
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${isActive
-                    ? "bg-primary text-white shadow-lg shadow-primary/25"
-                    : "text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-sm"
+                  ? "bg-primary text-white shadow-lg shadow-primary/25"
+                  : "text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-sm"
                   }`}
                 onClick={() => setIsOpen(false)}
               >
@@ -117,7 +117,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 mt-16 md:mt-0 overflow-x-hidden">
-        <div className="max-w-6xl mx-auto animate-in">
+        <div className="animate-in">
           {children}
         </div>
       </main>

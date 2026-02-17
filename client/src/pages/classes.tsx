@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Plus, BookOpen, Trash2, Loader2, Calendar, Clock, MapPin, MoreVertical, Pencil } from "lucide-react";
+import { Plus, BookOpen, Trash2, Loader2, Calendar, Clock, MapPin, MoreVertical, Pencil, CalendarCheck, CalendarDays } from "lucide-react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -331,13 +331,12 @@ function SchedulePanel({ subjects, isLoading }: { subjects: any[]; isLoading: bo
   const today = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]; // Sunday=6, Mon=0
 
   // Build a flat list of all schedule entries across all subjects
-  const allEntries: { courseCode: string; section: string; day: string; startTime: string; endTime: string; room: string }[] = [];
+  const allEntries: { courseCode: string; day: string; startTime: string; endTime: string; room: string }[] = [];
   for (const subj of subjects) {
     if (Array.isArray(subj.schedules)) {
       for (const s of subj.schedules) {
         allEntries.push({
           courseCode: subj.courseCode,
-          section: subj.section,
           day: s.day,
           startTime: s.startTime,
           endTime: s.endTime,
@@ -360,69 +359,82 @@ function SchedulePanel({ subjects, isLoading }: { subjects: any[]; isLoading: bo
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
-        ))}
-      </div>
+      <Card className="border-slate-200">
+        <CardContent className="p-6 space-y-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
+          ))}
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Today's Schedule */}
-      <div>
-        <h2 className="text-lg font-bold font-display text-slate-900 mb-1">Today's Schedule</h2>
-        <p className="text-xs text-slate-400 mb-3">{today}</p>
-        {todayEntries.length > 0 ? (
-          <div className="space-y-2">
-            {todayEntries.map((entry, i) => (
-              <ScheduleRow key={i} entry={entry} />
-            ))}
+    <Card className="border-slate-200 sticky top-8">
+      <CardContent className="p-6 space-y-6">
+        {/* Today's Schedule */}
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <CalendarCheck className="w-4 h-4" />
+            </div>
+            <h2 className="text-base font-bold font-display text-slate-900">Today's Schedule <span className="font-normal text-slate-400">({today})</span></h2>
           </div>
-        ) : (
-          <p className="text-sm text-slate-400 italic py-4 text-center">No classes today</p>
-        )}
-      </div>
+          {todayEntries.length > 0 ? (
+            <div className="space-y-2">
+              {todayEntries.map((entry, i) => (
+                <ScheduleRow key={i} entry={entry} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400 italic py-4 text-center">No classes today</p>
+          )}
+        </div>
 
-      {/* Divider */}
-      <hr className="border-slate-200" />
+        {/* Divider */}
+        <hr className="border-slate-100" />
 
-      {/* Weekly Schedule */}
-      <div>
-        <h2 className="text-lg font-bold font-display text-slate-900 mb-3">Weekly Schedule</h2>
-        {weeklyGrouped.length > 0 ? (
-          <div className="space-y-4">
-            {weeklyGrouped.map(group => (
-              <div key={group.day}>
-                <h3 className="text-sm font-semibold text-slate-600 mb-2">{group.day}</h3>
-                <div className="space-y-2">
-                  {group.entries.map((entry, i) => (
-                    <ScheduleRow key={i} entry={entry} />
-                  ))}
+        {/* Weekly Schedule */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <CalendarDays className="w-4 h-4" />
+            </div>
+            <h2 className="text-base font-bold font-display text-slate-900">Weekly Schedule</h2>
+          </div>
+          {weeklyGrouped.length > 0 ? (
+            <div className="space-y-4">
+              {weeklyGrouped.map(group => (
+                <div key={group.day}>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 ml-1">{group.day}</h3>
+                  <div className="space-y-2">
+                    {group.entries.map((entry, i) => (
+                      <ScheduleRow key={i} entry={entry} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-slate-400 italic py-4 text-center">No schedules set</p>
-        )}
-      </div>
-    </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400 italic py-4 text-center">No schedules set</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
-function ScheduleRow({ entry }: { entry: { courseCode: string; section: string; startTime: string; endTime: string; room: string } }) {
+function ScheduleRow({ entry }: { entry: { courseCode: string; startTime: string; endTime: string; room: string } }) {
   return (
-    <div className="flex items-center justify-between bg-slate-100 rounded-xl px-4 py-3 text-sm">
-      <span className="font-medium text-slate-700 truncate">
-        {entry.courseCode} - {entry.section}
+    <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3 text-sm border border-slate-100">
+      <span className="font-semibold text-slate-700 truncate">
+        {entry.courseCode}
       </span>
-      <span className="text-slate-500 whitespace-nowrap ml-2">
+      <span className="text-slate-500 whitespace-nowrap ml-3 text-xs">
         {entry.startTime} - {entry.endTime}
       </span>
       {entry.room && (
-        <span className="text-slate-400 whitespace-nowrap ml-2">{entry.room}</span>
+        <span className="text-slate-400 whitespace-nowrap ml-2 text-xs">{entry.room}</span>
       )}
     </div>
   );
@@ -552,18 +564,18 @@ export default function ClassesPage() {
         {/* Two-column layout: Schedule Panel (left) + Class Cards (right) */}
         <div className="flex gap-6">
           {/* ── Left: Schedule Overview Panel ── */}
-          <div className="w-80 flex-shrink-0 space-y-6">
+          <div className="w-96 flex-shrink-0 space-y-6">
             <SchedulePanel subjects={subjects || []} isLoading={isLoading} />
           </div>
 
           {/* ── Right: Class Cards ── */}
           <div className="flex-1 min-w-0">
             {isLoading ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {[1, 2, 3].map(i => <div key={i} className="h-40 bg-slate-100 rounded-2xl animate-pulse"></div>)}
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {subjects?.map((subject: any) => (
                   <Card key={subject.id} className="group hover:shadow-lg transition-all duration-300 border-slate-200">
                     <CardContent className="p-6">
