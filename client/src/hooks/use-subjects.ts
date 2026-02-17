@@ -11,7 +11,7 @@ export function useSubjects() {
     queryFn: async () => {
       const res = await fetch(api.subjects.list.path);
       if (!res.ok) throw new Error("Failed to fetch subjects");
-      return api.subjects.list.responses[200].parse(await res.json());
+      return res.json();
     },
   });
 
@@ -24,7 +24,7 @@ export function useSubjects() {
         body: JSON.stringify(validated),
       });
       if (!res.ok) throw new Error("Failed to create subject");
-      return api.subjects.create.responses[201].parse(await res.json());
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.subjects.list.path] });
@@ -47,6 +47,25 @@ export function useSubjects() {
     },
   });
 
+  const updateSchedulesMutation = useMutation({
+    mutationFn: async ({ subjectId, schedules }: { subjectId: number; schedules: { day: string; startTime: string; endTime: string; room?: string }[] }) => {
+      const res = await fetch(`/api/subjects/${subjectId}/schedules`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedules }),
+      });
+      if (!res.ok) throw new Error("Failed to update schedules");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.subjects.list.path] });
+      toast({ title: "Success", description: "Schedules updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   return {
     subjects: subjectsQuery.data,
     isLoading: subjectsQuery.isLoading,
@@ -54,5 +73,7 @@ export function useSubjects() {
     isCreating: createSubjectMutation.isPending,
     deleteSubject: deleteSubjectMutation.mutate,
     isDeleting: deleteSubjectMutation.isPending,
+    updateSchedules: updateSchedulesMutation.mutate,
+    isUpdatingSchedules: updateSchedulesMutation.isPending,
   };
 }

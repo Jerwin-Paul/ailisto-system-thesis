@@ -47,9 +47,9 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Left: Branding */}
-      <div className="hidden lg:flex flex-col justify-between bg-primary p-12 text-primary-foreground relative overflow-hidden">
+      <div className="hidden lg:flex flex-col justify-center bg-primary p-12 text-primary-foreground relative overflow-hidden">
         <div className="absolute inset-0 bg-blue-600 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-        <div className="relative z-10">
+        <div className="absolute top-12 left-12 z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center">
               <Video className="w-6 h-6 text-white" />
@@ -65,10 +65,6 @@ export default function LoginPage() {
           <p className="text-xl text-blue-100 leading-relaxed">
             Enhance classroom engagement with AI-powered insights. Designed for SSS Vilage Elementary School to support better learning outcomes.
           </p>
-        </div>
-
-        <div className="relative z-10 text-sm text-blue-200">
-          © {new Date().getFullYear()} SSS Vilage Elementary School. All rights reserved.
         </div>
       </div>
 

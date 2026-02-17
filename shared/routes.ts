@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { insertUserSchema, insertSubjectSchema, users, subjects, sessions } from './schema';
+import { insertUserSchema, insertSubjectSchema, scheduleEntrySchema, users, subjects, sessions } from './schema';
+export type { CreateSubjectRequest } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -58,15 +59,17 @@ export const api = {
       method: 'GET' as const,
       path: '/api/subjects' as const,
       responses: {
-        200: z.array(z.custom<typeof subjects.$inferSelect>()),
+        200: z.array(z.any()),
       },
     },
     create: {
       method: 'POST' as const,
       path: '/api/subjects' as const,
-      input: insertSubjectSchema.omit({ teacherId: true }),
+      input: insertSubjectSchema.omit({ teacherId: true }).extend({
+        schedule: z.array(scheduleEntrySchema).optional().default([]),
+      }),
       responses: {
-        201: z.custom<typeof subjects.$inferSelect>(),
+        201: z.any(),
         400: errorSchemas.validation,
       },
     },

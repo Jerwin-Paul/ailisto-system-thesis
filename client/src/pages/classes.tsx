@@ -12,6 +12,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Form,
   FormControl,
   FormField,
@@ -19,29 +25,324 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Plus, BookOpen, Trash2, Loader2 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { Plus, BookOpen, Trash2, Loader2, Calendar, Clock, MapPin, MoreVertical, Pencil } from "lucide-react";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+
+const DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
+const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+
+function parseTimeValue(value: string): { hour: string; minute: string; period: string } {
+  if (!value) return { hour: "", minute: "", period: "AM" };
+  // Expected format: "09:30 AM"
+  const match = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (match) return { hour: match[1].padStart(2, "0"), minute: match[2], period: match[3].toUpperCase() };
+  return { hour: "", minute: "", period: "AM" };
+}
+
+const scheduleEntrySchema = z.object({
+  day: z.string().min(1, "Day is required"),
+  startTime: z.string().min(1, "Start time is required"),
+  endTime: z.string().min(1, "End time is required"),
+  room: z.string().optional().default(""),
+});
 
 const subjectSchema = z.object({
   name: z.string().min(1, "Subject name is required"),
   courseCode: z.string().min(1, "Course code is required"),
   section: z.string().min(1, "Section is required"),
-  schedule: z.string().optional(),
+  schedule: z.array(scheduleEntrySchema).optional().default([]),
 });
 
-export default function ClassesPage() {
-  const { subjects, isLoading, createSubject, isCreating, deleteSubject, isDeleting } = useSubjects();
-  const [isOpen, setIsOpen] = useState(false);
+const editScheduleSchema = z.object({
+  schedules: z.array(scheduleEntrySchema),
+});
 
-  const form = useForm<z.infer<typeof subjectSchema>>({
-    resolver: zodResolver(subjectSchema),
-    defaultValues: { name: "", courseCode: "", section: "", schedule: "" },
+type SubjectFormValues = z.infer<typeof subjectSchema>;
+type EditScheduleFormValues = z.infer<typeof editScheduleSchema>;
+
+// ── Schedule entry form rows (shared between Add Class and Edit Schedule) ──
+
+function ScheduleEntryRow({
+  index,
+  control,
+  namePrefix,
+  onRemove,
+}: {
+  index: number;
+  control: any;
+  namePrefix: string;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="relative p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="absolute top-2 right-2 h-7 w-7 text-slate-400 hover:text-destructive hover:bg-destructive/10"
+        onClick={onRemove}
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </Button>
+
+      {/* Row 1: Day + Room */}
+      <div className="grid grid-cols-2 gap-3 pr-6">
+        <FormField
+          control={control}
+          name={`${namePrefix}.${index}.day`}
+          render={({ field }) => (
+            <FormItem className="space-y-1">
+              <FormLabel className="text-xs text-slate-500">Day</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger className="h-9 bg-white text-sm">
+                    <SelectValue placeholder="Select day" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {DAYS.map((day) => (
+                    <SelectItem key={day} value={day}>
+                      {day}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={control}
+          name={`${namePrefix}.${index}.room`}
+          render={({ field }) => (
+            <FormItem className="space-y-1">
+              <FormLabel className="text-xs text-slate-500">Room</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="e.g. Q3212"
+                  className="h-9 bg-white text-sm"
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+
+      {/* Row 2: Start Time + End Time */}
+      <div className="grid grid-cols-2 gap-3">
+        <FormField
+          control={control}
+          name={`${namePrefix}.${index}.startTime`}
+          render={({ field }) => {
+            const { hour, minute, period } = parseTimeValue(field.value);
+            const update = (h: string, m: string, p: string) =>
+              field.onChange(`${h || "12"}:${m || "00"} ${p || "AM"}`);
+            return (
+              <FormItem className="space-y-1">
+                <FormLabel className="text-xs text-slate-500">Start Time</FormLabel>
+                <div className="flex items-center gap-1">
+                  <Select value={hour} onValueChange={(v) => update(v, minute, period)}>
+                    <FormControl>
+                      <SelectTrigger className="h-9 bg-white text-sm w-[60px] px-2">
+                        <SelectValue placeholder="HH" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>{HOURS.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <span className="text-slate-400 text-sm font-medium">:</span>
+                  <Select value={minute} onValueChange={(v) => update(hour, v, period)}>
+                    <FormControl>
+                      <SelectTrigger className="h-9 bg-white text-sm w-[60px] px-2">
+                        <SelectValue placeholder="MM" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>{MINUTES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={period} onValueChange={(v) => update(hour, minute, v)}>
+                    <FormControl>
+                      <SelectTrigger className="h-9 bg-white text-sm w-[68px] px-2">
+                        <SelectValue placeholder="AM" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="AM">AM</SelectItem>
+                      <SelectItem value="PM">PM</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
+        />
+        <FormField
+          control={control}
+          name={`${namePrefix}.${index}.endTime`}
+          render={({ field }) => {
+            const { hour, minute, period } = parseTimeValue(field.value);
+            const update = (h: string, m: string, p: string) =>
+              field.onChange(`${h || "12"}:${m || "00"} ${p || "AM"}`);
+            return (
+              <FormItem className="space-y-1">
+                <FormLabel className="text-xs text-slate-500">End Time</FormLabel>
+                <div className="flex items-center gap-1">
+                  <Select value={hour} onValueChange={(v) => update(v, minute, period)}>
+                    <FormControl>
+                      <SelectTrigger className="h-9 bg-white text-sm w-[60px] px-2">
+                        <SelectValue placeholder="HH" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>{HOURS.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <span className="text-slate-400 text-sm font-medium">:</span>
+                  <Select value={minute} onValueChange={(v) => update(hour, v, period)}>
+                    <FormControl>
+                      <SelectTrigger className="h-9 bg-white text-sm w-[60px] px-2">
+                        <SelectValue placeholder="MM" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>{MINUTES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={period} onValueChange={(v) => update(hour, minute, v)}>
+                    <FormControl>
+                      <SelectTrigger className="h-9 bg-white text-sm w-[68px] px-2">
+                        <SelectValue placeholder="AM" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="AM">AM</SelectItem>
+                      <SelectItem value="PM">PM</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Schedule Dialog ──
+
+function EditScheduleDialog({
+  subject,
+  open,
+  onOpenChange,
+  onSave,
+  isSaving,
+}: {
+  subject: any;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (data: { subjectId: number; schedules: { day: string; startTime: string; endTime: string; room?: string }[] }) => void;
+  isSaving: boolean;
+}) {
+  const form = useForm<EditScheduleFormValues>({
+    resolver: zodResolver(editScheduleSchema),
+    defaultValues: {
+      schedules: (subject?.schedules || []).map((s: any) => ({
+        day: s.day || "",
+        startTime: s.startTime || "",
+        endTime: s.endTime || "",
+        room: s.room || "",
+      })),
+    },
   });
 
-  function onSubmit(values: z.infer<typeof subjectSchema>) {
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "schedules",
+  });
+
+  function onSubmit(values: EditScheduleFormValues) {
+    onSave({ subjectId: subject.id, schedules: values.schedules });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Schedule — {subject?.name}</DialogTitle>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="space-y-3">
+              {fields.map((field, index) => (
+                <ScheduleEntryRow
+                  key={field.id}
+                  index={index}
+                  control={form.control}
+                  namePrefix="schedules"
+                  onRemove={() => remove(index)}
+                />
+              ))}
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-xl border-dashed gap-2"
+                onClick={() =>
+                  append({ day: "", startTime: "", endTime: "", room: "" })
+                }
+              >
+                <Plus className="w-4 h-4" /> Add Schedule
+              </Button>
+            </div>
+
+            <Button type="submit" className="w-full" disabled={isSaving}>
+              {isSaving ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : null}
+              Save Changes
+            </Button>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Main Page ──
+
+export default function ClassesPage() {
+  const { subjects, isLoading, createSubject, isCreating, deleteSubject, isDeleting, updateSchedules, isUpdatingSchedules } = useSubjects();
+  const [isOpen, setIsOpen] = useState(false);
+  const [editSubject, setEditSubject] = useState<any>(null);
+
+  const form = useForm<SubjectFormValues>({
+    resolver: zodResolver(subjectSchema),
+    defaultValues: { name: "", courseCode: "", section: "", schedule: [] },
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "schedule",
+  });
+
+  function onSubmit(values: SubjectFormValues) {
     createSubject(values, {
       onSuccess: () => {
         setIsOpen(false);
@@ -58,13 +359,16 @@ export default function ClassesPage() {
             <h1 className="text-2xl font-bold font-display text-slate-900">Class Management</h1>
             <p className="text-slate-500">Manage your subjects and sections.</p>
           </div>
-          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <Dialog open={isOpen} onOpenChange={(open) => {
+            setIsOpen(open);
+            if (!open) form.reset();
+          }}>
             <DialogTrigger asChild>
               <Button className="rounded-xl shadow-lg shadow-primary/20 gap-2">
                 <Plus className="w-4 h-4" /> Add Class
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Class</DialogTitle>
               </DialogHeader>
@@ -105,17 +409,33 @@ export default function ClassesPage() {
                       )}
                     />
                   </div>
-                  <FormField
-                    control={form.control}
-                    name="schedule"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Schedule (Optional)</FormLabel>
-                        <FormControl><Input placeholder="Mon/Wed 10:00 AM" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+
+                  {/* Schedule Section */}
+                  <div className="space-y-3">
+                    <FormLabel className="text-sm font-medium">Schedule</FormLabel>
+
+                    {fields.map((field, index) => (
+                      <ScheduleEntryRow
+                        key={field.id}
+                        index={index}
+                        control={form.control}
+                        namePrefix="schedule"
+                        onRemove={() => remove(index)}
+                      />
+                    ))}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full rounded-xl border-dashed gap-2"
+                      onClick={() =>
+                        append({ day: "", startTime: "", endTime: "", room: "" })
+                      }
+                    >
+                      <Plus className="w-4 h-4" /> Add Schedule
+                    </Button>
+                  </div>
+
                   <Button type="submit" className="w-full" disabled={isCreating}>
                     {isCreating ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : null}
                     Create Class
@@ -128,30 +448,48 @@ export default function ClassesPage() {
 
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1,2,3].map(i => <div key={i} className="h-40 bg-slate-100 rounded-2xl animate-pulse"></div>)}
+            {[1, 2, 3].map(i => <div key={i} className="h-40 bg-slate-100 rounded-2xl animate-pulse"></div>)}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {subjects?.map((subject) => (
+            {subjects?.map((subject: any) => (
               <Card key={subject.id} className="group hover:shadow-lg transition-all duration-300 border-slate-200">
                 <CardContent className="p-6">
                   <div className="flex justify-between items-start mb-4">
                     <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
                       <BookOpen className="w-6 h-6" />
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="text-slate-400 hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => {
-                        if (confirm("Are you sure you want to delete this class?")) {
-                          deleteSubject(subject.id);
-                        }
-                      }}
-                      disabled={isDeleting}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-slate-400 hover:text-slate-600"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuItem
+                          className="gap-2 cursor-pointer"
+                          onClick={() => setEditSubject(subject)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                          Edit Schedule
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                          onClick={() => {
+                            if (confirm("Are you sure you want to delete this class?")) {
+                              deleteSubject(subject.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete Subject
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   <h3 className="font-bold font-display text-lg text-slate-900">{subject.name}</h3>
                   <div className="flex gap-2 text-sm text-slate-500 mt-1">
@@ -159,15 +497,33 @@ export default function ClassesPage() {
                     <span>•</span>
                     <span>{subject.section}</span>
                   </div>
-                  {subject.schedule && (
-                    <p className="text-xs text-slate-400 mt-4 pt-4 border-t border-slate-100">
-                      {subject.schedule}
-                    </p>
+                  {/* Schedule display */}
+                  {Array.isArray(subject.schedules) && subject.schedules.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-1.5">
+                      {subject.schedules.map((entry: any, idx: number) => (
+                        <div key={idx} className="flex items-center gap-3 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            {entry.day}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            {entry.startTime} - {entry.endTime}
+                          </span>
+                          {entry.room && (
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-slate-400" />
+                              {entry.room}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </CardContent>
               </Card>
             ))}
-            
+
             {subjects?.length === 0 && (
               <div className="col-span-full flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
                 <BookOpen className="w-12 h-12 mb-4 opacity-50" />
@@ -177,6 +533,24 @@ export default function ClassesPage() {
           </div>
         )}
       </div>
+
+      {/* Edit Schedule Dialog */}
+      {editSubject && (
+        <EditScheduleDialog
+          key={editSubject.id}
+          subject={editSubject}
+          open={!!editSubject}
+          onOpenChange={(open) => {
+            if (!open) setEditSubject(null);
+          }}
+          onSave={(data) => {
+            updateSchedules(data, {
+              onSuccess: () => setEditSubject(null),
+            });
+          }}
+          isSaving={isUpdatingSchedules}
+        />
+      )}
     </SidebarLayout>
   );
 }

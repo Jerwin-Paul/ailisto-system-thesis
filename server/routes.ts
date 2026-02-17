@@ -23,9 +23,14 @@ export async function registerRoutes(
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const input = api.subjects.create.input.parse(req.body);
-      const subject = await storage.createSubject({ ...input, teacherId: req.user.id });
+      const { schedule, ...subjectData } = input;
+      const subject = await storage.createSubject(
+        { ...subjectData, teacherId: req.user.id },
+        schedule || []
+      );
       res.status(201).json(subject);
     } catch (err) {
+      console.error("Subject creation error:", err);
       if (err instanceof z.ZodError) res.status(400).json({ message: err.errors[0].message });
       else res.status(500).json({ message: "Internal Server Error" });
     }
@@ -35,6 +40,20 @@ export async function registerRoutes(
     if (!req.isAuthenticated()) return res.sendStatus(401);
     await storage.deleteSubject(Number(req.params.id));
     res.sendStatus(204);
+  });
+
+  // Schedule management
+  app.put("/api/subjects/:id/schedules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const subjectId = Number(req.params.id);
+      const { schedules: entries } = req.body as { schedules: { id?: number; day: string; startTime: string; endTime: string; room?: string }[] };
+      const result = await storage.updateSubjectSchedules(subjectId, entries || []);
+      res.json(result);
+    } catch (err) {
+      console.error("Schedule update error:", err);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
   });
 
   // Sessions
@@ -90,27 +109,25 @@ async function seed() {
       role: "teacher"
     });
 
-    // Create subjects
-    const sub1 = await storage.createSubject({
-      teacherId: user.id,
-      name: "Mathematics",
-      courseCode: "MATH101",
-      section: "Grade 5 - A",
-      schedule: "Mon/Wed 10:00 AM"
-    });
+    // Create subjects with schedules
+    const sub1 = await storage.createSubject(
+      { teacherId: user.id, name: "Mathematics", courseCode: "MATH101", section: "Grade 5 - A" },
+      [
+        { day: "Monday", startTime: "10:00 AM", endTime: "11:30 AM", room: "Room 101" },
+        { day: "Wednesday", startTime: "10:00 AM", endTime: "11:30 AM", room: "Room 101" },
+      ]
+    );
 
-    await storage.createSubject({
-      teacherId: user.id,
-      name: "Science",
-      courseCode: "SCI101",
-      section: "Grade 5 - B",
-      schedule: "Tue/Thu 1:00 PM"
-    });
+    await storage.createSubject(
+      { teacherId: user.id, name: "Science", courseCode: "SCI101", section: "Grade 5 - B" },
+      [
+        { day: "Tuesday", startTime: "01:00 PM", endTime: "02:30 PM", room: "Lab 201" },
+        { day: "Thursday", startTime: "01:00 PM", endTime: "02:30 PM", room: "Lab 201" },
+      ]
+    );
 
     // Create past sessions
     await storage.createSession({ subjectId: sub1.id });
-    // We can't easily force timestamp in createSession without modifying storage, 
-    // but this is enough to have some data.
   }
 }
 
