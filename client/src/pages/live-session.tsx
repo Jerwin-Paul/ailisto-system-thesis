@@ -35,6 +35,7 @@ export default function LiveSession() {
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>("");
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [cameraToggle, setCameraToggle] = useState(() => localStorage.getItem('cameraToggle') === 'on');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -73,12 +74,32 @@ export default function LiveSession() {
     loadCameras();
   }, []);
 
-  // Auto-start camera when selectedCamera changes
+  // Auto-start camera when selectedCamera changes, but only if toggle is on
   useEffect(() => {
-    if (selectedCamera) {
+    if (selectedCamera && cameraToggle) {
       startCamera(selectedCamera);
     }
-  }, [selectedCamera]);
+  }, [selectedCamera, cameraToggle]);
+
+  // Keep video element in sync with stream
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+      if (cameraStream) {
+        videoRef.current.play().catch(() => { });
+      }
+    }
+  }, [cameraStream]);
+
+  // Cleanup stream on unmount
+  useEffect(() => {
+    return () => {
+      setCameraStream(prev => {
+        prev?.getTracks().forEach(t => t.stop());
+        return null;
+      });
+    };
+  }, []);
 
   // Start camera preview with selected device
   const startCamera = useCallback(async (deviceId: string) => {
@@ -92,9 +113,6 @@ export default function LiveSession() {
         video: { deviceId: { exact: deviceId } },
       });
       setCameraStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
       setIsCameraReady(true);
     } catch {
       toast({
@@ -111,16 +129,20 @@ export default function LiveSession() {
     setSelectedCamera(deviceId);
   };
 
-  // Toggle camera on/off
+  // Toggle camera on/off (persists across navigation)
   const toggleCamera = () => {
     if (isCameraReady && cameraStream) {
       cameraStream.getTracks().forEach(t => t.stop());
       setCameraStream(null);
       setIsCameraReady(false);
+      setCameraToggle(false);
+      localStorage.setItem('cameraToggle', 'off');
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
     } else if (selectedCamera) {
+      setCameraToggle(true);
+      localStorage.setItem('cameraToggle', 'on');
       startCamera(selectedCamera);
     }
   };
@@ -231,7 +253,7 @@ export default function LiveSession() {
 
   return (
     <SidebarLayout>
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="space-y-6">
         {/* Header */}
         <div className="mb-2">
           <h1 className="text-2xl font-bold font-display text-slate-900">Live Session Monitoring</h1>
