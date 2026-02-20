@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Play, Pause, Square, Camera, CameraOff, AlertCircle, Video } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useYolo, getClassName } from "@/hooks/use-yolo";
 import { LineChart, Line, ResponsiveContainer, YAxis } from "recharts";
 
 interface CameraDevice {
@@ -24,6 +25,15 @@ export default function LiveSession() {
   const { subjects } = useSubjects();
   const { startSession, endSession } = useSessions();
   const { toast } = useToast();
+  const {
+    detections,
+    isConnected: isYoloConnected,
+    connect: connectYolo,
+    disconnect: disconnectYolo,
+    startStreaming,
+    stopStreaming,
+    drawDetections,
+  } = useYolo();
 
   const [selectedSubject, setSelectedSubject] = useState<string>("");
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -164,6 +174,17 @@ export default function LiveSession() {
       setIsSessionActive(true);
       setIsPaused(false);
       setAttentionHistory([]);
+
+      // Connect to YOLO server and start streaming frames
+      connectYolo();
+      if (videoRef.current) {
+        // Small delay to ensure socket connects before streaming
+        setTimeout(() => {
+          if (videoRef.current) {
+            startStreaming(videoRef.current);
+          }
+        }, 500);
+      }
     } catch {
       // Error handled in hook
     }
@@ -180,6 +201,10 @@ export default function LiveSession() {
 
   // End session
   const handleEndSession = async () => {
+    // Stop YOLO streaming and disconnect
+    stopStreaming();
+    disconnectYolo();
+
     if (currentSessionId) {
       await endSession({
         id: currentSessionId,
@@ -193,53 +218,52 @@ export default function LiveSession() {
     setIsPaused(false);
     setCurrentSessionId(null);
 
+    // Clear canvas
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+
     // Stop camera
     cameraStream?.getTracks().forEach(track => track.stop());
     setCameraStream(null);
     setIsCameraReady(false);
   };
 
-  // Simulation loop (only runs when active and not paused)
+  // Draw YOLO detections on the canvas whenever they update
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    if (isSessionActive && !isPaused && canvasRef.current && videoRef.current) {
+      drawDetections(canvasRef.current, videoRef.current, detections);
 
-    if (isSessionActive && !isPaused) {
-      interval = setInterval(() => {
-        const newScore = Math.floor(Math.random() * (100 - 60) + 60);
+      // Update attention score based on number of person detections
+      const personCount = detections.filter(d => d.cls === 0).length;
+      if (detections.length > 0) {
+        // Simple heuristic: attention based on person detection confidence
+        const personDetections = detections.filter(d => d.cls === 0);
+        const avgConf = personDetections.length > 0
+          ? personDetections.reduce((sum, d) => sum + d.conf, 0) / personDetections.length
+          : 0;
+        const newScore = Math.round(avgConf * 100);
         setAttentionScore(newScore);
 
         setAttentionHistory(prev => {
           const newHistory = [...prev, { time: Date.now(), value: newScore }];
           return newHistory.slice(-20);
         });
-
-        // Draw overlay on canvas
-        if (canvasRef.current && videoRef.current) {
-          const ctx = canvasRef.current.getContext("2d");
-          const width = canvasRef.current.width;
-          const height = canvasRef.current.height;
-
-          if (ctx) {
-            ctx.clearRect(0, 0, width, height);
-            const numBoxes = Math.floor(Math.random() * 3) + 2;
-            ctx.strokeStyle = "#00ff00";
-            ctx.lineWidth = 2;
-            ctx.font = "14px Arial";
-            ctx.fillStyle = "#00ff00";
-
-            for (let i = 0; i < numBoxes; i++) {
-              const x = Math.random() * (width - 100);
-              const y = Math.random() * (height - 100);
-              ctx.strokeRect(x, y, 100, 100);
-              ctx.fillText(`Attentive: ${(Math.random() * 0.2 + 0.8).toFixed(2)}`, x, y - 5);
-            }
-          }
-        }
-      }, 2000);
+      }
     }
+  }, [detections, isSessionActive, isPaused, drawDetections]);
 
-    return () => clearInterval(interval);
-  }, [isSessionActive, isPaused]);
+  // Pause/resume YOLO streaming
+  useEffect(() => {
+    if (isSessionActive && videoRef.current) {
+      if (isPaused) {
+        stopStreaming();
+      } else {
+        startStreaming(videoRef.current);
+      }
+    }
+  }, [isPaused, isSessionActive, startStreaming, stopStreaming]);
 
   // Clear canvas when paused
   useEffect(() => {
@@ -333,9 +357,15 @@ export default function LiveSession() {
                     height={450}
                   />
                   {isSessionActive && (
-                    <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-xs font-mono flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${isPaused ? "bg-amber-400" : "bg-red-500 animate-pulse"}`} />
-                      {isPaused ? "PAUSED" : "LIVE FEED"}
+                    <div className="absolute top-4 left-4 flex flex-col gap-2">
+                      <div className="bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-xs font-mono flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${isPaused ? "bg-amber-400" : "bg-red-500 animate-pulse"}`} />
+                        {isPaused ? "PAUSED" : "LIVE FEED"}
+                      </div>
+                      <div className="bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-xs font-mono flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${isYoloConnected ? "bg-emerald-400" : "bg-red-400"}`} />
+                        {isYoloConnected ? `YOLO · ${detections.length} detected` : "YOLO connecting..."}
+                      </div>
                     </div>
                   )}
                   {!isSessionActive && (
