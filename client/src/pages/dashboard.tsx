@@ -77,9 +77,9 @@ export default function Dashboard() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold font-display text-slate-900">
-              Good Morning, {user?.lastName}
+              Good morning, {user?.lastName}!
             </h2>
-            <p className="text-slate-500 mt-1">Here's what's happening in your classes today.</p>
+            <p className="text-slate-500 mt-1">Here's what's happening in your classes.</p>
           </div>
           <Link href="/live">
             <Button className="h-12 px-6 rounded-xl shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all gap-2">
@@ -145,8 +145,8 @@ export default function Dashboard() {
                           <p className="text-xs text-slate-400 truncate">{cls.name}</p>
                         </div>
                         <span className={`text-lg font-bold font-display ${color === 'emerald' ? 'text-emerald-600' :
-                            color === 'amber' ? 'text-amber-500' :
-                              color === 'red' ? 'text-red-500' : 'text-slate-400'
+                          color === 'amber' ? 'text-amber-500' :
+                            color === 'red' ? 'text-red-500' : 'text-slate-400'
                           }`}>
                           {cls.sessionCount > 0 ? `${cls.avgAttention}%` : '—'}
                         </span>
@@ -155,8 +155,8 @@ export default function Dashboard() {
                       <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-500 ${color === 'emerald' ? 'bg-emerald-500' :
-                              color === 'amber' ? 'bg-amber-400' :
-                                color === 'red' ? 'bg-red-500' : 'bg-slate-300'
+                            color === 'amber' ? 'bg-amber-400' :
+                              color === 'red' ? 'bg-red-500' : 'bg-slate-300'
                             }`}
                           style={{ width: `${cls.sessionCount > 0 ? cls.avgAttention : 0}%` }}
                         />
