@@ -1,72 +1,65 @@
-<!DOCTYPE html>
-<html>
-<head>
+{% extends "_layout.html" %}
 
-    <meta charset="utf-8">
-    <title>History - Ai-Listo</title>
-    <meta name="description" content="History page for Ai-Listo: An AI-powered system for student detection and analysis using advanced computer vision technology.">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
-      rel="stylesheet"
-    />
-    
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/sidebar.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/table.css') }}">
-</head>
-<body>
-    <div class="sidebar">
-        <div class="ailisto-sidebar-title">Ai-Listo</div>
-        <a href="/">Dashboard</a>
-        <a href="/live-session">Live Session</a>
-        <a class="active" href="/history">History</a>
-        <a href="/profile">Profile</a>
-        <a href="/settings">Settings</a>
-        <a href="/about">About</a>
-    </div>
+{% block title %}History - Ai-Listo{% endblock %}
 
-    <p class="page-title">History Page</p>
-    <div class="content">
-    <p class="sub-title">Session List</p>
-    <div class="content-box">
-        <div class="table-container">
-            <table border="1">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Duration</th>
-                        <th>Class Name</th>
-                        <th>Attention Score</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td>2026-01-16</td><td>3.5 hours</td><td>Grade 3 St. Joseph</td><td>75%</td></tr>
-                    <tr><td>2026-01-15</td><td>2 hours</td><td>Grade 4 St. Mary</td><td>82%</td></tr>
-                    <tr><td>2026-01-14</td><td>1.5 hours</td><td>Grade 2 St. Michael</td><td>68%</td></tr>
-                    <tr><td>2026-01-13</td><td>2.5 hours</td><td>Grade 5 St. Peter</td><td>90%</td></tr>
-                    <tr><td>2026-01-12</td><td>3 hours</td><td>Grade 3 St. Paul</td><td>71%</td></tr>
-                    <tr><td>2026-01-11</td><td>2 hours</td><td>Grade 4 St. Anne</td><td>77%</td></tr>
-                    <tr><td>2026-01-10</td><td>3 hours</td><td>Grade 2 St. Mark</td><td>65%</td></tr>
-                    <tr><td>2026-01-09</td><td>1.5 hours</td><td>Grade 5 St. Luke</td><td>88%</td></tr>
-                    <tr><td>2026-01-08</td><td>2.5 hours</td><td>Grade 3 St. Francis</td><td>80%</td></tr>
-                    <tr><td>2026-01-07</td><td>3 hours</td><td>Grade 4 St. Catherine</td><td>74%</td></tr>
-                    <tr><td>2026-01-06</td><td>2 hours</td><td>Grade 2 St. Teresa</td><td>69%</td></tr>
-                    <tr><td>2026-01-05</td><td>1.5 hours</td><td>Grade 3 St. Anthony</td><td>85%</td></tr>
-                    <tr><td>2026-01-04</td><td>2.5 hours</td><td>Grade 4 St. Augustine</td><td>78%</td></tr>
-                    <tr><td>2026-01-03</td><td>3 hours</td><td>Grade 5 St. Ignatius</td><td>92%</td></tr>
-                    <tr><td>2026-01-02</td><td>2 hours</td><td>Grade 3 St. Dominic</td><td>73%</td></tr>
-                    <tr><td>2026-01-01</td><td>1.5 hours</td><td>Grade 2 St. Bernard</td><td>66%</td></tr>
-                    <tr><td>2025-12-31</td><td>2.5 hours</td><td>Grade 4 St. Thomas</td><td>81%</td></tr>
-                    <tr><td>2025-12-30</td><td>3 hours</td><td>Grade 5 St. Cecilia</td><td>87%</td></tr>
-                    <tr><td>2025-12-29</td><td>2 hours</td><td>Grade 3 St. Ignacia</td><td>70%</td></tr>
-                    <tr><td>2025-12-28</td><td>1.5 hours</td><td>Grade 4 St. Dominic Savio</td><td>76%</td></tr>
-                </tbody>
-            </table>
-        </div>
+{% block content %}
+<div class="space-y-6">
+  <div>
+    <h2 class="page-title">Session History</h2>
+    <p class="page-subtitle">Review past sessions and their attention analytics.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-content">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Date</th>
+            <th>Duration</th>
+            <th>Avg. Attention</th>
+            <th>Students</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>MATH101 - Section A</strong></td>
+            <td>Feb 26, 2026</td>
+            <td>1h 30m</td>
+            <td><span class="text-emerald font-bold">87%</span></td>
+            <td>32</td>
+          </tr>
+          <tr>
+            <td><strong>SCI202 - Section B</strong></td>
+            <td>Feb 25, 2026</td>
+            <td>1h 15m</td>
+            <td><span class="text-amber font-bold">68%</span></td>
+            <td>28</td>
+          </tr>
+          <tr>
+            <td><strong>ENG301 - Section A</strong></td>
+            <td>Feb 24, 2026</td>
+            <td>1h 30m</td>
+            <td><span class="text-emerald font-bold">92%</span></td>
+            <td>30</td>
+          </tr>
+          <tr>
+            <td><strong>MATH101 - Section A</strong></td>
+            <td>Feb 23, 2026</td>
+            <td>1h 00m</td>
+            <td><span class="text-amber font-bold">74%</span></td>
+            <td>31</td>
+          </tr>
+          <tr>
+            <td><strong>SCI202 - Section B</strong></td>
+            <td>Feb 22, 2026</td>
+            <td>1h 30m</td>
+            <td><span class="text-emerald font-bold">81%</span></td>
+            <td>27</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-</body>
-</html>
+  </div>
+</div>
+{% endblock %}

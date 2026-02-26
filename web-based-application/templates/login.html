@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sign In - Ai-Listo</title>
+  <meta name="description" content="Sign in to Ai-Listo teacher dashboard." />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/design.css') }}" />
+  <style>
+    .toast {
+      position: fixed; top: 1.5rem; right: 1.5rem; z-index: 200;
+      min-width: 320px; max-width: 420px;
+      padding: 1rem 1.25rem; border-radius: var(--radius-xl);
+      font-size: 0.875rem; font-weight: 500; font-family: var(--font-body);
+      box-shadow: var(--shadow-xl);
+      transform: translateX(120%); opacity: 0;
+      transition: all 0.35s cubic-bezier(.4,0,.2,1);
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    .toast.show { transform: translateX(0); opacity: 1; }
+    .toast-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .toast-success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .toast svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .toast-error svg { color: #dc2626; }
+    .toast-success svg { color: #059669; }
+    .field-error {
+      font-size: 0.75rem; color: var(--red-500); margin-top: 0.375rem;
+      display: none; align-items: center; gap: 0.25rem;
+    }
+    .field-error.show { display: flex; }
+    .form-input.input-error { border-color: var(--red-500); background: #fef2f2; }
+    .form-input.input-error:focus { box-shadow: 0 0 0 3px rgba(239,68,68,.15); border-color: var(--red-500); }
+    .btn-loading { pointer-events: none; opacity: 0.7; }
+    .btn-loading .btn-spinner { display: inline-block; }
+    .btn-spinner { display: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  </style>
+</head>
+<body>
+  <!-- Toast notification -->
+  <div class="toast" id="toast">
+    <svg id="toast-icon-error" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+    <svg id="toast-icon-success" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    <span id="toast-msg"></span>
+  </div>
+
+  <div class="auth-layout">
+    <!-- Left: Branding Side -->
+    <div class="auth-brand">
+      <div class="auth-brand-pattern"></div>
+      <div class="auth-brand-logo">
+        <div class="auth-brand-logo-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        </div>
+        <span>Ai-Listo</span>
+      </div>
+      <div class="auth-brand-content">
+        <h1>Monitor Student Attention in Real-Time</h1>
+        <p>Enhance classroom engagement with AI-powered insights. Designed for SSS Vilage Elementary School to support better learning outcomes.</p>
+      </div>
+    </div>
+
+    <!-- Right: Login Form -->
+    <div class="auth-form-side">
+      <div class="auth-form-card">
+        <h2 class="auth-form-title">Welcome Back</h2>
+        <p class="auth-form-subtitle">Sign in to access your teacher dashboard</p>
+
+        <form id="login-form" style="margin-top: 1.5rem;" class="space-y-4" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="email">Email</label>
+            <input class="form-input" type="email" id="email" name="email" placeholder="Enter your email" autocomplete="email" />
+            <p class="field-error" id="email-error">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span></span>
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="password">Password</label>
+            <div class="form-input-group">
+              <input class="form-input" type="password" id="password" name="password" placeholder="Enter your password" autocomplete="current-password" />
+              <button type="button" class="form-input-toggle" onclick="togglePassword()" aria-label="Toggle password visibility">
+                <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg id="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+              </button>
+            </div>
+            <p class="field-error" id="password-error">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span></span>
+            </p>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+            <a href="#" style="font-size: 0.875rem; font-weight: 500; color: var(--primary);">Forgot password?</a>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-lg w-full" id="submit-btn">
+            <span class="btn-spinner"></span>
+            Sign In
+          </button>
+        </form>
+
+        <div class="auth-form-footer">
+          <p>Don't have an account? <a href="/register">Create an account</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ─── Toast ───
+    let toastTimer;
+    function showToast(message, type) {
+      const toast = document.getElementById('toast');
+      const msg = document.getElementById('toast-msg');
+      const errIcon = document.getElementById('toast-icon-error');
+      const okIcon = document.getElementById('toast-icon-success');
+
+      clearTimeout(toastTimer);
+      toast.classList.remove('show', 'toast-error', 'toast-success');
+
+      msg.textContent = message;
+      toast.classList.add('toast-' + type);
+      errIcon.style.display = type === 'error' ? 'block' : 'none';
+      okIcon.style.display = type === 'success' ? 'block' : 'none';
+
+      requestAnimationFrame(() => toast.classList.add('show'));
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 4500);
+    }
+
+    // ─── Field-level errors ───
+    function clearErrors() {
+      document.querySelectorAll('.field-error').forEach(el => el.classList.remove('show'));
+      document.querySelectorAll('.form-input').forEach(el => el.classList.remove('input-error'));
+    }
+
+    function showFieldError(fieldId, message) {
+      const errEl = document.getElementById(fieldId + '-error');
+      const input = document.getElementById(fieldId);
+      if (errEl) { errEl.querySelector('span').textContent = message; errEl.classList.add('show'); }
+      if (input) input.classList.add('input-error');
+    }
+
+    // clear error on input
+    document.querySelectorAll('.form-input').forEach(input => {
+      input.addEventListener('input', () => {
+        input.classList.remove('input-error');
+        const err = document.getElementById(input.id + '-error');
+        if (err) err.classList.remove('show');
+      });
+    });
+
+    // ─── Password toggle ───
+    function togglePassword() {
+      const input = document.getElementById('password');
+      const eyeIcon = document.getElementById('eye-icon');
+      const eyeOffIcon = document.getElementById('eye-off-icon');
+      if (input.type === 'password') {
+        input.type = 'text';
+        eyeIcon.style.display = 'none';
+        eyeOffIcon.style.display = 'block';
+      } else {
+        input.type = 'password';
+        eyeIcon.style.display = 'block';
+        eyeOffIcon.style.display = 'none';
+      }
+    }
+
+    // ─── Form submission (AJAX) ───
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearErrors();
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      let hasErr = false;
+
+      if (!email) { showFieldError('email', 'Email is required.'); hasErr = true; }
+      else if (!email.includes('@')) { showFieldError('email', 'Please enter a valid email.'); hasErr = true; }
+      if (!password) { showFieldError('password', 'Password is required.'); hasErr = true; }
+
+      if (hasErr) return;
+
+      const btn = document.getElementById('submit-btn');
+      btn.classList.add('btn-loading');
+
+      try {
+        const formData = new FormData(e.target);
+        const res = await fetch('/login', {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          body: formData,
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast('Login successful! Redirecting...', 'success');
+          setTimeout(() => window.location.href = data.redirect, 600);
+          return;
+        }
+
+        // Server error
+        if (data.field) {
+          showFieldError(data.field, data.error);
+        }
+        showToast(data.error || 'Login failed.', 'error');
+
+      } catch (err) {
+        showToast('Something went wrong. Please try again.', 'error');
+      } finally {
+        btn.classList.remove('btn-loading');
+      }
+    });
+  </script>
+</body>
+</html>

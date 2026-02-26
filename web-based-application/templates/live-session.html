@@ -1,85 +1,359 @@
-<!DOCTYPE html>
-<html>
-<head>
+{% extends "_layout.html" %}
 
-    <meta charset="utf-8">
-    <title>Live Session - Ai-Listo</title>
-    <meta name="description" content="Live session page for Ai-Listo: An AI-powered system for student detection and analysis using advanced computer vision technology.">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
-      rel="stylesheet"
-    />
-    
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/sidebar.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/button.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/video.css') }}">
-</head>
-<body>
-    <div class="sidebar">
-        <div class="ailisto-sidebar-title">Ai-Listo</div>
-        <a href="/">Dashboard</a>
-        <a class="active" href="/live-session">Live Session</a>
-        <a href="/history">History</a>
-        <a href="/profile">Profile</a>
-        <a href="/settings">Settings</a>
-        <a href="/about">About</a>
+{% block title %}Live Session - Ai-Listo{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div>
+    <h2 class="page-title">Live Session</h2>
+    <p class="page-subtitle">Monitor student attention in real-time using AI-powered analysis.</p>
+  </div>
+
+  <!-- Two-column layout: Video + Stats -->
+  <div class="live-grid">
+    <!-- Left Column: Camera + Video -->
+    <div class="space-y-4">
+      <!-- Camera Controls Row -->
+      <div class="camera-controls">
+        <!-- Camera Toggle -->
+        <button id="camera-toggle-btn" class="btn btn-outline btn-icon" title="Toggle Camera" onclick="toggleCamera()">
+          <svg id="cam-on-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          <svg id="cam-off-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M16.6 14.4L23 17V7l-6.4 3.6"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+
+        <!-- Camera Select -->
+        <select id="camera-select" class="form-select" style="flex:1;" onchange="handleCameraChange()">
+          <option value="">Choose a camera...</option>
+        </select>
+
+        <!-- Class Select -->
+        <select id="class-select" class="form-select" style="width: 220px; flex-shrink: 0;">
+          <option value="">Select Class</option>
+          {% for subj in subjects %}
+          <option value="{{ subj.id }}">{{ subj.name }} ({{ subj.section }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Video Area -->
+      <div class="video-wrapper" id="video-container">
+        <!-- Camera preview (when active) -->
+        <video id="user-video" autoplay muted playsinline style="display:none;"></video>
+        <canvas id="overlay-canvas" width="800" height="450" style="display:none;"></canvas>
+
+        <!-- Status badge -->
+        <div class="video-badge" id="video-badge" style="display:none;">
+          <div class="video-badge-dot ready" id="badge-dot"></div>
+          <span id="badge-text">CAMERA PREVIEW</span>
+        </div>
+
+        <!-- Placeholder (when no camera) -->
+        <div class="video-placeholder" id="video-placeholder">
+          <div class="video-placeholder-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          </div>
+          <p class="text-sm">Select a camera to start preview</p>
+        </div>
+      </div>
+
+      <!-- Session Control Buttons -->
+      <div class="session-controls" id="session-controls">
+        <button id="start-btn" class="btn btn-emerald btn-lg" disabled onclick="startSession()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Start Session
+        </button>
+      </div>
     </div>
 
-    <p class="page-title">Live Session</p>
-    <div class="content">
+    <!-- Right Column: Real-time Stats -->
+    <div class="space-y-6">
+      <!-- Current Attention Score -->
+      <div class="card card-borderless">
+        <div class="attention-score-display">
+          <p class="stat-label">Current Attention Score</p>
+          <div class="attention-score-value" id="attention-value">--%</div>
+          <p class="text-xs" style="color: var(--text-400);" id="attention-status">Updated in real-time</p>
+        </div>
+      </div>
+
+      <!-- Attention Trend Mini Chart -->
+      <div class="card card-borderless" style="height: 256px;">
+        <div class="card-content" style="height:100%;">
+          <p class="stat-label" style="margin-bottom: 1rem;">Attention Trend (Last 1m)</p>
+          <div style="height: 160px; position: relative;">
+            <canvas id="trendChart"></canvas>
+            <div id="trend-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-300);font-size:0.75rem;font-style:italic;">
+              Waiting for data...
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Insight -->
+      <div class="insight-box">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <div>
-            <button id="select-camera-btn" class="btn">Select Camera</button>
-            <select id="user-camera-select" style="display: none;">
-                <!-- Camera Options will be populated here -->
-            </select>
+          <h4 class="insight-title">AI Insight</h4>
+          <p class="insight-text" id="ai-insight">Start a session to receive AI-powered insights.</p>
         </div>
-        <div class="video-container" style="display: none;">
-            <video id="user-video" autoplay></video>
-        </div>
-        <div class="session-controls">
-            <button id="start-btn" class="btn" disabled>Start</button>
-            <button id="pause-btn" class="btn" disabled>Pause</button>
-            <button id="end-btn" class="btn" disabled>End</button>
-        </div>
-        <h2>Annotated Video Feed</h2>
-        <div class="video-container">
-            <video id="annotated-video" autoplay></video>
-            <img id="annotated-video-recorded"
-                src=""
-                height="700"
-                width="350"
-                style="display: none;" />
-        </div>
-        <p class="sub-title">Live Attention Summary</p>
-        <div class="content-box">
-            <ul>
-                <li><b>Class Attention:</b> <span id="class-attention">0</span>%</li>
-                <li><b>Highest Attention:</b> <span id="highest-attention">0</span> students</li>
-                <li><b>High Attention:</b> <span id="high-attention">0</span> students</li>
-                <li><b>Medium Attention:</b> <span id="medium-attention">0</span> students</li>
-                <li><b>Low Attention:</b> <span id="low-attention">0</span> students</li>
-                <li><b>Lowest Attention:</b> <span id="lowest-attention">0</span> students</li>
-                <li><b>Detected Students:</b> <span id="detected-students">0</span> students</li>
-            </ul>
-        </div>
-        
-        <h2>Attention Distribution Over Time</h2>
-        <div class="content-box">
-            <p>This visualization presents a real-time line graph illustrating the temporal distribution of student attention levels during a class session.</p>
-            <img src="{{ url_for('static', filename='images/Chart.png') }}" width="800"/>
-        </div>
-        <p class="sub-title">Event Logs</p>
-        <div class="content-box">
-            <ul id="event-logs">
-                <!-- Event logs will be appended here -->
-            </ul>
-        <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
-        <script src="{{ url_for('static', filename='js/session-controls.js') }}"></script>
+      </div>
     </div>
-</body>
-</html>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ─── State ───
+  let cameraStream = null;
+  let isCameraReady = false;
+  let isSessionActive = false;
+  let isPaused = false;
+  let cameraToggle = localStorage.getItem('cameraToggle') === 'on';
+  let attentionHistory = [];
+  let trendChart = null;
+
+  const videoEl        = document.getElementById('user-video');
+  const canvasEl       = document.getElementById('overlay-canvas');
+  const placeholder    = document.getElementById('video-placeholder');
+  const badge          = document.getElementById('video-badge');
+  const badgeDot       = document.getElementById('badge-dot');
+  const badgeText      = document.getElementById('badge-text');
+  const cameraSelect   = document.getElementById('camera-select');
+  const classSelect    = document.getElementById('class-select');
+  const startBtn       = document.getElementById('start-btn');
+  const controls       = document.getElementById('session-controls');
+  const camOnIcon      = document.getElementById('cam-on-icon');
+  const camOffIcon     = document.getElementById('cam-off-icon');
+  const attentionValue = document.getElementById('attention-value');
+  const attentionStatus= document.getElementById('attention-status');
+  const aiInsight      = document.getElementById('ai-insight');
+  const trendPlaceholder = document.getElementById('trend-placeholder');
+
+  // ─── Initialize ───
+  (async function init() {
+    // Request camera permission & enumerate
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      tempStream.getTracks().forEach(t => t.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      videoDevices.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Camera ${i + 1}`;
+        cameraSelect.appendChild(opt);
+      });
+
+      if (videoDevices.length > 0) {
+        cameraSelect.value = videoDevices[0].deviceId;
+        if (cameraToggle) {
+          startCamera(videoDevices[0].deviceId);
+        }
+      }
+    } catch (err) {
+      console.warn('Camera access denied:', err);
+    }
+
+    updateToggleIcon();
+    initTrendChart();
+  })();
+
+  // ─── Camera Functions ───
+  async function startCamera(deviceId) {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
+    }
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId } }
+      });
+      videoEl.srcObject = cameraStream;
+      videoEl.style.display = 'block';
+      canvasEl.style.display = 'block';
+      placeholder.style.display = 'none';
+      badge.style.display = 'flex';
+      isCameraReady = true;
+      updateBadge();
+      updateControls();
+    } catch (err) {
+      console.error('Camera error:', err);
+    }
+  }
+
+  function stopCamera() {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
+      cameraStream = null;
+    }
+    videoEl.style.display = 'none';
+    canvasEl.style.display = 'none';
+    placeholder.style.display = 'flex';
+    badge.style.display = 'none';
+    isCameraReady = false;
+    updateControls();
+  }
+
+  function toggleCamera() {
+    cameraToggle = !cameraToggle;
+    localStorage.setItem('cameraToggle', cameraToggle ? 'on' : 'off');
+    updateToggleIcon();
+
+    if (cameraToggle && cameraSelect.value) {
+      startCamera(cameraSelect.value);
+    } else {
+      stopCamera();
+    }
+  }
+
+  function updateToggleIcon() {
+    camOnIcon.style.display  = cameraToggle ? 'block' : 'none';
+    camOffIcon.style.display = cameraToggle ? 'none'  : 'block';
+  }
+
+  function handleCameraChange() {
+    if (cameraSelect.value && cameraToggle) {
+      startCamera(cameraSelect.value);
+    }
+  }
+
+  // ─── Session Functions ───
+  function startSession() {
+    if (!isCameraReady || !classSelect.value) return;
+    isSessionActive = true;
+    isPaused = false;
+    updateBadge();
+    updateControls();
+    attentionStatus.textContent = 'Updated in real-time';
+    aiInsight.textContent = 'Monitoring student attention...';
+    simulateAttention();
+  }
+
+  function pauseSession() {
+    isPaused = !isPaused;
+    updateBadge();
+    updateControls();
+    attentionStatus.textContent = isPaused ? 'Monitoring paused' : 'Updated in real-time';
+    aiInsight.textContent = isPaused ? 'Session is paused. Resume to continue monitoring.' : 'Monitoring student attention...';
+  }
+
+  function endSession() {
+    isSessionActive = false;
+    isPaused = false;
+    attentionHistory = [];
+    updateBadge();
+    updateControls();
+    attentionValue.textContent = '--%';
+    attentionValue.className = 'attention-score-value';
+    attentionStatus.textContent = 'Updated in real-time';
+    aiInsight.textContent = 'Start a session to receive AI-powered insights.';
+    trendPlaceholder.style.display = 'flex';
+    if (trendChart) {
+      trendChart.data.labels = [];
+      trendChart.data.datasets[0].data = [];
+      trendChart.update();
+    }
+  }
+
+  function updateBadge() {
+    if (!isCameraReady) return;
+    if (isSessionActive) {
+      badgeDot.className = 'video-badge-dot ' + (isPaused ? 'paused' : 'live');
+      badgeText.textContent = isPaused ? 'PAUSED' : 'LIVE FEED';
+    } else {
+      badgeDot.className = 'video-badge-dot ready';
+      badgeText.textContent = 'CAMERA PREVIEW';
+    }
+  }
+
+  function updateControls() {
+    startBtn.disabled = !isCameraReady || !classSelect.value;
+
+    if (isSessionActive) {
+      controls.innerHTML = `
+        <button class="btn ${isPaused ? 'btn-outline-emerald' : 'btn-outline-amber'} btn-lg" onclick="pauseSession()">
+          ${isPaused
+            ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume'
+            : '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause'}
+        </button>
+        <button class="btn btn-destructive btn-lg" onclick="endSession()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+          End Session
+        </button>`;
+    } else {
+      controls.innerHTML = `
+        <button id="start-btn" class="btn btn-emerald btn-lg" ${!isCameraReady || !classSelect.value ? 'disabled' : ''} onclick="startSession()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Start Session
+        </button>`;
+    }
+  }
+
+  // ─── Trend Chart ───
+  function initTrendChart() {
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    trendChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          data: [],
+          borderColor: '#2563eb',
+          borderWidth: 3,
+          tension: 0.3,
+          pointRadius: 0,
+          fill: false,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: false },
+          y: { min: 0, max: 100, display: false }
+        }
+      }
+    });
+  }
+
+  // ─── Simulated attention (demo) ───
+  let simInterval = null;
+  function simulateAttention() {
+    if (simInterval) clearInterval(simInterval);
+    simInterval = setInterval(() => {
+      if (!isSessionActive || isPaused) return;
+
+      const score = Math.floor(Math.random() * 40 + 55); // 55-95
+      attentionHistory.push({ time: Date.now(), value: score });
+      if (attentionHistory.length > 30) attentionHistory.shift();
+
+      // Update score display
+      attentionValue.textContent = score + '%';
+      attentionValue.className = 'attention-score-value ' +
+        (score > 80 ? 'high' : score > 60 ? 'medium' : 'low');
+
+      // Update insight
+      if (score > 80) aiInsight.textContent = 'Great engagement! The class seems focused.';
+      else if (score > 60) aiInsight.textContent = 'Attention is fluctuating. Try asking a question to re-engage.';
+      else aiInsight.textContent = 'Low attention detected. Consider a short break or activity change.';
+
+      // Update trend chart
+      trendPlaceholder.style.display = 'none';
+      trendChart.data.labels = attentionHistory.map((_, i) => i);
+      trendChart.data.datasets[0].data = attentionHistory.map(h => h.value);
+      trendChart.update();
+    }, 2000);
+  }
+
+  // Enable start button when class is selected
+  classSelect.addEventListener('change', updateControls);
+</script>
+{% endblock %}

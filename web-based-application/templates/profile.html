@@ -1,323 +1,54 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Profile - Ai-Listo</title>
-    <meta
-      name="description"
-      content="Profile page for Ai-Listo: An AI-powered system for student detection and analysis using advanced computer vision technology."
-    />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+{% extends "_layout.html" %}
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
-      rel="stylesheet"
-    />
+{% block title %}Profile - Ai-Listo{% endblock %}
 
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/sidebar.css') }}"
-    />
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/base.css') }}"
-    />
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/table.css') }}"
-    />
-    <style>
-      .form-container {
-        background-color: #ebebeb;
-        border-radius: 5px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        padding: 20px;
-        margin-bottom: 30px;
-        width: 100%;
-        max-width: 1000px;
-      }
+{% block content %}
+<div class="space-y-6">
+  <div>
+    <h2 class="page-title">Profile</h2>
+    <p class="page-subtitle">Manage your account information.</p>
+  </div>
 
-      .form-inline {
-        display: flex;
-        gap: 10px;
-        align-items: flex-end;
-        flex-wrap: wrap;
-      }
-
-      .form-group {
-        flex: 1;
-        min-width: 150px;
-        margin-bottom: 0;
-      }
-
-      .form-group label {
-        display: block;
-        margin-bottom: 5px;
-        font-weight: 500;
-        font-size: 14px;
-      }
-
-      .form-group input {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 14px;
-        box-sizing: border-box;
-      }
-
-      .form-group input:focus {
-        outline: none;
-        border-color: #ff4b4b;
-        box-shadow: 0 0 4px rgba(255, 75, 75, 0.3);
-      }
-
-      .form-actions {
-        display: flex;
-        gap: 10px;
-      }
-
-      .btn {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 4px;
-        font-size: 14px;
-        cursor: pointer;
-        transition: background-color 0.3s;
-        white-space: nowrap;
-      }
-
-      .btn-primary {
-        background-color: #ff4b4b;
-        color: white;
-      }
-
-      .btn-primary:hover {
-        background-color: #e63939;
-      }
-
-      .btn-secondary {
-        background-color: #ddd;
-        color: #333;
-      }
-
-      .btn-secondary:hover {
-        background-color: #ccc;
-      }
-    </style>
-  </head>
-
-  <body>
-    <div class="sidebar">
-      <div class="ailisto-sidebar-title">Ai-Listo</div>
-      <a href="/">Dashboard</a>
-      <a href="/live-session">Live Session</a>
-      <a href="/history">History</a>
-      <a class="active" href="/profile">Profile</a>
-      <a href="/settings">Settings</a>
-      <a href="/about">About</a>
-    </div>
-
-    <p class="page-title">Profile Page</p>
-    <div class="main-content">
-      <div class="user-profile">
-        <div>
-          <img
-            src="{{ url_for('static', filename='images/user.png') }}"
-            alt="User Avatar"
-            class="profile-picture"
-          />
+  <div style="max-width: 640px;">
+    <div class="card">
+      <div class="card-content space-y-6">
+        <!-- Avatar -->
+        <div style="display:flex; align-items:center; gap:1.5rem;">
+          <div style="width:80px; height:80px; border-radius:50%; background:var(--border-light); border:2px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--text-400);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <div>
+            <h3 style="font-size:1.25rem;">Teacher Name</h3>
+            <p class="text-sm" style="color:var(--text-500);">teacher@school.com</p>
+          </div>
         </div>
-        <div class="user-details">
-          <p class="user-name">John Doe</p>
-          <p class="user-email">john.doe@example.com</p>
-          <a href="#" class="change-password-button">Change password</a>
-        </div>
-      </div>
 
-      <p class="sub-title">Add New Entry</p>
+        <hr style="border:none; border-top:1px solid var(--border-light);" />
 
-      <div class="form-container">
-        <form id="entryForm">
-          <div class="form-inline">
+        <!-- Profile form -->
+        <form class="space-y-4">
+          <div class="form-row">
             <div class="form-group">
-              <label for="grade">Grade (Level):</label>
-              <input
-                type="text"
-                id="grade"
-                name="grade"
-                placeholder="Grade"
-                required
-              />
+              <label class="form-label" for="prof-first">First Name</label>
+              <input class="form-input" type="text" id="prof-first" value="Teacher" />
             </div>
-
             <div class="form-group">
-              <label for="section">Section:</label>
-              <input
-                type="text"
-                id="section"
-                name="section"
-                placeholder="Section"
-                required
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="subject">Subject:</label>
-              <input
-                type="text"
-                id="subject"
-                name="subject"
-                placeholder="Subject"
-                required
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="days">Days:</label>
-              <input
-                type="text"
-                id="days"
-                name="days"
-                placeholder="Days"
-                required
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="time">Time:</label>
-              <input
-                type="text"
-                id="time"
-                name="time"
-                placeholder="Time"
-                required
-              />
-            </div>
-
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary">Add</button>
-              <button type="button" class="btn btn-secondary" id="editBtn">
-                Edit
-              </button>
+              <label class="form-label" for="prof-last">Last Name</label>
+              <input class="form-input" type="text" id="prof-last" value="Name" />
             </div>
           </div>
+          <div class="form-group">
+            <label class="form-label" for="prof-email">Email</label>
+            <input class="form-input" type="email" id="prof-email" value="teacher@school.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="prof-role">Role</label>
+            <input class="form-input" type="text" id="prof-role" value="Teacher" disabled />
+          </div>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
         </form>
       </div>
-
-      <p class="sub-title">Entries</p>
-      <div class="table-container">
-        <table id="dataTable" border="1">
-          <thead>
-            <tr>
-              <th>Grade (Level)</th>
-              <th>Section</th>
-              <th>Subject</th>
-              <th>Days</th>
-              <th>Time</th>
-            </tr>
-          </thead>
-          <tbody id="tableBody"></tbody>
-        </table>
-      </div>
     </div>
-
-    <script>
-      const form = document.getElementById("entryForm");
-      const tableBody = document.getElementById("tableBody");
-      const editBtn = document.getElementById("editBtn");
-      let editingRow = null;
-
-      form.addEventListener("submit", function (e) {
-        e.preventDefault();
-
-        const grade = document.getElementById("grade").value;
-        const section = document.getElementById("section").value;
-        const subject = document.getElementById("subject").value;
-        const days = document.getElementById("days").value;
-        const time = document.getElementById("time").value;
-
-        if (editingRow) {
-          // Update existing row
-          editingRow.innerHTML = `
-            <td>${grade}</td>
-            <td>${section}</td>
-            <td>${subject}</td>
-            <td>${days}</td>
-            <td>${time}</td>
-          `;
-          editingRow.classList.remove("selected");
-          editingRow = null;
-          editBtn.textContent = "Edit";
-          editBtn.disabled = true;
-        } else {
-          // Create a new row
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${grade}</td>
-            <td>${section}</td>
-            <td>${subject}</td>
-            <td>${days}</td>
-            <td>${time}</td>
-          `;
-          tableBody.appendChild(row);
-        }
-
-        // Clear the form
-        form.reset();
-      });
-
-      editBtn.addEventListener("click", function () {
-        const selectedRow = document.querySelector(
-          "#dataTable tbody tr.selected",
-        );
-        if (selectedRow) {
-          const cells = selectedRow.querySelectorAll("td");
-          document.getElementById("grade").value = cells[0].textContent;
-          document.getElementById("section").value = cells[1].textContent;
-          document.getElementById("subject").value = cells[2].textContent;
-          document.getElementById("days").value = cells[3].textContent;
-          document.getElementById("time").value = cells[4].textContent;
-          editingRow = selectedRow;
-          editBtn.textContent = "Save";
-
-          // Add delete button to the selected row
-          selectedRow.style.position = "relative";
-          let deleteCell = selectedRow.querySelector(".delete-cell");
-          if (!deleteCell) {
-            deleteCell = document.createElement("td");
-            deleteCell.className = "delete-cell";
-            deleteCell.innerHTML =
-              '<button class="btn btn-secondary" onclick="deleteRow(this)">Delete</button>';
-            selectedRow.appendChild(deleteCell);
-          }
-        }
-      });
-
-      window.deleteRow = function (btn) {
-        btn.closest("tr").remove();
-        editBtn.textContent = "Edit";
-        editBtn.disabled = true;
-        editingRow = null;
-        form.reset();
-      };
-
-      // Allow row selection by clicking
-      tableBody.addEventListener("click", function (e) {
-        if (e.target.tagName === "TD" && !e.target.closest("button")) {
-          document.querySelectorAll("#dataTable tbody tr").forEach((row) => {
-            row.classList.remove("selected");
-            const deleteCell = row.querySelector(".delete-cell");
-            if (deleteCell) {
-              deleteCell.remove();
-            }
-          });
-          e.target.closest("tr").classList.add("selected");
-          editBtn.disabled = false;
-        }
-      });
-    </script>
-  </body>
-</html>
+  </div>
+</div>
+{% endblock %}

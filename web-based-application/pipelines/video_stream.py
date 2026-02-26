@@ -3,23 +3,27 @@ import mediapipe as mp
 from ultralytics import YOLO
 import os
 import time
+import warnings
 
 STREAM_ACTIVE = True
 STREAM_PAUSED = False
 
+# Resolve paths relative to this file's directory
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
 
-VIDEO_PATH = os.path.abspath("C:/Users/Windows/Desktop/VS Code/ailisto-main/ailisto-system-thesis/classification-model/data/videos/sample_vid.mp4")
-YOLO_MODEL_PATH = "yolov8n.pt"
-POSE_MODEL_PATH = os.path.abspath(
-    "C:/Users/Windows/Desktop/VS Code/ailisto-main/ailisto-system-thesis/classification-model/posture-module/trained-weight/pose_landmarker_lite.task"
+VIDEO_PATH = os.environ.get(
+    "AILISTO_VIDEO_PATH",
+    os.path.join(_PROJECT_ROOT, "data", "videos", "sample_vid.mp4"),
 )
-
+YOLO_MODEL_PATH = os.path.join(_PROJECT_ROOT, "yolov8n.pt")
+POSE_MODEL_PATH = os.path.join(_SCRIPT_DIR, "pose_landmarker_lite.task")
 
 print("Pose model path:", POSE_MODEL_PATH)
 
-# Test if file exists
+# Warn instead of crashing so the app can still start
 if not os.path.exists(POSE_MODEL_PATH):
-    raise FileNotFoundError(f"PoseLandmarker task file not found at {POSE_MODEL_PATH}")
+    warnings.warn(f"PoseLandmarker task file not found at {POSE_MODEL_PATH}")
 
 PERSON_CLASS_ID = 0
 CROP_PADDING = 20

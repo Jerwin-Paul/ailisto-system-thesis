@@ -1,118 +1,234 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Ai-Listo</title>
-    <meta
-      name="description"
-      content="Ai-Listo: An AI-powered system for student detection and analysis using advanced computer vision technology."
-    />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+{% extends "_layout.html" %}
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
-      rel="stylesheet"
-    />
+{% block title %}Dashboard - Ai-Listo{% endblock %}
 
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/sidebar.css') }}"
-    />
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/base.css') }}"
-    />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  </head>
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
 
-  <body>
-    <div class="sidebar">
-      <div class="ailisto-sidebar-title">Ai-Listo</div>
-      <a class="active" href="/">Dashboard</a>
-      <a href="/live-session">Live Session</a>
-      <a href="/history">History</a>
-      <a href="/profile">Profile</a>
-      <a href="/settings">Settings</a>
-      <a href="/about">About</a>
+{% block content %}
+<div class="space-y-8">
+  <!-- Header -->
+  <div class="page-header">
+    <div>
+      <h2 class="page-title">Good morning, {{ user.last_name }}!</h2>
+      <p class="page-subtitle">Here's what's happening in your classes.</p>
     </div>
+    <a href="/live-session" class="btn btn-primary btn-lg">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Start Live Session
+    </a>
+  </div>
 
-    <p class="page-title">Dashboard</p>
-    <div class="content">
-      <p class="sub-title">Attention Distribution Over Time</p>
-      <div class="content-box">
-        <p>
-          This visualization presents a real-time line graph illustrating the
-          temporal distribution of student attention levels during a class
-          session.
-        </p>
-        <div class="content-image">
-          <img
-            src="{{ url_for('static', filename='images/Chart.png') }}"
-            width="800"
-          />
+  <!-- Stats Grid — 2 cards -->
+  <div class="grid-2">
+    <div class="card card-borderless">
+      <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon-blue">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div>
+            <p class="stat-label">Avg. Attention</p>
+            <h3 class="stat-value">{{ stats.avg_attention }}%</h3>
+          </div>
         </div>
       </div>
+    </div>
 
-      <p class="sub-title">Cue Breakdown</p>
-      <div class="content-box">
-        <p>
-          The pie chart below breaks down the various cues used to assess
-          student attention, providing insights into the factors influencing
-          engagement levels.
-        </p>
-        <canvas id="cuePieChart" width="100" height="100"></canvas>
+    <div class="card card-borderless">
+      <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon-indigo">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div>
+            <p class="stat-label">Total Sessions</p>
+            <h3 class="stat-value">{{ stats.total_sessions }}</h3>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Attention by Class -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        Attention by Class
+      </h3>
+    </div>
+    <div class="card-content">
+      <div class="grid-3">
+        <!-- Sample class stat cards -->
+        <div class="class-stat-card">
+          <div class="class-stat-header">
+            <div style="min-width:0;">
+              <p class="class-stat-name">MATH101 - Section A</p>
+              <p class="class-stat-sub">Mathematics</p>
+            </div>
+            <span class="class-stat-score text-emerald">87%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill progress-emerald" style="width: 87%;"></div></div>
+          <p class="class-stat-sessions">8 sessions recorded</p>
+        </div>
+
+        <div class="class-stat-card">
+          <div class="class-stat-header">
+            <div style="min-width:0;">
+              <p class="class-stat-name">SCI202 - Section B</p>
+              <p class="class-stat-sub">Science</p>
+            </div>
+            <span class="class-stat-score text-amber">68%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill progress-amber" style="width: 68%;"></div></div>
+          <p class="class-stat-sessions">6 sessions recorded</p>
+        </div>
+
+        <div class="class-stat-card">
+          <div class="class-stat-header">
+            <div style="min-width:0;">
+              <p class="class-stat-name">ENG301 - Section A</p>
+              <p class="class-stat-sub">English</p>
+            </div>
+            <span class="class-stat-score text-emerald">91%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill progress-emerald" style="width: 91%;"></div></div>
+          <p class="class-stat-sessions">10 sessions recorded</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content: Chart + Recent Sessions -->
+  <div class="grid-2-1">
+    <!-- Chart Section -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Weekly Attention Trends</h3>
+      </div>
+      <div class="card-content">
+        <div style="height: 300px; position: relative;">
+          <canvas id="weeklyChart"></canvas>
+        </div>
       </div>
     </div>
 
-    <script>
-      // Get the canvas element
-      const ctx = document.getElementById("cuePieChart").getContext("2d");
+    <!-- Recent Sessions -->
+    <div class="card" style="height: 100%;">
+      <div class="card-header" style="display:flex; align-items:center; justify-content:space-between;">
+        <h3 class="card-title">Recent Sessions</h3>
+        <a href="/history" class="btn btn-ghost btn-sm" style="color: var(--primary); padding:0;">
+          View All
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </a>
+      </div>
+      <div class="card-content space-y-4">
+        <div class="activity-item">
+          <div class="activity-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div class="activity-info">
+            <p class="activity-name">Science 101 - Section A</p>
+            <p class="activity-date">Feb 26, 2026 • 10:30 AM</p>
+          </div>
+          <div class="activity-score">
+            <p class="activity-score-value">85%</p>
+            <p class="activity-score-label">Attention</p>
+          </div>
+        </div>
 
-      // Create the pie chart
-      const cuePieChart = new Chart(ctx, {
-        type: "pie",
-        data: {
-          labels: [
-            "Head Pose",
-            "Posture",
-            "Temporal Stability",
-            "Context Alignment",
-          ], // Example labels
-          datasets: [
-            {
-              label: "Cue Breakdown",
-              data: [40, 25, 20, 15], // Example data
-              backgroundColor: [
-                "rgba(255, 99, 132, 0.7)",
-                "rgba(54, 162, 235, 0.7)",
-                "rgba(255, 206, 86, 0.7)",
-                "rgba(75, 192, 192, 0.7)",
-              ],
-              borderColor: [
-                "rgba(255, 99, 132, 1)",
-                "rgba(54, 162, 235, 1)",
-                "rgba(255, 206, 86, 1)",
-                "rgba(75, 192, 192, 1)",
-              ],
-              borderWidth: 1,
-            },
-          ],
+        <div class="activity-item">
+          <div class="activity-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div class="activity-info">
+            <p class="activity-name">Math 201 - Section B</p>
+            <p class="activity-date">Feb 25, 2026 • 1:00 PM</p>
+          </div>
+          <div class="activity-score">
+            <p class="activity-score-value">78%</p>
+            <p class="activity-score-label">Attention</p>
+          </div>
+        </div>
+
+        <div class="activity-item">
+          <div class="activity-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div class="activity-info">
+            <p class="activity-name">English 301 - Section A</p>
+            <p class="activity-date">Feb 24, 2026 • 9:00 AM</p>
+          </div>
+          <div class="activity-score">
+            <p class="activity-score-value">92%</p>
+            <p class="activity-score-label">Attention</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Weekly Attention Trends area chart
+  const ctx = document.getElementById('weeklyChart').getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+  gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+  gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      datasets: [{
+        label: 'Attention %',
+        data: [85, 78, 92, 88, 76],
+        borderColor: '#3b82f6',
+        borderWidth: 3,
+        backgroundColor: gradient,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 6,
+        pointHoverBackgroundColor: '#3b82f6',
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#fff',
+          titleColor: '#0f172a',
+          bodyColor: '#64748b',
+          borderColor: '#e2e8f0',
+          borderWidth: 1,
+          cornerRadius: 12,
+          padding: 12,
+          boxPadding: 4,
+          displayColors: false,
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#64748b', padding: 10 },
+          border: { display: false }
         },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: {
-              position: "top",
-            },
-            title: {
-              display: true,
-              text: "Cue Breakdown Pie Chart",
-            },
-          },
-        },
-      });
-    </script>
-  </body>
-</html>
+        y: {
+          grid: { color: '#e2e8f0', drawBorder: false },
+          ticks: { color: '#64748b' },
+          border: { display: false }
+        }
+      }
+    }
+  });
+</script>
+{% endblock %}

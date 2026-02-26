@@ -1,0 +1,244 @@
+{% extends "_layout.html" %}
+
+{% block title %}Classes - Ai-Listo{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="page-header">
+    <div>
+      <h2 class="page-title">My Classes</h2>
+      <p class="page-subtitle">Manage your classes, sections, and schedules.</p>
+    </div>
+    <button class="btn btn-primary btn-lg" onclick="openModal()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Class
+    </button>
+  </div>
+
+  <!-- Two-column: Schedule Panel + Class Cards -->
+  <div class="classes-layout">
+    <!-- Left: Schedule Panel -->
+    <div class="schedule-panel">
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Today's Schedule
+          </h3>
+        </div>
+        <div class="card-content space-y-4">
+          <div class="activity-item">
+            <div class="activity-icon" style="background: var(--blue-50); color: var(--blue-600);">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="activity-info">
+              <p class="activity-name">MATH101 - Section A</p>
+              <p class="activity-date">8:00 AM - 9:30 AM • Room 201</p>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-icon" style="background: var(--emerald-50); color: var(--emerald-600);">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="activity-info">
+              <p class="activity-name">SCI202 - Section B</p>
+              <p class="activity-date">10:00 AM - 11:30 AM • Room 305</p>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-icon" style="background: var(--indigo-100); color: var(--indigo-600);">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="activity-info">
+              <p class="activity-name">ENG301 - Section A</p>
+              <p class="activity-date">1:00 PM - 2:30 PM • Room 102</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Class Cards Grid -->
+    <div class="classes-grid" id="classes-grid">
+      <!-- Card 1 -->
+      <div class="card">
+        <div class="card-content">
+          <div class="class-card-header">
+            <div class="class-card-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            </div>
+          </div>
+          <h3 style="font-size: 1.125rem; font-weight: 700;">Mathematics</h3>
+          <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
+            <span class="class-code">MATH101</span>
+            <span>•</span>
+            <span>Section A</span>
+          </div>
+          <div class="class-schedule">
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Monday, Wednesday, Friday
+            </div>
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              8:00 AM - 9:30 AM
+            </div>
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Room 201
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="card">
+        <div class="card-content">
+          <div class="class-card-header">
+            <div class="class-card-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            </div>
+          </div>
+          <h3 style="font-size: 1.125rem; font-weight: 700;">Science</h3>
+          <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
+            <span class="class-code">SCI202</span>
+            <span>•</span>
+            <span>Section B</span>
+          </div>
+          <div class="class-schedule">
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Tuesday, Thursday
+            </div>
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              10:00 AM - 11:30 AM
+            </div>
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Room 305
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="card">
+        <div class="card-content">
+          <div class="class-card-header">
+            <div class="class-card-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            </div>
+          </div>
+          <h3 style="font-size: 1.125rem; font-weight: 700;">English</h3>
+          <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
+            <span class="class-code">ENG301</span>
+            <span>•</span>
+            <span>Section A</span>
+          </div>
+          <div class="class-schedule">
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Monday, Wednesday, Friday
+            </div>
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              1:00 PM - 2:30 PM
+            </div>
+            <div class="class-schedule-entry">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Room 102
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Class Modal -->
+<div class="modal-overlay" id="add-class-modal">
+  <div class="modal">
+    <h3 class="modal-title">Add New Class</h3>
+    <p class="modal-subtitle">Create a new class with schedule details.</p>
+
+    <form onsubmit="event.preventDefault(); closeModal();" class="space-y-4">
+      <div class="form-group">
+        <label class="form-label" for="class-name">Class Name</label>
+        <input class="form-input" type="text" id="class-name" placeholder="Mathematics" required />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="class-code">Code</label>
+          <input class="form-input" type="text" id="class-code" placeholder="MATH101" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="class-section">Section</label>
+          <input class="form-input" type="text" id="class-section" placeholder="Section A" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Schedule</label>
+        <div id="schedule-entries" class="space-y-2">
+          <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr 1fr auto; align-items: end;">
+            <div>
+              <select class="form-select" style="height:40px;">
+                <option>Day</option>
+                <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+                <option>Thursday</option><option>Friday</option>
+              </select>
+            </div>
+            <div><input class="form-input" type="time" style="height:40px;" placeholder="Start" /></div>
+            <div><input class="form-input" type="time" style="height:40px;" placeholder="End" /></div>
+            <div><input class="form-input" type="text" style="height:40px;" placeholder="Room" /></div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline w-full" style="margin-top:0.75rem; border-style: dashed;" onclick="addScheduleEntry()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Schedule
+        </button>
+      </div>
+      <button type="submit" class="btn btn-primary w-full">Create Class</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openModal() {
+    document.getElementById('add-class-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('add-class-modal').classList.remove('open');
+  }
+
+  // Close modal on overlay click
+  document.getElementById('add-class-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  function addScheduleEntry() {
+    const container = document.getElementById('schedule-entries');
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    row.style.gridTemplateColumns = '1fr 1fr 1fr 1fr auto';
+    row.style.alignItems = 'end';
+    row.innerHTML = `
+      <div>
+        <select class="form-select" style="height:40px;">
+          <option>Day</option>
+          <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+          <option>Thursday</option><option>Friday</option>
+        </select>
+      </div>
+      <div><input class="form-input" type="time" style="height:40px;" /></div>
+      <div><input class="form-input" type="time" style="height:40px;" /></div>
+      <div><input class="form-input" type="text" style="height:40px;" placeholder="Room" /></div>
+    `;
+    container.appendChild(row);
+  }
+</script>
+{% endblock %}

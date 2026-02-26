@@ -1,57 +1,248 @@
-from flask import Flask, render_template, jsonify, Response
-# from pipelines.video_stream import generate_frames
-# import pipelines.video_stream as stream
+import os
+import json
+from functools import wraps
+from datetime import datetime
+
+from flask import (
+    Flask, render_template, request, redirect,
+    url_for, session, flash, jsonify,
+)
+from dotenv import load_dotenv
+
+# Load .env from project root
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+
+import db  # noqa: E402 — import after dotenv so DATABASE_URL is available
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(32).hex())
+
+# Bootstrap tables on startup
+db.init_db()
+
+
+# ─── Auth Helpers ─────────────────────────────────────────────────────
+
+def login_required(f):
+    """Redirect to /login if no user session."""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return wrapped
+
+
+def current_user() -> dict | None:
+    uid = session.get("user_id")
+    if uid is None:
+        return None
+    return db.get_user_by_id(uid)
+
+
+# ─── Auth Pages ──────────────────────────────────────────────────────
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        email = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+
+        if not email:
+            if is_ajax:
+                return jsonify({"error": "Email is required.", "field": "email"}), 400
+            flash("Email is required.", "error")
+            return render_template("login.html")
+
+        if not password:
+            if is_ajax:
+                return jsonify({"error": "Password is required.", "field": "password"}), 400
+            flash("Password is required.", "error")
+            return render_template("login.html")
+
+        user = db.get_user_by_email(email)
+        if user and db.verify_password(password, user["password"]):
+            session["user_id"] = user["id"]
+            if is_ajax:
+                return jsonify({"success": True, "redirect": url_for("home")})
+            return redirect(url_for("home"))
+
+        if is_ajax:
+            return jsonify({"error": "Invalid email or password."}), 401
+        flash("Invalid email or password.", "error")
+
+    return render_template("login.html")
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        email      = request.form.get("email", "").strip()
+        password   = request.form.get("password", "")
+        confirm    = request.form.get("confirmPassword", "")
+        first_name = request.form.get("firstName", "").strip()
+        last_name  = request.form.get("lastName", "").strip()
+
+        # Validation
+        errors = {}
+        if not first_name:
+            errors["firstName"] = "First name is required."
+        if not last_name:
+            errors["lastName"] = "Last name is required."
+        if not email:
+            errors["email"] = "Email is required."
+        elif "@" not in email:
+            errors["email"] = "Please enter a valid email address."
+        if not password:
+            errors["password"] = "Password is required."
+        elif len(password) < 6:
+            errors["password"] = "Password must be at least 6 characters."
+        if password and password != confirm:
+            errors["confirmPassword"] = "Passwords do not match."
+
+        if errors:
+            if is_ajax:
+                return jsonify({"errors": errors}), 400
+            flash(list(errors.values())[0], "error")
+            return render_template("register.html")
+
+        if db.get_user_by_email(email):
+            if is_ajax:
+                return jsonify({"errors": {"email": "An account with this email already exists."}}), 409
+            flash("An account with this email already exists.", "error")
+            return render_template("register.html")
+
+        db.create_user(email, password, first_name, last_name)
+        if is_ajax:
+            return jsonify({"success": True, "redirect": url_for("login")})
+        return redirect(url_for("login"))
+
+    return render_template("register.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# ─── Main Pages ──────────────────────────────────────────────────────
 
 @app.route("/")
+@login_required
 def home():
-    return render_template("index.html")
+    user = current_user()
+    stats = db.get_dashboard_stats(user["id"])
+    subjects = db.get_subjects(user["id"])
+    return render_template("index.html", user=user, stats=stats, subjects=subjects)
+
 
 @app.route("/live-session")
-def liveSession():
-    return render_template("live-session.html")
+@login_required
+def live_session():
+    user = current_user()
+    subjects = db.get_subjects(user["id"])
+    return render_template("live-session.html", user=user, subjects=subjects)
+
+
+@app.route("/classes")
+@login_required
+def classes():
+    user = current_user()
+    subjects = db.get_subjects(user["id"])
+    return render_template("classes.html", user=user, subjects=subjects)
+
 
 @app.route("/history")
+@login_required
 def history():
-    return render_template("history.html")
+    user = current_user()
+    sessions_list = db.get_sessions(user["id"])
+    return render_template("history.html", user=user, sessions=sessions_list)
+
+
+@app.route("/reports")
+@login_required
+def reports():
+    user = current_user()
+    stats = db.get_dashboard_stats(user["id"])
+    subjects = db.get_subjects(user["id"])
+    sessions_list = db.get_sessions(user["id"])
+    return render_template("reports.html", user=user, stats=stats, subjects=subjects, sessions=sessions_list)
+
 
 @app.route("/profile")
+@login_required
 def profile():
-    return render_template("profile.html")
+    user = current_user()
+    return render_template("profile.html", user=user)
+
 
 @app.route("/settings")
+@login_required
 def settings():
-    return render_template("settings.html")
+    user = current_user()
+    return render_template("settings.html", user=user)
+
 
 @app.route("/about")
+@login_required
 def about():
-    return render_template("about.html")
+    user = current_user()
+    return render_template("about.html", user=user)
 
-@app.route("/video_feed")
-def video_feed():
-    stream.STREAM_ACTIVE = True
-    stream.STREAM_PAUSED = False
-    return Response(generate_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
 
-@app.route("/pause_stream")
-def pause_stream():
-    stream.STREAM_PAUSED = True
-    return "paused"
+# ─── API Endpoints ───────────────────────────────────────────────────
 
-@app.route("/resume_stream")
-def resume_stream():
-    stream.STREAM_PAUSED = False
-    return "resumed"
+@app.route("/api/subjects", methods=["POST"])
+@login_required
+def api_create_subject():
+    user = current_user()
+    data = request.get_json()
+    subject = db.create_subject(
+        teacher_id=user["id"],
+        name=data["name"],
+        course_code=data["courseCode"],
+        section=data["section"],
+        schedule_entries=data.get("schedule", []),
+    )
+    return jsonify(subject), 201
 
-@app.route("/stop_stream")
-def stop_stream():
-    stream.STREAM_ACTIVE = False
-    return "stopped"
 
+@app.route("/api/subjects/<int:subject_id>", methods=["DELETE"])
+@login_required
+def api_delete_subject(subject_id):
+    db.delete_subject(subject_id)
+    return "", 204
+
+
+@app.route("/api/subjects/<int:subject_id>/schedules", methods=["PUT"])
+@login_required
+def api_update_schedules(subject_id):
+    data = request.get_json()
+    schedules = db.update_subject_schedules(subject_id, data.get("schedules", []))
+    return jsonify(schedules)
+
+
+@app.route("/api/sessions", methods=["POST"])
+@login_required
+def api_start_session():
+    data = request.get_json()
+    s = db.create_session(data["subjectId"])
+    return jsonify(s, default=str), 201
+
+
+@app.route("/api/sessions/<int:session_id>/end", methods=["POST"])
+@login_required
+def api_end_session(session_id):
+    data = request.get_json()
+    s = db.end_session(session_id, data.get("summaryStats", {}))
+    return jsonify(s, default=str)
+
+
+# ─── Run ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     app.run(debug=True)
-
-    

@@ -1,0 +1,160 @@
+{% extends "_layout.html" %}
+
+{% block title %}Reports - Ai-Listo{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="page-header">
+    <div>
+      <h2 class="page-title">Reports</h2>
+      <p class="page-subtitle">View detailed attention analytics and session reports.</p>
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="grid-3">
+    <div class="card card-borderless">
+      <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon-blue">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div>
+            <p class="stat-label">Avg. Attention</p>
+            <h3 class="stat-value">{{ stats.avg_attention }}%</h3>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card card-borderless">
+      <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon-indigo">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div>
+            <p class="stat-label">Total Sessions</p>
+            <h3 class="stat-value">{{ stats.total_sessions }}</h3>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card card-borderless">
+      <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon-emerald">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          </div>
+          <div>
+            <p class="stat-label">Active Classes</p>
+            <h3 class="stat-value">{{ subjects|length }}</h3>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Attention Over Time</h3>
+    </div>
+    <div class="card-content">
+      <div style="height: 300px; position: relative;">
+        <canvas id="reportChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session List -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">All Sessions</h3>
+    </div>
+    <div class="card-content">
+      {% if sessions %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Avg. Attention</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in sessions %}
+          <tr>
+            <td><strong>{{ s.course_code }} - {{ s.section }}</strong></td>
+            <td>{{ s.start_time.strftime('%b %d, %Y • %I:%M %p') if s.start_time else '—' }}</td>
+            <td>
+              {% if s.status == 'completed' %}
+              <span class="badge" style="background: var(--emerald-50); color: var(--emerald-600);">Completed</span>
+              {% else %}
+              <span class="badge" style="background: var(--amber-50); color: var(--amber-500);">Active</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if s.summary_stats and s.summary_stats.avgAttention is defined %}
+              <span class="font-bold {% if s.summary_stats.avgAttention > 75 %}text-emerald{% elif s.summary_stats.avgAttention > 50 %}text-amber{% else %}text-red{% endif %}">{{ s.summary_stats.avgAttention }}%</span>
+              {% else %}
+              <span class="text-slate">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <p style="font-weight: 500;">No sessions yet</p>
+        <p class="text-sm">Start a live session to begin collecting data.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const ctx = document.getElementById('reportChart').getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+  gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+  gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+      datasets: [{
+        label: 'Avg Attention %',
+        data: [75, 82, 78, 85],
+        borderColor: '#3b82f6',
+        borderWidth: 3,
+        backgroundColor: gradient,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 4,
+        pointBackgroundColor: '#3b82f6',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, border: { display: false } },
+        y: { grid: { color: '#e2e8f0' }, border: { display: false }, min: 0, max: 100 }
+      }
+    }
+  });
+</script>
+{% endblock %}
