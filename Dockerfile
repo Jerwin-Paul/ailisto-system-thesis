@@ -14,8 +14,9 @@ RUN pip install --no-cache-dir -r requirements-deploy.txt
 # Copy application code
 COPY . .
 
-# Expose port
+# Set working directory to the Flask app
+WORKDIR /app/web-based-application
+
 EXPOSE 8080
 
-# Start the app
-CMD ["sh", "-c", "cd web-based-application && gunicorn app:app --bind 0.0.0.0:${PORT:-8080}"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080"]
