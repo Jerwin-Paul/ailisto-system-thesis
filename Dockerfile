@@ -17,6 +17,6 @@ COPY . .
 # Set working directory to the Flask app
 WORKDIR /app/web-based-application
 
-EXPOSE 8080
+EXPOSE 5000
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:5000"]
