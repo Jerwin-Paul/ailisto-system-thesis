@@ -125,6 +125,13 @@
           const newContent = doc.getElementById('page-content');
           if (!newContent) { window.location.href = href; return; }
 
+
+          // Run page cleanup before swapping (e.g. stop camera streams)
+          if (typeof window.__pageCleanup === 'function') {
+            window.__pageCleanup();
+            window.__pageCleanup = null;
+          }
+
           // Swap immediately
           contentEl.innerHTML = newContent.innerHTML;
           const newTitle = doc.querySelector('title');

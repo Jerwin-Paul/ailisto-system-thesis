@@ -22,8 +22,8 @@
       <div class="camera-controls">
         <!-- Camera Toggle -->
         <button id="camera-toggle-btn" class="btn btn-outline btn-icon" title="Toggle Camera" onclick="toggleCamera()">
-          <svg id="cam-on-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-          <svg id="cam-off-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M16.6 14.4L23 17V7l-6.4 3.6"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <svg id="cam-on-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          <svg id="cam-off-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.6 14.4L23 17V7l-6.4 3.6"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
         </button>
 
         <!-- Camera Select -->
@@ -105,65 +105,176 @@
     </div>
   </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
-  // ─── State ───
-  let cameraStream = null;
-  let isCameraReady = false;
-  let isSessionActive = false;
-  let isPaused = false;
-  let cameraToggle = localStorage.getItem('cameraToggle') === 'on';
-  let attentionHistory = [];
-  let trendChart = null;
+(function() {
+  // ─── Cleanup any previous live-session stream (SPA re-entry) ───
+  if (window.__ailisto_stream) {
+    window.__ailisto_stream.getTracks().forEach(t => t.stop());
+    window.__ailisto_stream = null;
+  }
 
-  const videoEl        = document.getElementById('user-video');
-  const canvasEl       = document.getElementById('overlay-canvas');
-  const placeholder    = document.getElementById('video-placeholder');
-  const badge          = document.getElementById('video-badge');
-  const badgeDot       = document.getElementById('badge-dot');
-  const badgeText      = document.getElementById('badge-text');
-  const cameraSelect   = document.getElementById('camera-select');
-  const classSelect    = document.getElementById('class-select');
-  const startBtn       = document.getElementById('start-btn');
-  const controls       = document.getElementById('session-controls');
-  const camOnIcon      = document.getElementById('cam-on-icon');
-  const camOffIcon     = document.getElementById('cam-off-icon');
-  const attentionValue = document.getElementById('attention-value');
-  const attentionStatus= document.getElementById('attention-status');
-  const aiInsight      = document.getElementById('ai-insight');
-  const trendPlaceholder = document.getElementById('trend-placeholder');
+  // ─── State ───
+  var cameraStream = null;
+  var isCameraReady = false;
+  var isSessionActive = false;
+  var isPaused = false;
+  var cameraToggle = localStorage.getItem('cameraToggle') === 'on';
+  var attentionHistory = [];
+  var trendChart = null;
+  var simInterval = null;
+
+  var videoEl        = document.getElementById('user-video');
+  var canvasEl       = document.getElementById('overlay-canvas');
+  var placeholder    = document.getElementById('video-placeholder');
+  var badge          = document.getElementById('video-badge');
+  var badgeDot       = document.getElementById('badge-dot');
+  var badgeText      = document.getElementById('badge-text');
+  var cameraSelect   = document.getElementById('camera-select');
+  var classSelect    = document.getElementById('class-select');
+  var startBtn       = document.getElementById('start-btn');
+  var controls       = document.getElementById('session-controls');
+  var camOnIcon      = document.getElementById('cam-on-icon');
+  var camOffIcon     = document.getElementById('cam-off-icon');
+  var attentionValue = document.getElementById('attention-value');
+  var attentionStatus= document.getElementById('attention-status');
+  var aiInsight      = document.getElementById('ai-insight');
+  var trendPlaceholder = document.getElementById('trend-placeholder');
+
+  // ─── Register SPA cleanup (called before DOM swap) ───
+  window.__pageCleanup = function() {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
+      cameraStream = null;
+      window.__ailisto_stream = null;
+    }
+    if (simInterval) {
+      clearInterval(simInterval);
+      simInterval = null;
+    }
+  };
 
   // ─── Initialize ───
-  (async function init() {
-    // Request camera permission & enumerate
-    try {
-      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      tempStream.getTracks().forEach(t => t.stop());
-
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(d => d.kind === 'videoinput');
-      videoDevices.forEach((d, i) => {
-        const opt = document.createElement('option');
-        opt.value = d.deviceId;
-        opt.textContent = d.label || `Camera ${i + 1}`;
-        cameraSelect.appendChild(opt);
-      });
-
-      if (videoDevices.length > 0) {
-        cameraSelect.value = videoDevices[0].deviceId;
-        if (cameraToggle) {
-          startCamera(videoDevices[0].deviceId);
-        }
-      }
-    } catch (err) {
-      console.warn('Camera access denied:', err);
+  function populateCameraList(videoDevices) {
+    // Clear existing options except the placeholder
+    while (cameraSelect.options.length > 1) {
+      cameraSelect.remove(1);
     }
+    videoDevices.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Camera ${i + 1}`;
+      cameraSelect.appendChild(opt);
+    });
 
+    if (videoDevices.length > 0) {
+      // Restore previously selected camera, or use the first one
+      const savedDeviceId = localStorage.getItem('selectedCameraId');
+      const savedExists = videoDevices.some(d => d.deviceId === savedDeviceId);
+      cameraSelect.value = savedExists ? savedDeviceId : videoDevices[0].deviceId;
+
+      if (cameraToggle) {
+        startCamera(cameraSelect.value);
+      }
+    }
+  }
+
+  (async function init() {
     updateToggleIcon();
     initTrendChart();
+
+    // Check if mediaDevices API is available
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      console.warn('mediaDevices API not available');
+      placeholder.querySelector('p').textContent =
+        'Camera API not available. Please use HTTPS or localhost.';
+      return;
+    }
+
+    try {
+      // Check if camera permission is already granted
+      let permissionGranted = false;
+      try {
+        const permStatus = await navigator.permissions.query({ name: 'camera' });
+        permissionGranted = permStatus.state === 'granted';
+      } catch (_) {
+        // Permissions API not supported — fall through
+      }
+
+      // Step 1: Enumerate devices (always works, even without permission)
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+      // Step 2: If permission is already granted, try getUserMedia to get
+      // proper device labels. Only do this when permission is already granted
+      // to avoid failing without a user gesture (common in SPA navigation).
+      const labelsAreMissing = videoDevices.length > 0 &&
+        videoDevices.some(d => !d.label);
+
+      if (permissionGranted && (videoDevices.length === 0 || labelsAreMissing)) {
+        try {
+          const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          tempStream.getTracks().forEach(t => t.stop());
+          devices = await navigator.mediaDevices.enumerateDevices();
+          videoDevices = devices.filter(d => d.kind === 'videoinput');
+        } catch (permErr) {
+          console.warn('getUserMedia failed despite permission:', permErr.name);
+          // Continue with what we have — don't bail out
+        }
+      }
+
+      // Step 3: Always populate the dropdown if we have any devices,
+      // even with generic labels (e.g. "Camera 1", "Camera 2").
+      // This ensures the dropdown is never empty after SPA navigation.
+      if (videoDevices.length === 0) {
+        // No devices at all — if permission wasn't granted yet, the first
+        // camera toggle/selection will trigger getUserMedia with a real gesture.
+        if (!permissionGranted) {
+          // Show a helpful message but don't block — user can grant permission
+          // by clicking the camera toggle button.
+          placeholder.querySelector('p').textContent =
+            'Click the camera button to allow camera access.';
+        } else {
+          placeholder.querySelector('p').textContent =
+            'No camera devices found on this device.';
+        }
+        return;
+      }
+
+      populateCameraList(videoDevices);
+
+    } catch (err) {
+      console.error('Camera initialization error:', err);
+      placeholder.querySelector('p').textContent =
+        'Could not detect cameras. Please check permissions and reload.';
+    }
   })();
+
+  // ─── Refresh dropdown labels after gaining permission ───
+  // NOTE: This directly updates option labels WITHOUT calling populateCameraList
+  // to avoid infinite recursion (populateCameraList → startCamera → refreshCameraLabels).
+  async function refreshCameraLabels() {
+    try {
+      var devices = await navigator.mediaDevices.enumerateDevices();
+      var videoDevices = devices.filter(d => d.kind === 'videoinput');
+      if (videoDevices.length > 0 && videoDevices.some(d => d.label)) {
+        var currentValue = cameraSelect.value;
+        // Update labels in-place without triggering startCamera
+        while (cameraSelect.options.length > 1) cameraSelect.remove(1);
+        videoDevices.forEach(function(d, i) {
+          var opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || ('Camera ' + (i + 1));
+          cameraSelect.appendChild(opt);
+        });
+        // Restore previous selection
+        if (currentValue) {
+          var stillExists = Array.from(cameraSelect.options).some(function(o) { return o.value === currentValue; });
+          if (stillExists) cameraSelect.value = currentValue;
+        }
+      }
+    } catch (_) { /* ignore */ }
+  }
 
   // ─── Camera Functions ───
   async function startCamera(deviceId) {
@@ -174,7 +285,11 @@
       cameraStream = await navigator.mediaDevices.getUserMedia({
         video: { deviceId: { exact: deviceId } }
       });
+      // Store on window so SPA re-entry can clean it up
+      window.__ailisto_stream = cameraStream;
       videoEl.srcObject = cameraStream;
+      // Explicitly play — autoplay attribute is unreliable after SPA DOM swap
+      try { await videoEl.play(); } catch (_) {}
       videoEl.style.display = 'block';
       canvasEl.style.display = 'block';
       placeholder.style.display = 'none';
@@ -182,6 +297,9 @@
       isCameraReady = true;
       updateBadge();
       updateControls();
+
+      // Now that we have permission, refresh dropdown with proper labels
+      refreshCameraLabels();
     } catch (err) {
       console.error('Camera error:', err);
     }
@@ -191,6 +309,7 @@
     if (cameraStream) {
       cameraStream.getTracks().forEach(t => t.stop());
       cameraStream = null;
+      window.__ailisto_stream = null;
     }
     videoEl.style.display = 'none';
     canvasEl.style.display = 'none';
@@ -200,26 +319,52 @@
     updateControls();
   }
 
-  function toggleCamera() {
+  async function toggleCamera() {
     cameraToggle = !cameraToggle;
     localStorage.setItem('cameraToggle', cameraToggle ? 'on' : 'off');
     updateToggleIcon();
 
-    if (cameraToggle && cameraSelect.value) {
-      startCamera(cameraSelect.value);
+    if (cameraToggle) {
+      // If the dropdown is empty (permission wasn't granted during init),
+      // request permission now — this has a real user gesture.
+      if (!cameraSelect.value && cameraSelect.options.length <= 1) {
+        try {
+          var tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          tempStream.getTracks().forEach(t => t.stop());
+          var devices = await navigator.mediaDevices.enumerateDevices();
+          var videoDevices = devices.filter(d => d.kind === 'videoinput');
+          if (videoDevices.length > 0) {
+            populateCameraList(videoDevices);
+          }
+        } catch (permErr) {
+          console.warn('Camera permission denied:', permErr.name);
+          cameraToggle = false;
+          localStorage.setItem('cameraToggle', 'off');
+          updateToggleIcon();
+          return;
+        }
+      }
+      if (cameraSelect.value) {
+        startCamera(cameraSelect.value);
+      }
     } else {
       stopCamera();
     }
   }
 
   function updateToggleIcon() {
+    // cam-on-icon = normal camera (shown when camera is ON)
+    // cam-off-icon = slashed camera (shown when camera is OFF)
     camOnIcon.style.display  = cameraToggle ? 'block' : 'none';
     camOffIcon.style.display = cameraToggle ? 'none'  : 'block';
   }
 
   function handleCameraChange() {
-    if (cameraSelect.value && cameraToggle) {
-      startCamera(cameraSelect.value);
+    if (cameraSelect.value) {
+      localStorage.setItem('selectedCameraId', cameraSelect.value);
+      if (cameraToggle) {
+        startCamera(cameraSelect.value);
+      }
     }
   }
 
@@ -325,7 +470,7 @@
   }
 
   // ─── Simulated attention (demo) ───
-  let simInterval = null;
+  // simInterval declared in state section above
   function simulateAttention() {
     if (simInterval) clearInterval(simInterval);
     simInterval = setInterval(() => {
@@ -355,5 +500,13 @@
 
   // Enable start button when class is selected
   classSelect.addEventListener('change', updateControls);
+
+  // ─── Expose functions for onclick attributes (needed inside IIFE) ───
+  window.toggleCamera = toggleCamera;
+  window.handleCameraChange = handleCameraChange;
+  window.startSession = startSession;
+  window.pauseSession = pauseSession;
+  window.endSession = endSession;
+})();
 </script>
 {% endblock %}
