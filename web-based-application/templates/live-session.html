@@ -638,30 +638,33 @@
       fetch("/api/yolo-health")
         .then((r) => r.json())
         .then((data) => {
+          console.log("YOLO health:", JSON.stringify(data));
           if (!data.reachable) {
-            showYoloError(
-              "YOLO Server Unreachable",
-              data.error || "Could not reach the inference server.",
-            );
+            var detail = data.error || "Could not reach the inference server.";
+            if (data.tried) {
+              detail += "\n\nEndpoints tried:";
+              for (var p in data.tried) {
+                var info = data.tried[p];
+                detail +=
+                  "\n" +
+                  p +
+                  " → " +
+                  (info.error ||
+                    "HTTP " + info.status + " (" + info.content_type + ")");
+              }
+            }
+            showYoloError("YOLO Server Unreachable", detail);
             return;
           }
-          // Server is up — load the stream
-          yoloStatusSub.textContent = "Server found. Loading stream\u2026";
-          yoloStream.onload = function () {
-            // First frame arrived
-            yoloStatusOverlay.style.display = "none";
-            yoloStream.style.display = "block";
-            attentionStatus.textContent = "Updated in real-time";
-            aiInsight.textContent = "Monitoring student attention\u2026";
-            simulateAttention();
-          };
-          yoloStream.onerror = function () {
-            showYoloError(
-              "Stream Failed",
-              "Connected to server but stream could not load. Check the YOLO server logs.",
-            );
-          };
+          // Server is up — show the stream immediately.
+          // MJPEG streams never fire 'onload' (they never finish loading),
+          // so we display the <img> right away and hide the overlay.
           yoloStream.src = "/proxy/yolo-stream";
+          yoloStream.style.display = "block";
+          yoloStatusOverlay.style.display = "none";
+          attentionStatus.textContent = "Updated in real-time";
+          aiInsight.textContent = "Monitoring student attention\u2026";
+          simulateAttention();
         })
         .catch(() => {
           showYoloError(
