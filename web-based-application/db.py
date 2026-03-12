@@ -97,6 +97,16 @@ def init_db():
 
 # ─── Password Hashing ────────────────────────────────────────────────
 
+def update_user_password(user_id: int, new_password: str):
+    """Hash and persist a new password for the given user."""
+    hashed = hash_password(new_password)
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE users SET password = %s WHERE id = %s",
+            (hashed, user_id),
+        )
+
+
 def hash_password(password: str) -> str:
     """Hash a password with scrypt + random salt. Returns 'hex.salt'."""
     salt = secrets.token_hex(16)

@@ -1,5 +1,7 @@
 import os
 import json
+import logging
+import requests
 from functools import wraps
 from datetime import datetime
 
@@ -120,6 +122,119 @@ def register():
         return redirect(url_for("login"))
 
     return render_template("register.html")
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        email = request.form.get("email", "").strip()
+
+        if not email:
+            if is_ajax:
+                return jsonify({"error": "Email is required.", "field": "email"}), 400
+            return render_template("forgot-password.html")
+
+        if "@" not in email:
+            if is_ajax:
+                return jsonify({"error": "Please enter a valid email address.", "field": "email"}), 400
+            return render_template("forgot-password.html")
+
+        supabase_url = os.environ.get("SUPABASE_URL", "")
+        supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+        app_url = os.environ.get("APP_URL", request.host_url.rstrip("/"))
+        redirect_to = f"{app_url}/reset-password"
+
+        if supabase_url and supabase_anon_key:
+            try:
+                resp = requests.post(
+                    f"{supabase_url}/auth/v1/recover",
+                    json={"email": email},
+                    params={"redirect_to": redirect_to},
+                    headers={"apikey": supabase_anon_key, "Content-Type": "application/json"},
+                    timeout=10,
+                )
+                if not resp.ok:
+                    logging.error("Supabase recover error: %s %s", resp.status_code, resp.text)
+            except Exception as exc:
+                logging.error("Supabase recover request failed: %s", exc)
+        else:
+            logging.warning("SUPABASE_URL or SUPABASE_ANON_KEY not set — reset email not sent for %s", email)
+
+        # Always return success to avoid revealing which emails are registered
+        if is_ajax:
+            return jsonify({"success": True})
+        return render_template("forgot-password.html")
+
+    return render_template("forgot-password.html")
+
+
+@app.route("/reset-password", methods=["GET", "POST"])
+def reset_password():
+    if request.method == "POST":
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        access_token = request.form.get("access_token", "").strip()
+        new_password = request.form.get("password", "")
+        confirm = request.form.get("confirmPassword", "")
+
+        if not access_token:
+            if is_ajax:
+                return jsonify({"error": "Invalid or missing reset token."}), 400
+            return render_template("reset-password.html")
+
+        # Validate the Supabase access token and retrieve the user's email
+        supabase_url = os.environ.get("SUPABASE_URL", "")
+        supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+        try:
+            user_resp = requests.get(
+                f"{supabase_url}/auth/v1/user",
+                headers={
+                    "apikey": supabase_anon_key,
+                    "Authorization": f"Bearer {access_token}",
+                },
+                timeout=10,
+            )
+        except Exception as exc:
+            logging.error("Supabase user lookup failed: %s", exc)
+            if is_ajax:
+                return jsonify({"error": "Could not verify reset token. Please try again."}), 503
+            return render_template("reset-password.html")
+
+        if user_resp.status_code != 200:
+            if is_ajax:
+                return jsonify({"error": "This reset link is invalid or has expired."}), 400
+            return render_template("reset-password.html")
+
+        email = user_resp.json().get("email", "")
+
+        if not new_password:
+            if is_ajax:
+                return jsonify({"error": "Password is required.", "field": "password"}), 400
+            return render_template("reset-password.html")
+
+        if len(new_password) < 6:
+            if is_ajax:
+                return jsonify({"error": "Password must be at least 6 characters.", "field": "password"}), 400
+            return render_template("reset-password.html")
+
+        if new_password != confirm:
+            if is_ajax:
+                return jsonify({"error": "Passwords do not match.", "field": "confirmPassword"}), 400
+            return render_template("reset-password.html")
+
+        user = db.get_user_by_email(email)
+        if not user:
+            if is_ajax:
+                return jsonify({"error": "No account found for this email."}), 404
+            return render_template("reset-password.html")
+
+        db.update_user_password(user["id"], new_password)
+
+        if is_ajax:
+            return jsonify({"success": True, "redirect": url_for("login")})
+        return redirect(url_for("login"))
+
+    return render_template("reset-password.html")
 
 
 @app.route("/logout")
