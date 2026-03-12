@@ -44,6 +44,35 @@ def current_user() -> dict | None:
 
 # ─── Auth Pages ──────────────────────────────────────────────────────
 
+def create_supabase_auth_user(email: str, password: str):
+    """Mirror a new user into Supabase auth.users via the Admin API.
+    Requires SUPABASE_SERVICE_ROLE_KEY in .env.
+    Failures are logged but do NOT block registration.
+    """
+    supabase_url      = os.environ.get("SUPABASE_URL", "")
+    service_role_key  = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not service_role_key:
+        logging.warning("SUPABASE_SERVICE_ROLE_KEY not set — skipping auth.users sync for %s", email)
+        return
+    try:
+        resp = requests.post(
+            f"{supabase_url}/auth/v1/admin/users",
+            json={"email": email, "password": password, "email_confirm": True},
+            headers={
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+        if resp.status_code == 422:
+            # User already exists in auth.users — not an error
+            return
+        if not resp.ok:
+            logging.error("Supabase admin create user error: %s %s", resp.status_code, resp.text)
+    except Exception as exc:
+        logging.error("Supabase admin create user request failed: %s", exc)
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -117,6 +146,7 @@ def register():
             return render_template("register.html")
 
         db.create_user(email, password, first_name, last_name)
+        create_supabase_auth_user(email, password)
         if is_ajax:
             return jsonify({"success": True, "redirect": url_for("login")})
         return redirect(url_for("login"))
