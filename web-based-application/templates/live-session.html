@@ -1,17 +1,14 @@
-{% extends "_layout.html" %}
-
-{% block title %}Live Session - Ai-Listo{% endblock %}
-
-{% block head %}
+{% extends "_layout.html" %} {% block title %}Live Session - Ai-Listo{% endblock
+%} {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-{% endblock %}
-
-{% block content %}
+{% endblock %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
   <div>
     <h2 class="page-title">Live Session</h2>
-    <p class="page-subtitle">Monitor student attention in real-time using AI-powered analysis.</p>
+    <p class="page-subtitle">
+      Monitor student attention in real-time using AI-powered analysis.
+    </p>
   </div>
 
   <!-- Two-column layout: Video + Stats -->
@@ -21,21 +18,67 @@
       <!-- Camera Controls Row -->
       <div class="camera-controls">
         <!-- Camera Toggle -->
-        <button id="camera-toggle-btn" class="btn btn-outline btn-icon" title="Toggle Camera" onclick="toggleCamera()">
-          <svg id="cam-on-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-          <svg id="cam-off-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.6 14.4L23 17V7l-6.4 3.6"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        <button
+          id="camera-toggle-btn"
+          class="btn btn-outline btn-icon"
+          title="Toggle Camera"
+          onclick="toggleCamera()"
+        >
+          <svg
+            id="cam-on-icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            style="display: none"
+          >
+            <polygon points="23 7 16 12 23 17 23 7" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+          <svg
+            id="cam-off-icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M16.6 14.4L23 17V7l-6.4 3.6" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
         </button>
 
         <!-- Camera Select -->
-        <select id="camera-select" class="form-select" style="flex:1;" onchange="handleCameraChange()">
+        <select
+          id="camera-select"
+          class="form-select"
+          style="flex: 1"
+          onchange="handleCameraChange()"
+        >
           <option value="">Choose a camera...</option>
         </select>
 
         <!-- Class Select -->
-        <select id="class-select" class="form-select" style="width: 220px; flex-shrink: 0;">
+        <select
+          id="class-select"
+          class="form-select"
+          style="width: 220px; flex-shrink: 0"
+        >
           <option value="">Select Class</option>
           {% for subj in subjects %}
-          <option value="{{ subj.id }}">{{ subj.name }} ({{ subj.section }})</option>
+          <option value="{{ subj.id }}">
+            {{ subj.name }} ({{ subj.section }})
+          </option>
           {% endfor %}
         </select>
       </div>
@@ -43,11 +86,123 @@
       <!-- Video Area -->
       <div class="video-wrapper" id="video-container">
         <!-- Camera preview (when active) -->
-        <video id="user-video" autoplay muted playsinline style="display:none;"></video>
-        <canvas id="overlay-canvas" width="800" height="450" style="display:none;"></canvas>
+        <video
+          id="user-video"
+          autoplay
+          muted
+          playsinline
+          style="display: none"
+        ></video>
+        <canvas
+          id="overlay-canvas"
+          width="800"
+          height="450"
+          style="display: none"
+        ></canvas>
+
+        <!-- YOLO inference stream (shown when session is active) -->
+        <img
+          id="yolo-stream"
+          src=""
+          alt="YOLO detection stream"
+          style="
+            display: none;
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: inherit;
+          "
+        />
+
+        <!-- Connecting / error overlay -->
+        <div
+          id="yolo-status-overlay"
+          style="
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 15, 30, 0.82);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 0.75rem;
+            color: #fff;
+            border-radius: inherit;
+            z-index: 5;
+          "
+        >
+          <div
+            id="yolo-spinner"
+            style="
+              width: 36px;
+              height: 36px;
+              border: 3px solid rgba(255, 255, 255, 0.2);
+              border-top-color: #fff;
+              border-radius: 50%;
+              animation: spin 0.7s linear infinite;
+            "
+          ></div>
+          <p
+            id="yolo-status-text"
+            style="
+              font-size: 0.9rem;
+              font-weight: 500;
+              font-family: var(--font-display);
+            "
+          >
+            Connecting to YOLO server…
+          </p>
+          <p
+            id="yolo-status-sub"
+            style="
+              font-size: 0.75rem;
+              color: rgba(255, 255, 255, 0.6);
+              margin-top: -0.5rem;
+            "
+          ></p>
+        </div>
+
+        <!-- Paused overlay (shown over the YOLO stream when session is paused) -->
+        <div
+          id="paused-overlay"
+          style="
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 0.75rem;
+            color: #fff;
+            border-radius: inherit;
+          "
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <rect x="6" y="4" width="4" height="16" />
+            <rect x="14" y="4" width="4" height="16" />
+          </svg>
+          <p
+            style="
+              font-size: 1.125rem;
+              font-weight: 600;
+              font-family: var(--font-display);
+            "
+          >
+            Session Paused
+          </p>
+        </div>
 
         <!-- Status badge -->
-        <div class="video-badge" id="video-badge" style="display:none;">
+        <div class="video-badge" id="video-badge" style="display: none">
           <div class="video-badge-dot ready" id="badge-dot"></div>
           <span id="badge-text">CAMERA PREVIEW</span>
         </div>
@@ -55,7 +210,20 @@
         <!-- Placeholder (when no camera) -->
         <div class="video-placeholder" id="video-placeholder">
           <div class="video-placeholder-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </svg>
           </div>
           <p class="text-sm">Select a camera to start preview</p>
         </div>
@@ -63,8 +231,23 @@
 
       <!-- Session Control Buttons -->
       <div class="session-controls" id="session-controls">
-        <button id="start-btn" class="btn btn-emerald btn-lg" disabled onclick="startSession()">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <button
+          id="start-btn"
+          class="btn btn-emerald btn-lg"
+          disabled
+          onclick="startSession()"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
           Start Session
         </button>
       </div>
@@ -77,17 +260,37 @@
         <div class="attention-score-display">
           <p class="stat-label">Current Attention Score</p>
           <div class="attention-score-value" id="attention-value">--%</div>
-          <p class="text-xs" style="color: var(--text-400);" id="attention-status">Updated in real-time</p>
+          <p
+            class="text-xs"
+            style="color: var(--text-400)"
+            id="attention-status"
+          >
+            Updated in real-time
+          </p>
         </div>
       </div>
 
       <!-- Attention Trend Mini Chart -->
-      <div class="card card-borderless" style="height: 256px;">
-        <div class="card-content" style="height:100%;">
-          <p class="stat-label" style="margin-bottom: 1rem;">Attention Trend (Last 1m)</p>
-          <div style="height: 160px; position: relative;">
+      <div class="card card-borderless" style="height: 256px">
+        <div class="card-content" style="height: 100%">
+          <p class="stat-label" style="margin-bottom: 1rem">
+            Attention Trend (Last 1m)
+          </p>
+          <div style="height: 160px; position: relative">
             <canvas id="trendChart"></canvas>
-            <div id="trend-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-300);font-size:0.75rem;font-style:italic;">
+            <div
+              id="trend-placeholder"
+              style="
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--text-300);
+                font-size: 0.75rem;
+                font-style: italic;
+              "
+            >
               Waiting for data...
             </div>
           </div>
@@ -96,10 +299,24 @@
 
       <!-- AI Insight -->
       <div class="insight-box">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
         <div>
           <h4 class="insight-title">AI Insight</h4>
-          <p class="insight-text" id="ai-insight">Start a session to receive AI-powered insights.</p>
+          <p class="insight-text" id="ai-insight">
+            Start a session to receive AI-powered insights.
+          </p>
         </div>
       </div>
     </div>
@@ -107,406 +324,515 @@
 </div>
 
 <script>
-(function() {
-  // ─── Cleanup any previous live-session stream (SPA re-entry) ───
-  if (window.__ailisto_stream) {
-    window.__ailisto_stream.getTracks().forEach(t => t.stop());
-    window.__ailisto_stream = null;
-  }
-
-  // ─── State ───
-  var cameraStream = null;
-  var isCameraReady = false;
-  var isSessionActive = false;
-  var isPaused = false;
-  var cameraToggle = localStorage.getItem('cameraToggle') === 'on';
-  var attentionHistory = [];
-  var trendChart = null;
-  var simInterval = null;
-
-  var videoEl        = document.getElementById('user-video');
-  var canvasEl       = document.getElementById('overlay-canvas');
-  var placeholder    = document.getElementById('video-placeholder');
-  var badge          = document.getElementById('video-badge');
-  var badgeDot       = document.getElementById('badge-dot');
-  var badgeText      = document.getElementById('badge-text');
-  var cameraSelect   = document.getElementById('camera-select');
-  var classSelect    = document.getElementById('class-select');
-  var startBtn       = document.getElementById('start-btn');
-  var controls       = document.getElementById('session-controls');
-  var camOnIcon      = document.getElementById('cam-on-icon');
-  var camOffIcon     = document.getElementById('cam-off-icon');
-  var attentionValue = document.getElementById('attention-value');
-  var attentionStatus= document.getElementById('attention-status');
-  var aiInsight      = document.getElementById('ai-insight');
-  var trendPlaceholder = document.getElementById('trend-placeholder');
-
-  // ─── Register SPA cleanup (called before DOM swap) ───
-  window.__pageCleanup = function() {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(t => t.stop());
-      cameraStream = null;
+  (function () {
+    // ─── Cleanup any previous live-session stream (SPA re-entry) ───
+    if (window.__ailisto_stream) {
+      window.__ailisto_stream.getTracks().forEach((t) => t.stop());
       window.__ailisto_stream = null;
     }
-    if (simInterval) {
-      clearInterval(simInterval);
-      simInterval = null;
-    }
-  };
 
-  // ─── Initialize ───
-  function populateCameraList(videoDevices) {
-    // Clear existing options except the placeholder
-    while (cameraSelect.options.length > 1) {
-      cameraSelect.remove(1);
-    }
-    videoDevices.forEach((d, i) => {
-      const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Camera ${i + 1}`;
-      cameraSelect.appendChild(opt);
-    });
+    // ─── State ───
+    var cameraStream = null;
+    var isCameraReady = false;
+    var isSessionActive = false;
+    var isPaused = false;
+    var cameraToggle = localStorage.getItem("cameraToggle") === "on";
+    var attentionHistory = [];
+    var trendChart = null;
+    var simInterval = null;
 
-    if (videoDevices.length > 0) {
-      // Restore previously selected camera, or use the first one
-      const savedDeviceId = localStorage.getItem('selectedCameraId');
-      const savedExists = videoDevices.some(d => d.deviceId === savedDeviceId);
-      cameraSelect.value = savedExists ? savedDeviceId : videoDevices[0].deviceId;
+    var videoEl = document.getElementById("user-video");
+    var canvasEl = document.getElementById("overlay-canvas");
+    var placeholder = document.getElementById("video-placeholder");
+    var badge = document.getElementById("video-badge");
+    var badgeDot = document.getElementById("badge-dot");
+    var badgeText = document.getElementById("badge-text");
+    var cameraSelect = document.getElementById("camera-select");
+    var classSelect = document.getElementById("class-select");
+    var startBtn = document.getElementById("start-btn");
+    var controls = document.getElementById("session-controls");
+    var camOnIcon = document.getElementById("cam-on-icon");
+    var camOffIcon = document.getElementById("cam-off-icon");
+    var attentionValue = document.getElementById("attention-value");
+    var attentionStatus = document.getElementById("attention-status");
+    var aiInsight = document.getElementById("ai-insight");
+    var trendPlaceholder = document.getElementById("trend-placeholder");
+    var yoloStream = document.getElementById("yolo-stream");
+    var pausedOverlay = document.getElementById("paused-overlay");
+    var yoloStatusOverlay = document.getElementById("yolo-status-overlay");
+    var yoloSpinner = document.getElementById("yolo-spinner");
+    var yoloStatusText = document.getElementById("yolo-status-text");
+    var yoloStatusSub = document.getElementById("yolo-status-sub");
 
-      if (cameraToggle) {
-        startCamera(cameraSelect.value);
+    // ─── Register SPA cleanup (called before DOM swap) ───
+    window.__pageCleanup = function () {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((t) => t.stop());
+        cameraStream = null;
+        window.__ailisto_stream = null;
       }
-    }
-  }
-
-  (async function init() {
-    updateToggleIcon();
-    initTrendChart();
-
-    // Check if mediaDevices API is available
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      console.warn('mediaDevices API not available');
-      placeholder.querySelector('p').textContent =
-        'Camera API not available. Please use HTTPS or localhost.';
-      return;
-    }
-
-    try {
-      // Check if camera permission is already granted
-      let permissionGranted = false;
-      try {
-        const permStatus = await navigator.permissions.query({ name: 'camera' });
-        permissionGranted = permStatus.state === 'granted';
-      } catch (_) {
-        // Permissions API not supported — fall through
+      if (simInterval) {
+        clearInterval(simInterval);
+        simInterval = null;
       }
+      if (yoloStream) yoloStream.src = "";
+    };
 
-      // Step 1: Enumerate devices (always works, even without permission)
-      let devices = await navigator.mediaDevices.enumerateDevices();
-      let videoDevices = devices.filter(d => d.kind === 'videoinput');
+    // ─── Initialize ───
+    function populateCameraList(videoDevices) {
+      // Clear existing options except the placeholder
+      while (cameraSelect.options.length > 1) {
+        cameraSelect.remove(1);
+      }
+      videoDevices.forEach((d, i) => {
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Camera ${i + 1}`;
+        cameraSelect.appendChild(opt);
+      });
 
-      // Step 2: If permission is already granted, try getUserMedia to get
-      // proper device labels. Only do this when permission is already granted
-      // to avoid failing without a user gesture (common in SPA navigation).
-      const labelsAreMissing = videoDevices.length > 0 &&
-        videoDevices.some(d => !d.label);
+      if (videoDevices.length > 0) {
+        // Restore previously selected camera, or use the first one
+        const savedDeviceId = localStorage.getItem("selectedCameraId");
+        const savedExists = videoDevices.some(
+          (d) => d.deviceId === savedDeviceId,
+        );
+        cameraSelect.value = savedExists
+          ? savedDeviceId
+          : videoDevices[0].deviceId;
 
-      if (permissionGranted && (videoDevices.length === 0 || labelsAreMissing)) {
-        try {
-          const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-          tempStream.getTracks().forEach(t => t.stop());
-          devices = await navigator.mediaDevices.enumerateDevices();
-          videoDevices = devices.filter(d => d.kind === 'videoinput');
-        } catch (permErr) {
-          console.warn('getUserMedia failed despite permission:', permErr.name);
-          // Continue with what we have — don't bail out
+        if (cameraToggle) {
+          startCamera(cameraSelect.value);
         }
       }
+    }
 
-      // Step 3: Always populate the dropdown if we have any devices,
-      // even with generic labels (e.g. "Camera 1", "Camera 2").
-      // This ensures the dropdown is never empty after SPA navigation.
-      if (videoDevices.length === 0) {
-        // No devices at all — if permission wasn't granted yet, the first
-        // camera toggle/selection will trigger getUserMedia with a real gesture.
-        if (!permissionGranted) {
-          // Show a helpful message but don't block — user can grant permission
-          // by clicking the camera toggle button.
-          placeholder.querySelector('p').textContent =
-            'Click the camera button to allow camera access.';
-        } else {
-          placeholder.querySelector('p').textContent =
-            'No camera devices found on this device.';
-        }
+    (async function init() {
+      updateToggleIcon();
+      initTrendChart();
+
+      // Check if mediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        console.warn("mediaDevices API not available");
+        placeholder.querySelector("p").textContent =
+          "Camera API not available. Please use HTTPS or localhost.";
         return;
       }
 
-      populateCameraList(videoDevices);
-
-    } catch (err) {
-      console.error('Camera initialization error:', err);
-      placeholder.querySelector('p').textContent =
-        'Could not detect cameras. Please check permissions and reload.';
-    }
-  })();
-
-  // ─── Refresh dropdown labels after gaining permission ───
-  // NOTE: This directly updates option labels WITHOUT calling populateCameraList
-  // to avoid infinite recursion (populateCameraList → startCamera → refreshCameraLabels).
-  async function refreshCameraLabels() {
-    try {
-      var devices = await navigator.mediaDevices.enumerateDevices();
-      var videoDevices = devices.filter(d => d.kind === 'videoinput');
-      if (videoDevices.length > 0 && videoDevices.some(d => d.label)) {
-        var currentValue = cameraSelect.value;
-        // Update labels in-place without triggering startCamera
-        while (cameraSelect.options.length > 1) cameraSelect.remove(1);
-        videoDevices.forEach(function(d, i) {
-          var opt = document.createElement('option');
-          opt.value = d.deviceId;
-          opt.textContent = d.label || ('Camera ' + (i + 1));
-          cameraSelect.appendChild(opt);
-        });
-        // Restore previous selection
-        if (currentValue) {
-          var stillExists = Array.from(cameraSelect.options).some(function(o) { return o.value === currentValue; });
-          if (stillExists) cameraSelect.value = currentValue;
-        }
-      }
-    } catch (_) { /* ignore */ }
-  }
-
-  // ─── Camera Functions ───
-  async function startCamera(deviceId) {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(t => t.stop());
-    }
-    try {
-      cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId } }
-      });
-      // Store on window so SPA re-entry can clean it up
-      window.__ailisto_stream = cameraStream;
-      videoEl.srcObject = cameraStream;
-      // Explicitly play — autoplay attribute is unreliable after SPA DOM swap
-      try { await videoEl.play(); } catch (_) {}
-      videoEl.style.display = 'block';
-      canvasEl.style.display = 'block';
-      placeholder.style.display = 'none';
-      badge.style.display = 'flex';
-      isCameraReady = true;
-      updateBadge();
-      updateControls();
-
-      // Now that we have permission, refresh dropdown with proper labels
-      refreshCameraLabels();
-    } catch (err) {
-      console.error('Camera error:', err);
-    }
-  }
-
-  function stopCamera() {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(t => t.stop());
-      cameraStream = null;
-      window.__ailisto_stream = null;
-    }
-    videoEl.style.display = 'none';
-    canvasEl.style.display = 'none';
-    placeholder.style.display = 'flex';
-    badge.style.display = 'none';
-    isCameraReady = false;
-    updateControls();
-  }
-
-  async function toggleCamera() {
-    cameraToggle = !cameraToggle;
-    localStorage.setItem('cameraToggle', cameraToggle ? 'on' : 'off');
-    updateToggleIcon();
-
-    if (cameraToggle) {
-      // If the dropdown is empty (permission wasn't granted during init),
-      // request permission now — this has a real user gesture.
-      if (!cameraSelect.value && cameraSelect.options.length <= 1) {
+      try {
+        // Check if camera permission is already granted
+        let permissionGranted = false;
         try {
-          var tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-          tempStream.getTracks().forEach(t => t.stop());
-          var devices = await navigator.mediaDevices.enumerateDevices();
-          var videoDevices = devices.filter(d => d.kind === 'videoinput');
-          if (videoDevices.length > 0) {
-            populateCameraList(videoDevices);
+          const permStatus = await navigator.permissions.query({
+            name: "camera",
+          });
+          permissionGranted = permStatus.state === "granted";
+        } catch (_) {
+          // Permissions API not supported — fall through
+        }
+
+        // Step 1: Enumerate devices (always works, even without permission)
+        let devices = await navigator.mediaDevices.enumerateDevices();
+        let videoDevices = devices.filter((d) => d.kind === "videoinput");
+
+        // Step 2: If permission is already granted, try getUserMedia to get
+        // proper device labels. Only do this when permission is already granted
+        // to avoid failing without a user gesture (common in SPA navigation).
+        const labelsAreMissing =
+          videoDevices.length > 0 && videoDevices.some((d) => !d.label);
+
+        if (
+          permissionGranted &&
+          (videoDevices.length === 0 || labelsAreMissing)
+        ) {
+          try {
+            const tempStream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+            });
+            tempStream.getTracks().forEach((t) => t.stop());
+            devices = await navigator.mediaDevices.enumerateDevices();
+            videoDevices = devices.filter((d) => d.kind === "videoinput");
+          } catch (permErr) {
+            console.warn(
+              "getUserMedia failed despite permission:",
+              permErr.name,
+            );
+            // Continue with what we have — don't bail out
           }
-        } catch (permErr) {
-          console.warn('Camera permission denied:', permErr.name);
-          cameraToggle = false;
-          localStorage.setItem('cameraToggle', 'off');
-          updateToggleIcon();
+        }
+
+        // Step 3: Always populate the dropdown if we have any devices,
+        // even with generic labels (e.g. "Camera 1", "Camera 2").
+        // This ensures the dropdown is never empty after SPA navigation.
+        if (videoDevices.length === 0) {
+          // No devices at all — if permission wasn't granted yet, the first
+          // camera toggle/selection will trigger getUserMedia with a real gesture.
+          if (!permissionGranted) {
+            // Show a helpful message but don't block — user can grant permission
+            // by clicking the camera toggle button.
+            placeholder.querySelector("p").textContent =
+              "Click the camera button to allow camera access.";
+          } else {
+            placeholder.querySelector("p").textContent =
+              "No camera devices found on this device.";
+          }
           return;
         }
+
+        populateCameraList(videoDevices);
+      } catch (err) {
+        console.error("Camera initialization error:", err);
+        placeholder.querySelector("p").textContent =
+          "Could not detect cameras. Please check permissions and reload.";
       }
-      if (cameraSelect.value) {
-        startCamera(cameraSelect.value);
+    })();
+
+    // ─── Refresh dropdown labels after gaining permission ───
+    // NOTE: This directly updates option labels WITHOUT calling populateCameraList
+    // to avoid infinite recursion (populateCameraList → startCamera → refreshCameraLabels).
+    async function refreshCameraLabels() {
+      try {
+        var devices = await navigator.mediaDevices.enumerateDevices();
+        var videoDevices = devices.filter((d) => d.kind === "videoinput");
+        if (videoDevices.length > 0 && videoDevices.some((d) => d.label)) {
+          var currentValue = cameraSelect.value;
+          // Update labels in-place without triggering startCamera
+          while (cameraSelect.options.length > 1) cameraSelect.remove(1);
+          videoDevices.forEach(function (d, i) {
+            var opt = document.createElement("option");
+            opt.value = d.deviceId;
+            opt.textContent = d.label || "Camera " + (i + 1);
+            cameraSelect.appendChild(opt);
+          });
+          // Restore previous selection
+          if (currentValue) {
+            var stillExists = Array.from(cameraSelect.options).some(
+              function (o) {
+                return o.value === currentValue;
+              },
+            );
+            if (stillExists) cameraSelect.value = currentValue;
+          }
+        }
+      } catch (_) {
+        /* ignore */
       }
-    } else {
-      stopCamera();
     }
-  }
 
-  function updateToggleIcon() {
-    // cam-on-icon = normal camera (shown when camera is ON)
-    // cam-off-icon = slashed camera (shown when camera is OFF)
-    camOnIcon.style.display  = cameraToggle ? 'block' : 'none';
-    camOffIcon.style.display = cameraToggle ? 'none'  : 'block';
-  }
+    // ─── Camera Functions ───
+    async function startCamera(deviceId) {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((t) => t.stop());
+      }
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: deviceId } },
+        });
+        // Store on window so SPA re-entry can clean it up
+        window.__ailisto_stream = cameraStream;
+        videoEl.srcObject = cameraStream;
+        // Explicitly play — autoplay attribute is unreliable after SPA DOM swap
+        try {
+          await videoEl.play();
+        } catch (_) {}
+        videoEl.style.display = "block";
+        canvasEl.style.display = "block";
+        placeholder.style.display = "none";
+        badge.style.display = "flex";
+        isCameraReady = true;
+        updateBadge();
+        updateControls();
 
-  function handleCameraChange() {
-    if (cameraSelect.value) {
-      localStorage.setItem('selectedCameraId', cameraSelect.value);
+        // Now that we have permission, refresh dropdown with proper labels
+        refreshCameraLabels();
+      } catch (err) {
+        console.error("Camera error:", err);
+      }
+    }
+
+    function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((t) => t.stop());
+        cameraStream = null;
+        window.__ailisto_stream = null;
+      }
+      videoEl.style.display = "none";
+      canvasEl.style.display = "none";
+      placeholder.style.display = "flex";
+      badge.style.display = "none";
+      isCameraReady = false;
+      updateControls();
+    }
+
+    async function toggleCamera() {
+      cameraToggle = !cameraToggle;
+      localStorage.setItem("cameraToggle", cameraToggle ? "on" : "off");
+      updateToggleIcon();
+
       if (cameraToggle) {
-        startCamera(cameraSelect.value);
+        // If the dropdown is empty (permission wasn't granted during init),
+        // request permission now — this has a real user gesture.
+        if (!cameraSelect.value && cameraSelect.options.length <= 1) {
+          try {
+            var tempStream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+            });
+            tempStream.getTracks().forEach((t) => t.stop());
+            var devices = await navigator.mediaDevices.enumerateDevices();
+            var videoDevices = devices.filter((d) => d.kind === "videoinput");
+            if (videoDevices.length > 0) {
+              populateCameraList(videoDevices);
+            }
+          } catch (permErr) {
+            console.warn("Camera permission denied:", permErr.name);
+            cameraToggle = false;
+            localStorage.setItem("cameraToggle", "off");
+            updateToggleIcon();
+            return;
+          }
+        }
+        if (cameraSelect.value) {
+          startCamera(cameraSelect.value);
+        }
+      } else {
+        stopCamera();
       }
     }
-  }
 
-  // ─── Session Functions ───
-  function startSession() {
-    if (!isCameraReady || !classSelect.value) return;
-    isSessionActive = true;
-    isPaused = false;
-    updateBadge();
-    updateControls();
-    attentionStatus.textContent = 'Updated in real-time';
-    aiInsight.textContent = 'Monitoring student attention...';
-    simulateAttention();
-  }
-
-  function pauseSession() {
-    isPaused = !isPaused;
-    updateBadge();
-    updateControls();
-    attentionStatus.textContent = isPaused ? 'Monitoring paused' : 'Updated in real-time';
-    aiInsight.textContent = isPaused ? 'Session is paused. Resume to continue monitoring.' : 'Monitoring student attention...';
-  }
-
-  function endSession() {
-    isSessionActive = false;
-    isPaused = false;
-    attentionHistory = [];
-    updateBadge();
-    updateControls();
-    attentionValue.textContent = '--%';
-    attentionValue.className = 'attention-score-value';
-    attentionStatus.textContent = 'Updated in real-time';
-    aiInsight.textContent = 'Start a session to receive AI-powered insights.';
-    trendPlaceholder.style.display = 'flex';
-    if (trendChart) {
-      trendChart.data.labels = [];
-      trendChart.data.datasets[0].data = [];
-      trendChart.update();
+    function updateToggleIcon() {
+      // cam-on-icon = normal camera (shown when camera is ON)
+      // cam-off-icon = slashed camera (shown when camera is OFF)
+      camOnIcon.style.display = cameraToggle ? "block" : "none";
+      camOffIcon.style.display = cameraToggle ? "none" : "block";
     }
-  }
 
-  function updateBadge() {
-    if (!isCameraReady) return;
-    if (isSessionActive) {
-      badgeDot.className = 'video-badge-dot ' + (isPaused ? 'paused' : 'live');
-      badgeText.textContent = isPaused ? 'PAUSED' : 'LIVE FEED';
-    } else {
-      badgeDot.className = 'video-badge-dot ready';
-      badgeText.textContent = 'CAMERA PREVIEW';
+    function handleCameraChange() {
+      if (cameraSelect.value) {
+        localStorage.setItem("selectedCameraId", cameraSelect.value);
+        if (cameraToggle) {
+          startCamera(cameraSelect.value);
+        }
+      }
     }
-  }
 
-  function updateControls() {
-    startBtn.disabled = !isCameraReady || !classSelect.value;
+    // ─── Session Functions ───
+    function startSession() {
+      if (!isCameraReady || !classSelect.value) return;
+      isSessionActive = true;
+      isPaused = false;
 
-    if (isSessionActive) {
-      controls.innerHTML = `
-        <button class="btn ${isPaused ? 'btn-outline-emerald' : 'btn-outline-amber'} btn-lg" onclick="pauseSession()">
-          ${isPaused
-            ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume'
-            : '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause'}
+      // Hide local camera preview; show connecting overlay
+      videoEl.style.display = "none";
+      canvasEl.style.display = "none";
+      yoloSpinner.style.display = "block";
+      yoloStatusText.textContent = "Connecting to YOLO server\u2026";
+      yoloStatusSub.textContent = "";
+      yoloStatusOverlay.style.display = "flex";
+
+      updateBadge();
+      updateControls();
+      attentionStatus.textContent = "Connecting\u2026";
+      aiInsight.textContent = "Connecting to the YOLO inference server\u2026";
+
+      // Health-check the YOLO server from the Flask backend first
+      fetch("/api/yolo-health")
+        .then((r) => r.json())
+        .then((data) => {
+          if (!data.reachable) {
+            showYoloError(
+              "YOLO Server Unreachable",
+              data.error || "Could not reach the inference server.",
+            );
+            return;
+          }
+          // Server is up — load the stream
+          yoloStatusSub.textContent = "Server found. Loading stream\u2026";
+          yoloStream.onload = function () {
+            // First frame arrived
+            yoloStatusOverlay.style.display = "none";
+            yoloStream.style.display = "block";
+            attentionStatus.textContent = "Updated in real-time";
+            aiInsight.textContent = "Monitoring student attention\u2026";
+            simulateAttention();
+          };
+          yoloStream.onerror = function () {
+            showYoloError(
+              "Stream Failed",
+              "Connected to server but stream could not load. Check the YOLO server logs.",
+            );
+          };
+          yoloStream.src = "/proxy/yolo-stream";
+        })
+        .catch(() => {
+          showYoloError(
+            "Connection Error",
+            "Could not reach the server. Check your network.",
+          );
+        });
+    }
+
+    function showYoloError(title, detail) {
+      yoloSpinner.style.display = "none";
+      yoloStatusText.textContent = "\u26A0\uFE0F " + title;
+      yoloStatusSub.textContent = detail;
+      attentionStatus.textContent = "Server unavailable";
+      aiInsight.textContent = title + ": " + detail;
+    }
+
+    function pauseSession() {
+      isPaused = !isPaused;
+      pausedOverlay.style.display = isPaused ? "flex" : "none";
+      updateBadge();
+      updateControls();
+      attentionStatus.textContent = isPaused
+        ? "Monitoring paused"
+        : "Updated in real-time";
+      aiInsight.textContent = isPaused
+        ? "Session is paused. Resume to continue monitoring."
+        : "Monitoring student attention...";
+    }
+
+    function endSession() {
+      isSessionActive = false;
+      isPaused = false;
+      attentionHistory = [];
+
+      // Stop YOLO stream and restore camera preview
+      yoloStream.src = "";
+      yoloStream.style.display = "none";
+      yoloStatusOverlay.style.display = "none";
+      pausedOverlay.style.display = "none";
+      if (isCameraReady) {
+        videoEl.style.display = "block";
+        canvasEl.style.display = "block";
+      }
+
+      updateBadge();
+      updateControls();
+      attentionValue.textContent = "--%";
+      attentionValue.className = "attention-score-value";
+      attentionStatus.textContent = "Updated in real-time";
+      aiInsight.textContent = "Start a session to receive AI-powered insights.";
+      trendPlaceholder.style.display = "flex";
+      if (trendChart) {
+        trendChart.data.labels = [];
+        trendChart.data.datasets[0].data = [];
+        trendChart.update();
+      }
+    }
+
+    function updateBadge() {
+      if (!isCameraReady) return;
+      if (isSessionActive) {
+        badgeDot.className =
+          "video-badge-dot " + (isPaused ? "paused" : "live");
+        badgeText.textContent = isPaused ? "PAUSED" : "LIVE FEED";
+      } else {
+        badgeDot.className = "video-badge-dot ready";
+        badgeText.textContent = "CAMERA PREVIEW";
+      }
+    }
+
+    function updateControls() {
+      startBtn.disabled = !isCameraReady || !classSelect.value;
+
+      if (isSessionActive) {
+        controls.innerHTML = `
+        <button class="btn ${isPaused ? "btn-outline-emerald" : "btn-outline-amber"} btn-lg" onclick="pauseSession()">
+          ${
+            isPaused
+              ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume'
+              : '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause'
+          }
         </button>
         <button class="btn btn-destructive btn-lg" onclick="endSession()">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
           End Session
         </button>`;
-    } else {
-      controls.innerHTML = `
-        <button id="start-btn" class="btn btn-emerald btn-lg" ${!isCameraReady || !classSelect.value ? 'disabled' : ''} onclick="startSession()">
+      } else {
+        controls.innerHTML = `
+        <button id="start-btn" class="btn btn-emerald btn-lg" ${!isCameraReady || !classSelect.value ? "disabled" : ""} onclick="startSession()">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Start Session
         </button>`;
-    }
-  }
-
-  // ─── Trend Chart ───
-  function initTrendChart() {
-    const ctx = document.getElementById('trendChart').getContext('2d');
-    trendChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          data: [],
-          borderColor: '#2563eb',
-          borderWidth: 3,
-          tension: 0.3,
-          pointRadius: 0,
-          fill: false,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { display: false },
-          y: { min: 0, max: 100, display: false }
-        }
       }
-    });
-  }
+    }
 
-  // ─── Simulated attention (demo) ───
-  // simInterval declared in state section above
-  function simulateAttention() {
-    if (simInterval) clearInterval(simInterval);
-    simInterval = setInterval(() => {
-      if (!isSessionActive || isPaused) return;
+    // ─── Trend Chart ───
+    function initTrendChart() {
+      const ctx = document.getElementById("trendChart").getContext("2d");
+      trendChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              data: [],
+              borderColor: "#2563eb",
+              borderWidth: 3,
+              tension: 0.3,
+              pointRadius: 0,
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: { min: 0, max: 100, display: false },
+          },
+        },
+      });
+    }
 
-      const score = Math.floor(Math.random() * 40 + 55); // 55-95
-      attentionHistory.push({ time: Date.now(), value: score });
-      if (attentionHistory.length > 30) attentionHistory.shift();
+    // ─── Simulated attention (demo) ───
+    // simInterval declared in state section above
+    function simulateAttention() {
+      if (simInterval) clearInterval(simInterval);
+      simInterval = setInterval(() => {
+        if (!isSessionActive || isPaused) return;
 
-      // Update score display
-      attentionValue.textContent = score + '%';
-      attentionValue.className = 'attention-score-value ' +
-        (score > 80 ? 'high' : score > 60 ? 'medium' : 'low');
+        const score = Math.floor(Math.random() * 40 + 55); // 55-95
+        attentionHistory.push({ time: Date.now(), value: score });
+        if (attentionHistory.length > 30) attentionHistory.shift();
 
-      // Update insight
-      if (score > 80) aiInsight.textContent = 'Great engagement! The class seems focused.';
-      else if (score > 60) aiInsight.textContent = 'Attention is fluctuating. Try asking a question to re-engage.';
-      else aiInsight.textContent = 'Low attention detected. Consider a short break or activity change.';
+        // Update score display
+        attentionValue.textContent = score + "%";
+        attentionValue.className =
+          "attention-score-value " +
+          (score > 80 ? "high" : score > 60 ? "medium" : "low");
 
-      // Update trend chart
-      trendPlaceholder.style.display = 'none';
-      trendChart.data.labels = attentionHistory.map((_, i) => i);
-      trendChart.data.datasets[0].data = attentionHistory.map(h => h.value);
-      trendChart.update();
-    }, 2000);
-  }
+        // Update insight
+        if (score > 80)
+          aiInsight.textContent = "Great engagement! The class seems focused.";
+        else if (score > 60)
+          aiInsight.textContent =
+            "Attention is fluctuating. Try asking a question to re-engage.";
+        else
+          aiInsight.textContent =
+            "Low attention detected. Consider a short break or activity change.";
 
-  // Enable start button when class is selected
-  classSelect.addEventListener('change', updateControls);
+        // Update trend chart
+        trendPlaceholder.style.display = "none";
+        trendChart.data.labels = attentionHistory.map((_, i) => i);
+        trendChart.data.datasets[0].data = attentionHistory.map((h) => h.value);
+        trendChart.update();
+      }, 2000);
+    }
 
-  // ─── Expose functions for onclick attributes (needed inside IIFE) ───
-  window.toggleCamera = toggleCamera;
-  window.handleCameraChange = handleCameraChange;
-  window.startSession = startSession;
-  window.pauseSession = pauseSession;
-  window.endSession = endSession;
-})();
+    // Enable start button when class is selected
+    classSelect.addEventListener("change", updateControls);
+
+    // ─── Expose functions for onclick attributes (needed inside IIFE) ───
+    window.toggleCamera = toggleCamera;
+    window.handleCameraChange = handleCameraChange;
+    window.startSession = startSession;
+    window.pauseSession = pauseSession;
+    window.endSession = endSession;
+  })();
 </script>
 {% endblock %}

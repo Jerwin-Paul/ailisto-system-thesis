@@ -292,6 +292,66 @@ def live_session():
     return render_template("live-session.html", user=user, subjects=subjects)
 
 
+_YOLO_SERVER = "http://4.216.188.104:5000"
+# Common MJPEG feed paths — tried in order until one responds
+_YOLO_FEED_PATHS = ["/video_feed", "/stream", "/video", "/feed", "/"]
+
+
+def _find_yolo_feed_path():
+    """Return the first responsive feed path, or None."""
+    for path in _YOLO_FEED_PATHS:
+        try:
+            r = requests.get(
+                f"{_YOLO_SERVER}{path}",
+                stream=True,
+                timeout=(3, 2),
+            )
+            if r.status_code == 200:
+                r.close()
+                return path
+            r.close()
+        except requests.exceptions.RequestException:
+            continue
+    return None
+
+
+@app.route("/api/yolo-health")
+@login_required
+def yolo_health():
+    """Check YOLO server reachability from the Flask server."""
+    path = _find_yolo_feed_path()
+    if path:
+        return jsonify({"reachable": True, "endpoint": path})
+    return jsonify({"reachable": False, "error": f"Could not connect to {_YOLO_SERVER}"}), 502
+
+
+@app.route("/proxy/yolo-stream")
+@login_required
+def proxy_yolo_stream():
+    """Proxy the MJPEG video feed from the YOLO inference server."""
+    from flask import Response as FlaskResponse
+    # Find a working feed path
+    path = _find_yolo_feed_path()
+    if path is None:
+        logging.error("YOLO proxy: no reachable feed path on %s", _YOLO_SERVER)
+        return jsonify({"error": "YOLO server unavailable"}), 502
+    try:
+        upstream = requests.get(
+            f"{_YOLO_SERVER}{path}",
+            stream=True,
+            timeout=(5, None),
+        )
+        return FlaskResponse(
+            upstream.iter_content(chunk_size=4096),
+            content_type=upstream.headers.get(
+                "Content-Type", "multipart/x-mixed-replace; boundary=frame"
+            ),
+        )
+    except requests.exceptions.RequestException as exc:
+        logging.error("YOLO proxy error: %s", exc)
+        return jsonify({"error": "YOLO server unavailable"}), 502
+
+
 @app.route("/classes")
 @login_required
 def classes():
