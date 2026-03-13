@@ -681,7 +681,7 @@
 
       // Start inference immediately. The loop already handles retries/backoff,
       // so a separate blocking health check only creates false negatives.
-      startInferenceLoop();
+      runInferenceLoop();
     }
 
     function showYoloError(title, detail) {
