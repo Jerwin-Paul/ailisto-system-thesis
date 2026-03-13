@@ -530,6 +530,28 @@
       }
     }
 
+    function waitForVideoReady() {
+      return new Promise((resolve) => {
+        if (videoEl.readyState >= 2 && videoEl.videoWidth > 0) {
+          resolve();
+          return;
+        }
+
+        let settled = false;
+        function done() {
+          if (settled) return;
+          settled = true;
+          videoEl.removeEventListener("loadedmetadata", done);
+          videoEl.removeEventListener("loadeddata", done);
+          resolve();
+        }
+
+        videoEl.addEventListener("loadedmetadata", done, { once: true });
+        videoEl.addEventListener("loadeddata", done, { once: true });
+        setTimeout(done, 1500);
+      });
+    }
+
     // ─── Camera Functions ───
     async function startCamera(deviceId) {
       if (cameraStream) {
@@ -546,11 +568,18 @@
         try {
           await videoEl.play();
         } catch (_) {}
+        await waitForVideoReady();
         videoEl.style.display = "block";
         canvasEl.style.display = "block";
         placeholder.style.display = "none";
         badge.style.display = "flex";
         isCameraReady = true;
+
+        if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+          canvasEl.width = videoEl.videoWidth;
+          canvasEl.height = videoEl.videoHeight;
+        }
+
         updateBadge();
         updateControls();
 
@@ -792,6 +821,10 @@
       let nextDelay = 180;
 
       if (isPaused || !isCameraReady || !videoEl.videoWidth) {
+        yoloStatusText.textContent = "Waiting for camera frame...";
+        yoloStatusSub.textContent =
+          "Make sure camera preview is active before YOLO inference starts.";
+        yoloStatusOverlay.style.display = "flex";
         scheduleNextInference(160);
         return;
       }
@@ -804,9 +837,9 @@
       inferenceInFlight = true;
 
       try {
-        const targetWidth = 640;
+        const targetWidth = 320;
         const targetHeight = Math.max(
-          360,
+          180,
           Math.round((videoEl.videoHeight / videoEl.videoWidth) * targetWidth),
         );
 
@@ -851,6 +884,14 @@
             err && err.message
               ? err.message
               : "Could not process camera frame on YOLO server.";
+          yoloSpinner.style.display = "block";
+          yoloStatusText.textContent = "YOLO reconnecting...";
+          yoloStatusSub.textContent =
+            "Retrying in " +
+            (retryMs / 1000).toFixed(1) +
+            "s. Last error: " +
+            reason;
+          yoloStatusOverlay.style.display = "flex";
           attentionStatus.textContent =
             "Inference reconnecting... (attempt " + inferFailureCount + ")";
           aiInsight.textContent =
