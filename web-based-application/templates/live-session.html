@@ -649,42 +649,9 @@
       attentionStatus.textContent = "Connecting\u2026";
       aiInsight.textContent = "Connecting to the YOLO inference server\u2026";
 
-      // Health-check the YOLO server from the Flask backend first
-      fetch("/api/yolo-health")
-        .then((r) => r.json())
-        .then((data) => {
-          console.log("YOLO health:", JSON.stringify(data));
-          if (!data.reachable) {
-            var detail = data.error || "Could not reach the inference server.";
-            if (data.tried) {
-              detail += "\n\nEndpoints tried:";
-              for (var p in data.tried) {
-                var info = data.tried[p];
-                detail +=
-                  "\n" +
-                  p +
-                  " → " +
-                  (info.error ||
-                    "HTTP " + info.status + " (" + info.content_type + ")");
-              }
-            }
-            showYoloError("YOLO Server Unreachable", detail);
-            return;
-          }
-
-          // Server is up. Run browser-camera inference loop.
-          yoloStatusOverlay.style.display = "none";
-          attentionStatus.textContent = "Updated in real-time";
-          aiInsight.textContent =
-            "Monitoring student attention from your camera\u2026";
-          startInferenceLoop();
-        })
-        .catch(() => {
-          showYoloError(
-            "Connection Error",
-            "Could not reach the server. Check your network.",
-          );
-        });
+      // Start inference immediately. The loop already handles retries/backoff,
+      // so a separate blocking health check only creates false negatives.
+      startInferenceLoop();
     }
 
     function showYoloError(title, detail) {
