@@ -341,7 +341,14 @@ def yolo_infer():
     """Forward browser camera frames to YOLO server and return detections."""
     payload = request.get_json(silent=True) or {}
     frame = payload.get("frame")
+    logging.info(
+        "YOLO infer request received: user_id=%s has_frame=%s frame_len=%s",
+        session.get("user_id"),
+        bool(frame),
+        len(frame) if isinstance(frame, str) else 0,
+    )
     if not frame:
+        logging.warning("YOLO infer rejected: missing frame payload")
         return jsonify({"error": "Missing frame payload"}), 400
 
     try:
@@ -357,7 +364,14 @@ def yolo_infer():
     try:
         data = r.json()
     except ValueError:
+        logging.error("YOLO infer upstream returned non-JSON response with status %s", r.status_code)
         data = {"error": "Invalid response from YOLO server"}
+
+    logging.info(
+        "YOLO infer upstream response: status=%s keys=%s",
+        r.status_code,
+        sorted(data.keys()) if isinstance(data, dict) else type(data).__name__,
+    )
 
     return jsonify(data), r.status_code
 
