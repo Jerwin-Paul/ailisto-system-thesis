@@ -819,19 +819,19 @@
 
     async function runInferenceLoop() {
       if (!isSessionActive) return;
-      let nextDelay = 180;
+      let nextDelay = 60;
 
       if (isPaused || !isCameraReady || !videoEl.videoWidth) {
         yoloStatusText.textContent = "Waiting for camera frame...";
         yoloStatusSub.textContent =
           "Make sure camera preview is active before YOLO inference starts.";
         yoloStatusOverlay.style.display = "flex";
-        scheduleNextInference(160);
+        scheduleNextInference(120);
         return;
       }
 
       if (inferenceInFlight) {
-        scheduleNextInference(60);
+        scheduleNextInference(20);
         return;
       }
 
@@ -848,8 +848,8 @@
         captureCanvas.height = targetHeight;
         captureCtx.drawImage(videoEl, 0, 0, targetWidth, targetHeight);
 
-        const pngData = captureCanvas.toDataURL("image/png");
-        const frameBase64 = pngData.split(",", 2)[1];
+        const jpegData = captureCanvas.toDataURL("image/jpeg", 0.7);
+        const frameBase64 = jpegData.split(",", 2)[1];
 
         const resp = await fetch(yoloInferUrl, {
           method: "POST",
@@ -888,6 +888,7 @@
         attentionStatus.textContent = "Updated in real-time";
         aiInsight.textContent =
           "Monitoring student attention from your camera\u2026";
+        nextDelay = 30;
       } catch (err) {
         if (isSessionActive) {
           inferFailureCount += 1;
