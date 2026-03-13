@@ -814,8 +814,8 @@
         captureCanvas.height = targetHeight;
         captureCtx.drawImage(videoEl, 0, 0, targetWidth, targetHeight);
 
-        const jpegData = captureCanvas.toDataURL("image/jpeg", 0.72);
-        const frameBase64 = jpegData.split(",", 2)[1];
+        const pngData = captureCanvas.toDataURL("image/png");
+        const frameBase64 = pngData.split(",", 2)[1];
 
         const resp = await fetch("/api/yolo-infer", {
           method: "POST",
@@ -825,7 +825,7 @@
 
         const data = await resp.json();
         if (!resp.ok) {
-          throw new Error(data.error || "YOLO inference failed");
+          throw new Error(data.error || data.detail || "YOLO inference failed");
         }
 
         if (!isSessionActive) return;
