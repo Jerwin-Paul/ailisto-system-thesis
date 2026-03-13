@@ -343,6 +343,7 @@
     var inferLoopTimeout = null;
     var inferenceInFlight = false;
     var inferFailureCount = 0;
+    var yoloInferUrl = "{{ url_for('yolo_infer') }}";
     var captureCanvas = document.createElement("canvas");
     var captureCtx = captureCanvas.getContext("2d");
 
@@ -850,15 +851,31 @@
         const pngData = captureCanvas.toDataURL("image/png");
         const frameBase64 = pngData.split(",", 2)[1];
 
-        const resp = await fetch("/api/yolo-infer", {
+        const resp = await fetch(yoloInferUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({ frame: frameBase64 }),
         });
 
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          data = {};
+        }
+
         if (!resp.ok) {
-          throw new Error(data.error || data.detail || "YOLO inference failed");
+          if (resp.status === 401) {
+            throw new Error("Session expired. Please sign in again.");
+          }
+          throw new Error(
+            data.error ||
+              data.detail ||
+              resp.status + " " + resp.statusText ||
+              "YOLO inference failed",
+          );
         }
 
         if (!isSessionActive) return;
