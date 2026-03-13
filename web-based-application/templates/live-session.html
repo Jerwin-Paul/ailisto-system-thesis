@@ -340,6 +340,11 @@
     var attentionHistory = [];
     var trendChart = null;
     var simInterval = null;
+    var inferLoopTimeout = null;
+    var inferenceInFlight = false;
+    var inferFailureCount = 0;
+    var captureCanvas = document.createElement("canvas");
+    var captureCtx = captureCanvas.getContext("2d");
 
     var videoEl = document.getElementById("user-video");
     var canvasEl = document.getElementById("overlay-canvas");
@@ -375,7 +380,13 @@
         clearInterval(simInterval);
         simInterval = null;
       }
+      if (inferLoopTimeout) {
+        clearTimeout(inferLoopTimeout);
+        inferLoopTimeout = null;
+      }
       if (yoloStream) yoloStream.src = "";
+      var ctx = canvasEl.getContext("2d");
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
     };
 
     // ─── Initialize ───
@@ -620,10 +631,14 @@
       if (!isCameraReady || !classSelect.value) return;
       isSessionActive = true;
       isPaused = false;
+      inferenceInFlight = false;
+      inferFailureCount = 0;
 
-      // Hide local camera preview; show connecting overlay
-      videoEl.style.display = "none";
-      canvasEl.style.display = "none";
+      // Keep local camera preview visible and draw detections on top.
+      videoEl.style.display = "block";
+      canvasEl.style.display = "block";
+      yoloStream.src = "";
+      yoloStream.style.display = "none";
       yoloSpinner.style.display = "block";
       yoloStatusText.textContent = "Connecting to YOLO server\u2026";
       yoloStatusSub.textContent = "";
@@ -656,15 +671,13 @@
             showYoloError("YOLO Server Unreachable", detail);
             return;
           }
-          // Server is up — show the stream immediately.
-          // MJPEG streams never fire 'onload' (they never finish loading),
-          // so we display the <img> right away and hide the overlay.
-          yoloStream.src = "/proxy/yolo-stream";
-          yoloStream.style.display = "block";
+
+          // Server is up. Run browser-camera inference loop.
           yoloStatusOverlay.style.display = "none";
           attentionStatus.textContent = "Updated in real-time";
-          aiInsight.textContent = "Monitoring student attention\u2026";
-          simulateAttention();
+          aiInsight.textContent =
+            "Monitoring student attention from your camera\u2026";
+          startInferenceLoop();
         })
         .catch(() => {
           showYoloError(
@@ -678,6 +691,7 @@
       yoloSpinner.style.display = "none";
       yoloStatusText.textContent = "\u26A0\uFE0F " + title;
       yoloStatusSub.textContent = detail;
+      yoloStatusOverlay.style.display = "flex";
       attentionStatus.textContent = "Server unavailable";
       aiInsight.textContent = title + ": " + detail;
     }
@@ -698,13 +712,20 @@
     function endSession() {
       isSessionActive = false;
       isPaused = false;
+      inferenceInFlight = false;
       attentionHistory = [];
+      if (inferLoopTimeout) {
+        clearTimeout(inferLoopTimeout);
+        inferLoopTimeout = null;
+      }
 
       // Stop YOLO stream and restore camera preview
       yoloStream.src = "";
       yoloStream.style.display = "none";
       yoloStatusOverlay.style.display = "none";
       pausedOverlay.style.display = "none";
+      var ctx = canvasEl.getContext("2d");
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
       if (isCameraReady) {
         videoEl.style.display = "block";
         canvasEl.style.display = "block";
@@ -722,6 +743,160 @@
         trendChart.data.datasets[0].data = [];
         trendChart.update();
       }
+    }
+
+    function scheduleNextInference(delayMs) {
+      if (inferLoopTimeout) clearTimeout(inferLoopTimeout);
+      inferLoopTimeout = setTimeout(runInferenceLoop, delayMs);
+    }
+
+    function drawDetections(detections, srcWidth, srcHeight) {
+      const ctx = canvasEl.getContext("2d");
+      const renderWidth = videoEl.videoWidth || 1280;
+      const renderHeight = videoEl.videoHeight || 720;
+
+      if (canvasEl.width !== renderWidth || canvasEl.height !== renderHeight) {
+        canvasEl.width = renderWidth;
+        canvasEl.height = renderHeight;
+      }
+
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+
+      if (!detections || detections.length === 0) return;
+
+      const sx = canvasEl.width / (srcWidth || canvasEl.width);
+      const sy = canvasEl.height / (srcHeight || canvasEl.height);
+
+      ctx.lineWidth = 2;
+      ctx.font = "16px Arial";
+      ctx.strokeStyle = "#00ff66";
+      ctx.fillStyle = "#00ff66";
+
+      detections.forEach((det) => {
+        const box = det.box || [];
+        if (box.length !== 4) return;
+
+        const x1 = box[0] * sx;
+        const y1 = box[1] * sy;
+        const x2 = box[2] * sx;
+        const y2 = box[3] * sy;
+        const w = x2 - x1;
+        const h = y2 - y1;
+
+        ctx.strokeRect(x1, y1, w, h);
+
+        const confPct = Math.round((det.conf || 0) * 100);
+        const label = (det.label || "person") + " " + confPct + "%";
+        const ty = y1 > 24 ? y1 - 8 : y1 + 20;
+        ctx.fillText(label, x1, ty);
+      });
+    }
+
+    function updateAttentionFromDetections(detections) {
+      const count = detections ? detections.length : 0;
+      const score = Math.max(45, Math.min(95, 55 + count * 7));
+
+      attentionHistory.push({ time: Date.now(), value: score });
+      if (attentionHistory.length > 30) attentionHistory.shift();
+
+      attentionValue.textContent = score + "%";
+      attentionValue.className =
+        "attention-score-value " +
+        (score > 80 ? "high" : score > 60 ? "medium" : "low");
+
+      if (score > 80)
+        aiInsight.textContent =
+          "Great engagement! Most students appear attentive.";
+      else if (score > 60)
+        aiInsight.textContent =
+          "Attention is moderate. Try a quick interactive prompt to lift focus.";
+      else
+        aiInsight.textContent =
+          "Low attention trend detected. Consider changing pace or activity.";
+
+      trendPlaceholder.style.display = "none";
+      trendChart.data.labels = attentionHistory.map((_, i) => i);
+      trendChart.data.datasets[0].data = attentionHistory.map((h) => h.value);
+      trendChart.update();
+    }
+
+    async function runInferenceLoop() {
+      if (!isSessionActive) return;
+      let nextDelay = 180;
+
+      if (isPaused || !isCameraReady || !videoEl.videoWidth) {
+        scheduleNextInference(160);
+        return;
+      }
+
+      if (inferenceInFlight) {
+        scheduleNextInference(60);
+        return;
+      }
+
+      inferenceInFlight = true;
+
+      try {
+        const targetWidth = 640;
+        const targetHeight = Math.max(
+          360,
+          Math.round((videoEl.videoHeight / videoEl.videoWidth) * targetWidth),
+        );
+
+        captureCanvas.width = targetWidth;
+        captureCanvas.height = targetHeight;
+        captureCtx.drawImage(videoEl, 0, 0, targetWidth, targetHeight);
+
+        const jpegData = captureCanvas.toDataURL("image/jpeg", 0.72);
+        const frameBase64 = jpegData.split(",", 2)[1];
+
+        const resp = await fetch("/api/yolo-infer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ frame: frameBase64 }),
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.error || "YOLO inference failed");
+        }
+
+        if (!isSessionActive) return;
+
+        const detections = data.detections || [];
+        inferFailureCount = 0;
+        yoloStatusOverlay.style.display = "none";
+        drawDetections(detections, data.width, data.height);
+        updateAttentionFromDetections(detections);
+        attentionStatus.textContent = "Updated in real-time";
+        aiInsight.textContent =
+          "Monitoring student attention from your camera\u2026";
+      } catch (err) {
+        if (isSessionActive) {
+          inferFailureCount += 1;
+          const retryMs = Math.min(
+            5000,
+            Math.round(300 * Math.pow(1.5, Math.min(inferFailureCount, 8))),
+          );
+          nextDelay = retryMs;
+
+          const reason =
+            err && err.message
+              ? err.message
+              : "Could not process camera frame on YOLO server.";
+          attentionStatus.textContent =
+            "Inference reconnecting... (attempt " + inferFailureCount + ")";
+          aiInsight.textContent =
+            "YOLO temporarily unavailable. Auto-retrying in " +
+            (retryMs / 1000).toFixed(1) +
+            "s. Last error: " +
+            reason;
+        }
+      } finally {
+        inferenceInFlight = false;
+      }
+
+      scheduleNextInference(nextDelay);
     }
 
     function updateBadge() {

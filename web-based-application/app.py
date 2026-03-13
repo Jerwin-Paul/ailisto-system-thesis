@@ -292,41 +292,35 @@ def live_session():
     return render_template("live-session.html", user=user, subjects=subjects)
 
 
-_YOLO_SERVER = "http://4.216.188.104:5000"
-# Common MJPEG feed paths — tried in order until one responds
-_YOLO_FEED_PATHS = ["/video_feed", "/stream", "/video", "/feed"]
+_YOLO_SERVER = os.environ.get("YOLO_SERVER_URL", "http://4.216.188.104:5000").rstrip("/")
+_YOLO_HEALTH_PATHS = ["/health", "/"]
 
 
-def _find_yolo_feed_path():
-    """Return (path, content_type) for the first MJPEG-like feed, or (None, None)."""
-    for path in _YOLO_FEED_PATHS:
+def _find_yolo_health_path():
+    """Return the first reachable health endpoint path, or None."""
+    for path in _YOLO_HEALTH_PATHS:
         try:
             r = requests.get(
                 f"{_YOLO_SERVER}{path}",
-                stream=True,
                 timeout=(3, 2),
             )
-            ct = (r.headers.get("Content-Type") or "").lower()
-            if r.status_code == 200 and ("multipart" in ct or "image" in ct or "octet-stream" in ct):
-                r.close()
-                return path, ct
+            if r.status_code == 200:
+                return path
             r.close()
         except requests.exceptions.RequestException:
             continue
-    return None, None
+    return None
 
 
 @app.route("/api/yolo-health")
 @login_required
 def yolo_health():
     """Check YOLO server reachability and report diagnostics."""
-    # First check basic connectivity
     tried = {}
-    for path in _YOLO_FEED_PATHS:
+    for path in _YOLO_HEALTH_PATHS:
         try:
             r = requests.get(
                 f"{_YOLO_SERVER}{path}",
-                stream=True,
                 timeout=(3, 2),
             )
             ct = r.headers.get("Content-Type", "")
@@ -335,36 +329,37 @@ def yolo_health():
         except requests.exceptions.RequestException as exc:
             tried[path] = {"status": 0, "error": str(exc)[:120]}
 
-    feed_path, feed_ct = _find_yolo_feed_path()
-    if feed_path:
-        return jsonify({"reachable": True, "endpoint": feed_path, "content_type": feed_ct, "tried": tried})
-    return jsonify({"reachable": False, "error": f"No MJPEG feed found on {_YOLO_SERVER}", "tried": tried}), 502
+    health_path = _find_yolo_health_path()
+    if health_path:
+        return jsonify({"reachable": True, "endpoint": health_path, "tried": tried})
+    return jsonify({"reachable": False, "error": f"No reachable health endpoint on {_YOLO_SERVER}", "tried": tried}), 502
 
 
-@app.route("/proxy/yolo-stream")
+@app.route("/api/yolo-infer", methods=["POST"])
 @login_required
-def proxy_yolo_stream():
-    """Proxy the MJPEG video feed from the YOLO inference server."""
-    from flask import Response as FlaskResponse
-    feed_path, _ = _find_yolo_feed_path()
-    if feed_path is None:
-        logging.error("YOLO proxy: no MJPEG feed path on %s", _YOLO_SERVER)
-        return jsonify({"error": "YOLO server unavailable"}), 502
+def yolo_infer():
+    """Forward browser camera frames to YOLO server and return detections."""
+    payload = request.get_json(silent=True) or {}
+    frame = payload.get("frame")
+    if not frame:
+        return jsonify({"error": "Missing frame payload"}), 400
+
     try:
-        upstream = requests.get(
-            f"{_YOLO_SERVER}{feed_path}",
-            stream=True,
-            timeout=(5, None),
-        )
-        return FlaskResponse(
-            upstream.iter_content(chunk_size=4096),
-            content_type=upstream.headers.get(
-                "Content-Type", "multipart/x-mixed-replace; boundary=frame"
-            ),
+        r = requests.post(
+            f"{_YOLO_SERVER}/infer",
+            json={"frame": frame},
+            timeout=(3, 8),
         )
     except requests.exceptions.RequestException as exc:
-        logging.error("YOLO proxy error: %s", exc)
+        logging.error("YOLO infer proxy error: %s", exc)
         return jsonify({"error": "YOLO server unavailable"}), 502
+
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"error": "Invalid response from YOLO server"}
+
+    return jsonify(data), r.status_code
 
 
 @app.route("/classes")
