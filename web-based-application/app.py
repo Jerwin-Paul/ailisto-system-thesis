@@ -498,6 +498,15 @@ def _build_report_pdf(user: dict, start_date: str, end_date: str, sessions_list:
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
     )
 
+    try:
+        start_display = datetime.strptime(start_date, "%Y-%m-%d").strftime("%m-%d-%Y")
+        end_display = datetime.strptime(end_date, "%Y-%m-%d").strftime("%m-%d-%Y")
+    except ValueError:
+        start_display = start_date
+        end_display = end_date
+
+    report_title = f"Ai-Listo Report ({start_display} to {end_display})"
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
@@ -506,6 +515,10 @@ def _build_report_pdf(user: dict, start_date: str, end_date: str, sessions_list:
         rightMargin=2 * cm,
         topMargin=2 * cm,
         bottomMargin=2 * cm,
+        title=report_title,
+        author="Ai-Listo",
+        subject="Student Attention Report",
+        creator="Ai-Listo",
     )
 
     styles = getSampleStyleSheet()
@@ -556,7 +569,7 @@ def _build_report_pdf(user: dict, start_date: str, end_date: str, sessions_list:
 
     teacher_name = f"{user['first_name']} {user['last_name']}"
     generated_at = datetime.now().strftime("%B %d, %Y at %I:%M %p")
-    story.append(Paragraph(f"<b>Report Period:</b> {start_date} to {end_date}", normal_style))
+    story.append(Paragraph(f"<b>Report Period:</b> {start_display} to {end_display}", normal_style))
     story.append(Paragraph(f"<b>Teacher:</b> {teacher_name}", normal_style))
     story.append(Paragraph(f"<b>Generated:</b> {generated_at}", normal_style))
     story.append(Spacer(1, 0.5 * cm))
