@@ -1,4 +1,5 @@
 import os
+import io
 import json
 import logging
 import requests
@@ -7,7 +8,7 @@ from datetime import datetime
 
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, flash, jsonify,
+    url_for, session, flash, jsonify, send_file,
 )
 from dotenv import load_dotenv
 
@@ -391,17 +392,31 @@ def classes():
 def history():
     user = current_user()
     sessions_list = db.get_sessions(user["id"])
-    return render_template("history.html", user=user, sessions=sessions_list)
+    stats = db.get_dashboard_stats(user["id"])
+    subjects = db.get_subjects(user["id"])
+    chart_data = [
+        {
+            "label": s["start_time"].strftime("%b %d") if s.get("start_time") else "",
+            "value": s["summary_stats"].get("avgAttention"),
+        }
+        for s in sessions_list
+        if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
+    ]
+    return render_template(
+        "history.html",
+        user=user,
+        sessions=sessions_list,
+        stats=stats,
+        subjects=subjects,
+        chart_data=chart_data,
+    )
 
 
 @app.route("/reports")
 @login_required
 def reports():
     user = current_user()
-    stats = db.get_dashboard_stats(user["id"])
-    subjects = db.get_subjects(user["id"])
-    sessions_list = db.get_sessions(user["id"])
-    return render_template("reports.html", user=user, stats=stats, subjects=subjects, sessions=sessions_list)
+    return render_template("reports.html", user=user)
 
 
 @app.route("/profile")
@@ -471,6 +486,198 @@ def api_end_session(session_id):
     data = request.get_json()
     s = db.end_session(session_id, data.get("summaryStats", {}))
     return jsonify(s, default=str)
+
+
+def _build_report_pdf(user: dict, start_date: str, end_date: str, sessions_list: list) -> io.BytesIO:
+    """Build the report PDF and return a seeked BytesIO buffer."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    )
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=2 * cm,
+        rightMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    brand_blue = colors.HexColor("#3b82f6")
+    dark = colors.HexColor("#1e293b")
+    muted = colors.HexColor("#64748b")
+
+    title_style = ParagraphStyle(
+        "ReportTitle",
+        parent=styles["Heading1"],
+        fontSize=20,
+        textColor=dark,
+        spaceAfter=4,
+        fontName="Helvetica-Bold",
+    )
+    subtitle_style = ParagraphStyle(
+        "ReportSubtitle",
+        parent=styles["Normal"],
+        fontSize=10,
+        textColor=muted,
+        spaceAfter=2,
+        fontName="Helvetica",
+    )
+    section_style = ParagraphStyle(
+        "ReportSection",
+        parent=styles["Heading2"],
+        fontSize=13,
+        textColor=dark,
+        spaceBefore=14,
+        spaceAfter=6,
+        fontName="Helvetica-Bold",
+    )
+    normal_style = ParagraphStyle(
+        "ReportBody",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=dark,
+        fontName="Helvetica",
+    )
+
+    story = []
+
+    story.append(Paragraph("Ai-Listo", title_style))
+    story.append(Paragraph("Student Attention Monitoring System", subtitle_style))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=brand_blue))
+    story.append(Spacer(1, 0.3 * cm))
+
+    teacher_name = f"{user['first_name']} {user['last_name']}"
+    generated_at = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    story.append(Paragraph(f"<b>Report Period:</b> {start_date} to {end_date}", normal_style))
+    story.append(Paragraph(f"<b>Teacher:</b> {teacher_name}", normal_style))
+    story.append(Paragraph(f"<b>Generated:</b> {generated_at}", normal_style))
+    story.append(Spacer(1, 0.5 * cm))
+
+    total = len(sessions_list)
+    completed = sum(1 for s in sessions_list if s.get("status") == "completed")
+    attentions = [
+        s["summary_stats"].get("avgAttention")
+        for s in sessions_list
+        if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
+    ]
+    avg_att = round(sum(attentions) / len(attentions)) if attentions else 0
+
+    story.append(Paragraph("Summary", section_style))
+    summary_data = [
+        ["Total Sessions", "Completed Sessions", "Avg. Attention"],
+        [str(total), str(completed), f"{avg_att}%"],
+    ]
+    summary_table = Table(summary_data, colWidths=[5.5 * cm, 5.5 * cm, 5.5 * cm])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(summary_table)
+
+    story.append(Paragraph("Session Details", section_style))
+    if sessions_list:
+        table_data = [["Class", "Date", "Duration", "Status", "Avg. Attention"]]
+        for s in sessions_list:
+            course = f"{s.get('course_code', '')} - {s.get('section', '')}"
+            start = s["start_time"].strftime("%b %d, %Y %I:%M %p") if s.get("start_time") else "—"
+            if s.get("start_time") and s.get("end_time"):
+                delta = s["end_time"] - s["start_time"]
+                mins = int(delta.total_seconds() // 60)
+                duration = f"{mins} min"
+            else:
+                duration = "—"
+            status = s.get("status", "active").capitalize()
+            att = (
+                f"{s['summary_stats']['avgAttention']}%"
+                if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
+                else "—"
+            )
+            table_data.append([course, start, duration, status, att])
+
+        col_widths = [4.5 * cm, 4.5 * cm, 2.5 * cm, 2.5 * cm, 3 * cm]
+        detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        detail_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ]))
+        story.append(detail_table)
+    else:
+        story.append(Paragraph("No sessions found for the selected date range.", normal_style))
+
+    story.append(Spacer(1, 1 * cm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#e2e8f0")))
+    story.append(Spacer(1, 0.2 * cm))
+    story.append(Paragraph(
+        "This report was automatically generated by Ai-Listo — SSS Village Elementary School.",
+        subtitle_style,
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf
+
+
+@app.route("/api/generate-report", methods=["POST"])
+@login_required
+def api_generate_report():
+    """Return the PDF report as a downloadable attachment."""
+    data = request.get_json(silent=True) or {}
+    start_date = data.get("startDate", "")
+    end_date = data.get("endDate", "")
+    if not start_date or not end_date:
+        return jsonify({"error": "startDate and endDate are required"}), 400
+    user = current_user()
+    try:
+        sessions_list = db.get_sessions_by_date_range(user["id"], start_date, end_date)
+        buf = _build_report_pdf(user, start_date, end_date, sessions_list)
+    except Exception as exc:
+        logging.error("Report error: %s", exc)
+        return jsonify({"error": "Failed to generate report"}), 500
+    filename = f"ailisto-report-{start_date}-to-{end_date}.pdf"
+    return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+@app.route("/api/preview-report")
+@login_required
+def api_preview_report():
+    """Return the PDF report inline for browser preview."""
+    start_date = request.args.get("startDate", "")
+    end_date = request.args.get("endDate", "")
+    if not start_date or not end_date:
+        return jsonify({"error": "startDate and endDate are required"}), 400
+    user = current_user()
+    try:
+        sessions_list = db.get_sessions_by_date_range(user["id"], start_date, end_date)
+        buf = _build_report_pdf(user, start_date, end_date, sessions_list)
+    except Exception as exc:
+        logging.error("Report preview error: %s", exc)
+        return jsonify({"error": "Failed to generate report"}), 500
+    return send_file(buf, mimetype="application/pdf", as_attachment=False)
 
 
 # ─── Run ──────────────────────────────────────────────────────────────

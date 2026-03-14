@@ -245,6 +245,21 @@ def end_session(session_id: int, summary_stats: dict) -> dict:
         return dict(cur.fetchone())
 
 
+def get_sessions_by_date_range(teacher_id: int, start_date: str, end_date: str) -> list[dict]:
+    """Return sessions for the teacher whose start_time falls within [start_date, end_date] (inclusive)."""
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+            FROM sessions s
+            JOIN subjects sub ON s.subject_id = sub.id
+            WHERE sub.teacher_id = %s
+              AND s.start_time >= %s::date
+              AND s.start_time < (%s::date + INTERVAL '1 day')
+            ORDER BY s.start_time ASC
+        """, (teacher_id, start_date, end_date))
+        return [dict(r) for r in cur.fetchall()]
+
+
 def get_dashboard_stats(teacher_id: int) -> dict:
     with get_cursor(commit=False) as cur:
         # Total sessions

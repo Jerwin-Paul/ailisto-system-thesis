@@ -1,157 +1,238 @@
-{% extends "_layout.html" %}
-
-{% block title %}Reports - Ai-Listo{% endblock %}
-
-
-
+{% extends "_layout.html" %} {% block title %}Reports - Ai-Listo{% endblock %}
 {% block content %}
 <div class="space-y-6">
   <div class="page-header">
     <div>
       <h2 class="page-title">Reports</h2>
-      <p class="page-subtitle">View detailed attention analytics and session reports.</p>
+      <p class="page-subtitle">
+        Generate and preview PDF reports for any date range.
+      </p>
     </div>
   </div>
 
-  <!-- Summary Cards -->
-  <div class="grid-3">
-    <div class="card card-borderless">
-      <div class="card-content">
-        <div class="stat-card">
-          <div class="stat-icon stat-icon-blue">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          </div>
-          <div>
-            <p class="stat-label">Avg. Attention</p>
-            <h3 class="stat-value">{{ stats.avg_attention }}%</h3>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="card card-borderless">
-      <div class="card-content">
-        <div class="stat-card">
-          <div class="stat-icon stat-icon-indigo">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <div>
-            <p class="stat-label">Total Sessions</p>
-            <h3 class="stat-value">{{ stats.total_sessions }}</h3>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="card card-borderless">
-      <div class="card-content">
-        <div class="stat-card">
-          <div class="stat-icon stat-icon-emerald">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          </div>
-          <div>
-            <p class="stat-label">Active Classes</p>
-            <h3 class="stat-value">{{ subjects|length }}</h3>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Chart -->
+  <!-- Date Range Selection -->
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">Attention Over Time</h3>
+      <h3 class="card-title">Generate Report</h3>
     </div>
     <div class="card-content">
-      <div style="height: 300px; position: relative;">
-        <canvas id="reportChart"></canvas>
+      <p
+        style="
+          font-size: 0.875rem;
+          color: var(--text-500);
+          margin-bottom: 1.25rem;
+        "
+      >
+        Select a date range to compile a PDF report of all session attention
+        data within those dates.
+      </p>
+      <div
+        style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap"
+      >
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 150px; margin-bottom: 0"
+        >
+          <label class="form-label" for="reportStartDate">Start Date</label>
+          <input type="date" id="reportStartDate" class="form-input" />
+        </div>
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 150px; margin-bottom: 0"
+        >
+          <label class="form-label" for="reportEndDate">End Date</label>
+          <input type="date" id="reportEndDate" class="form-input" />
+        </div>
+        <button
+          class="btn btn-primary"
+          id="generateBtn"
+          onclick="generatePreview()"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            style="margin-right: 6px"
+          >
+            <path
+              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+            />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="12" y1="18" x2="12" y2="12" />
+            <line x1="9" y1="15" x2="15" y2="15" />
+          </svg>
+          Generate Report
+        </button>
       </div>
+      <div
+        id="reportError"
+        style="
+          display: none;
+          margin-top: 0.75rem;
+          color: #ef4444;
+          font-size: 0.875rem;
+        "
+      ></div>
     </div>
   </div>
 
-  <!-- Session List -->
-  <div class="card">
-    <div class="card-header">
-      <h3 class="card-title">All Sessions</h3>
-    </div>
-    <div class="card-content">
-      {% if sessions %}
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Class</th>
-            <th>Date</th>
-            <th>Status</th>
-            <th>Avg. Attention</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in sessions %}
-          <tr>
-            <td><strong>{{ s.course_code }} - {{ s.section }}</strong></td>
-            <td>{{ s.start_time.strftime('%b %d, %Y • %I:%M %p') if s.start_time else '—' }}</td>
-            <td>
-              {% if s.status == 'completed' %}
-              <span class="badge" style="background: var(--emerald-50); color: var(--emerald-600);">Completed</span>
-              {% else %}
-              <span class="badge" style="background: var(--amber-50); color: var(--amber-500);">Active</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if s.summary_stats and s.summary_stats.avgAttention is defined %}
-              <span class="font-bold {% if s.summary_stats.avgAttention > 75 %}text-emerald{% elif s.summary_stats.avgAttention > 50 %}text-amber{% else %}text-red{% endif %}">{{ s.summary_stats.avgAttention }}%</span>
-              {% else %}
-              <span class="text-slate">—</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      <div class="empty-state">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        <p style="font-weight: 500;">No sessions yet</p>
-        <p class="text-sm">Start a live session to begin collecting data.</p>
+  <!-- PDF Preview (hidden until a report is generated) -->
+  <div class="card" id="previewSection" style="display: none">
+    <div
+      class="card-header"
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      "
+    >
+      <div>
+        <h3 class="card-title" style="margin-bottom: 2px">Report Preview</h3>
+        <p
+          id="previewDateLabel"
+          style="font-size: 0.8rem; color: var(--text-500); margin: 0"
+        ></p>
       </div>
-      {% endif %}
+      <button
+        class="btn btn-primary"
+        id="downloadBtn"
+        onclick="downloadReport()"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          style="margin-right: 5px"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        Download PDF
+      </button>
+    </div>
+    <div
+      class="card-content"
+      style="
+        padding: 0;
+        overflow: hidden;
+        border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+      "
+    >
+      <iframe
+        id="pdfPreview"
+        style="width: 100%; height: 720px; border: none; display: block"
+      ></iframe>
     </div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  const ctx = document.getElementById('reportChart').getContext('2d');
-  const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-  gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
-  gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+  // Pre-fill dates to current month
+  (function seedDates() {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    const d = String(today.getDate()).padStart(2, "0");
+    document.getElementById("reportStartDate").value = `${y}-${m}-01`;
+    document.getElementById("reportEndDate").value = `${y}-${m}-${d}`;
+  })();
 
-  new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-      datasets: [{
-        label: 'Avg Attention %',
-        data: [75, 82, 78, 85],
-        borderColor: '#3b82f6',
-        borderWidth: 3,
-        backgroundColor: gradient,
-        fill: true,
-        tension: 0.4,
-        pointRadius: 4,
-        pointBackgroundColor: '#3b82f6',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, border: { display: false } },
-        y: { grid: { color: '#e2e8f0' }, border: { display: false }, min: 0, max: 100 }
-      }
+  let currentStartDate = "";
+  let currentEndDate = "";
+
+  function generatePreview() {
+    const startDate = document.getElementById("reportStartDate").value;
+    const endDate = document.getElementById("reportEndDate").value;
+    const errEl = document.getElementById("reportError");
+    const btn = document.getElementById("generateBtn");
+
+    errEl.style.display = "none";
+    errEl.textContent = "";
+
+    if (!startDate || !endDate) {
+      errEl.textContent = "Please select both a start and end date.";
+      errEl.style.display = "block";
+      return;
     }
-  });
+    if (startDate > endDate) {
+      errEl.textContent = "Start date must be on or before the end date.";
+      errEl.style.display = "block";
+      return;
+    }
+
+    currentStartDate = startDate;
+    currentEndDate = endDate;
+
+    btn.disabled = true;
+    btn.innerHTML = "Generating…";
+
+    const previewUrl = `/api/preview-report?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+    const iframe = document.getElementById("pdfPreview");
+
+    document.getElementById("previewDateLabel").textContent =
+      `${startDate}  →  ${endDate}`;
+    const section = document.getElementById("previewSection");
+    section.style.display = "block";
+
+    iframe.onload = () => {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+      btn.disabled = false;
+      btn.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>Generate Report';
+    };
+
+    iframe.src = previewUrl;
+  }
+
+  async function downloadReport() {
+    if (!currentStartDate || !currentEndDate) return;
+
+    const btn = document.getElementById("downloadBtn");
+    btn.disabled = true;
+    btn.innerHTML = "Downloading…";
+
+    try {
+      const resp = await fetch("/api/generate-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: currentStartDate,
+          endDate: currentEndDate,
+        }),
+      });
+      if (!resp.ok) {
+        const info = await resp.json().catch(() => ({}));
+        alert(info.error || `Error ${resp.status}`);
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ailisto-report-${currentStartDate}-to-${currentEndDate}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download PDF';
+    }
+  }
 </script>
 {% endblock %}
