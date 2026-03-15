@@ -178,30 +178,8 @@ endblock %} {% block content %}
                   data-user-id="{{ u.id }}"
                   style="display: none"
                 >
-                  <option
-                    value="teacher"
-                    {%
-                    if
-                    u.role=""
-                    ="teacher"
-                    %}selected{%
-                    endif
-                    %}
-                  >
-                    Teacher
-                  </option>
-                  <option
-                    value="admin"
-                    {%
-                    if
-                    u.role=""
-                    ="admin"
-                    %}selected{%
-                    endif
-                    %}
-                  >
-                    Admin
-                  </option>
+                  <option value="teacher">Teacher</option>
+                  <option value="admin">Admin</option>
                 </select>
                 {% endif %}
               </div>
@@ -241,30 +219,8 @@ endblock %} {% block content %}
                   data-user-id="{{ u.id }}"
                   style="display: none"
                 >
-                  <option
-                    value="approved"
-                    {%
-                    if
-                    u.approval_status=""
-                    ="approved"
-                    %}selected{%
-                    endif
-                    %}
-                  >
-                    Approved
-                  </option>
-                  <option
-                    value="rejected"
-                    {%
-                    if
-                    u.approval_status=""
-                    ="rejected"
-                    %}selected{%
-                    endif
-                    %}
-                  >
-                    Rejected
-                  </option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
                 </select>
                 <button
                   class="btn btn-sm btn-outline js-edit-save-btn"
