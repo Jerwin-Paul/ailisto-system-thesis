@@ -118,6 +118,92 @@ def create_supabase_auth_user(email: str, password: str):
     except Exception as exc:
         logging.error("Supabase admin create user request failed: %s", exc)
 
+
+def _supabase_admin_headers(service_role_key: str) -> dict:
+    return {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def _find_supabase_auth_user_id_by_email(email: str) -> str | None:
+    """Return auth.users UUID for the given email, if found."""
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not service_role_key:
+        return None
+
+    target = email.strip().lower()
+    headers = _supabase_admin_headers(service_role_key)
+
+    # Supabase Admin API is paginated; walk a few pages and match by email.
+    page = 1
+    per_page = 200
+    while page <= 20:
+        resp = requests.get(
+            f"{supabase_url}/auth/v1/admin/users",
+            headers=headers,
+            params={"page": page, "per_page": per_page},
+            timeout=10,
+        )
+        if not resp.ok:
+            logging.error("Supabase admin list users error: %s %s", resp.status_code, resp.text)
+            return None
+
+        payload = resp.json() if resp.content else {}
+        users = payload.get("users", []) if isinstance(payload, dict) else payload
+        if not isinstance(users, list):
+            users = []
+
+        for user_obj in users:
+            user_email = str((user_obj or {}).get("email", "")).strip().lower()
+            if user_email == target:
+                return (user_obj or {}).get("id")
+
+        if len(users) < per_page:
+            break
+        page += 1
+
+    return None
+
+
+def update_supabase_auth_email(old_email: str, new_email: str) -> tuple[bool, str | None]:
+    """Update Supabase auth.users email; returns (success, error_message)."""
+    old_clean = old_email.strip().lower()
+    new_clean = new_email.strip().lower()
+    if old_clean == new_clean:
+        return True, None
+
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not service_role_key:
+        return False, "SUPABASE_SERVICE_ROLE_KEY is not configured."
+
+    try:
+        auth_user_id = _find_supabase_auth_user_id_by_email(old_clean)
+        if not auth_user_id:
+            # If old email is not found but new email already exists in auth.users,
+            # treat it as already synced.
+            existing_new_id = _find_supabase_auth_user_id_by_email(new_clean)
+            if existing_new_id:
+                return True, None
+            return False, "Could not locate auth.users record for current email."
+
+        resp = requests.put(
+            f"{supabase_url}/auth/v1/admin/users/{auth_user_id}",
+            json={"email": new_clean, "email_confirm": True},
+            headers=_supabase_admin_headers(service_role_key),
+            timeout=10,
+        )
+        if not resp.ok:
+            logging.error("Supabase admin update email error: %s %s", resp.status_code, resp.text)
+            return False, f"Supabase auth email update failed ({resp.status_code})."
+        return True, None
+    except Exception as exc:
+        logging.error("Supabase admin update email request failed: %s", exc)
+        return False, "Supabase auth email update request failed."
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -515,6 +601,58 @@ def user_management():
 
 
 # ─── API Endpoints ───────────────────────────────────────────────────
+
+@app.route("/api/profile", methods=["POST"])
+@login_required
+def api_update_profile():
+    user = current_user()
+    data = request.get_json(silent=True) or {}
+
+    first_name = str(data.get("firstName", "")).strip()
+    last_name = str(data.get("lastName", "")).strip()
+    email = str(data.get("email", "")).strip().lower()
+
+    if not first_name:
+        return jsonify({"error": "First name is required.", "field": "firstName"}), 400
+    if not last_name:
+        return jsonify({"error": "Last name is required.", "field": "lastName"}), 400
+    if not email:
+        return jsonify({"error": "Email is required.", "field": "email"}), 400
+
+    existing = db.get_user_by_email(email)
+    if existing and existing["id"] != user["id"]:
+        return jsonify({"error": "Email is already used by another account.", "field": "email"}), 409
+
+    email_changed = email != str(user.get("email", "")).strip().lower()
+    if email_changed:
+        ok, sync_error = update_supabase_auth_email(user["email"], email)
+        if not ok:
+            return jsonify({
+                "error": "Could not sync email to auth provider. " + (sync_error or "Please try again."),
+                "field": "email",
+            }), 503
+
+    try:
+        updated = db.update_user_profile(user["id"], first_name, last_name, email)
+    except Exception as exc:
+        logging.exception("Failed to update profile for user %s", user["id"])
+        if email_changed:
+            # Best-effort rollback of auth email when local DB update fails.
+            rollback_ok, rollback_err = update_supabase_auth_email(email, user["email"])
+            if not rollback_ok:
+                logging.error("Failed to rollback Supabase auth email after DB failure: %s", rollback_err)
+        return jsonify({"error": f"Could not save profile: {exc}"}), 500
+
+    if not updated:
+        return jsonify({"error": "User not found."}), 404
+
+    safe_user = {
+        "id": updated.get("id"),
+        "first_name": updated.get("first_name"),
+        "last_name": updated.get("last_name"),
+        "email": updated.get("email"),
+    }
+    return jsonify({"success": True, "user": safe_user})
 
 @app.route("/api/admin/users/<int:user_id>/approval", methods=["POST"])
 @admin_required

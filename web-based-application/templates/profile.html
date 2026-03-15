@@ -40,9 +40,11 @@
             </svg>
           </div>
           <div>
-            <h3 style="font-size: 1.25rem">Teacher Name</h3>
-            <p class="text-sm" style="color: var(--text-500)">
-              teacher@school.com
+            <h3 id="profile-display-name" style="font-size: 1.25rem">
+              {{ user.first_name }} {{ user.last_name }}
+            </h3>
+            <p id="profile-display-email" class="text-sm" style="color: var(--text-500)">
+              {{ user.email }}
             </p>
           </div>
         </div>
@@ -50,7 +52,7 @@
         <hr style="border: none; border-top: 1px solid var(--border-light)" />
 
         <!-- Profile form -->
-        <form class="space-y-4">
+        <form id="profile-form" class="space-y-4">
           <div class="form-row">
             <div class="form-group">
               <label class="form-label" for="prof-first">First Name</label>
@@ -58,7 +60,7 @@
                 class="form-input"
                 type="text"
                 id="prof-first"
-                value="Teacher"
+                value="{{ user.first_name }}"
               />
             </div>
             <div class="form-group">
@@ -67,7 +69,7 @@
                 class="form-input"
                 type="text"
                 id="prof-last"
-                value="Name"
+                value="{{ user.last_name }}"
               />
             </div>
           </div>
@@ -77,9 +79,10 @@
               class="form-input"
               type="email"
               id="prof-email"
-              value="teacher@school.com"
+              value="{{ user.email }}"
             />
           </div>
+          <p id="profile-save-msg" class="text-sm" style="display: none"></p>
           <div
             style="
               display: flex;
@@ -88,7 +91,7 @@
               margin-top: 2rem;
             "
           >
-            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <button id="profile-save-btn" type="submit" class="btn btn-primary">Save Changes</button>
             <a href="/forgot-password?from=profile" class="btn btn-outline"
               >Change Password</a
             >
@@ -98,4 +101,93 @@
     </div>
   </div>
 </div>
+
+<script>
+  (function () {
+    const form = document.getElementById("profile-form");
+    const firstInput = document.getElementById("prof-first");
+    const lastInput = document.getElementById("prof-last");
+    const emailInput = document.getElementById("prof-email");
+    const saveBtn = document.getElementById("profile-save-btn");
+    const messageEl = document.getElementById("profile-save-msg");
+    const displayName = document.getElementById("profile-display-name");
+    const displayEmail = document.getElementById("profile-display-email");
+    const saveBtnDefaultHtml = saveBtn.innerHTML;
+    let messageHideTimer = null;
+
+    function setSavingState(isSaving) {
+      saveBtn.disabled = isSaving;
+      saveBtn.style.opacity = isSaving ? "0.85" : "1";
+      saveBtn.style.cursor = isSaving ? "wait" : "pointer";
+      saveBtn.innerHTML = isSaving
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:0.5rem; vertical-align:middle;"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 1-9 9"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>Saving...'
+        : saveBtnDefaultHtml;
+    }
+
+    function showMessage(text, isError) {
+      if (messageHideTimer) {
+        clearTimeout(messageHideTimer);
+        messageHideTimer = null;
+      }
+      messageEl.textContent = text;
+      messageEl.style.display = "block";
+      messageEl.style.color = isError ? "var(--red-600)" : "var(--emerald-600)";
+      if (!isError) {
+        messageHideTimer = setTimeout(function () {
+          messageEl.style.display = "none";
+        }, 3500);
+      }
+    }
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const payload = {
+        firstName: firstInput.value.trim(),
+        lastName: lastInput.value.trim(),
+        email: emailInput.value.trim(),
+      };
+
+      setSavingState(true);
+
+      try {
+        const resp = await fetch("/api/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        });
+
+        const raw = await resp.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          data = {};
+        }
+
+        if (!resp.ok) {
+          const fallback = raw
+            ? "Request failed (" + resp.status + "): " + raw.slice(0, 240)
+            : "Request failed (" + resp.status + ").";
+          throw new Error(data.error || fallback || "Could not save profile.");
+        }
+
+        const updated = data.user || {};
+        firstInput.value = updated.first_name || payload.firstName;
+        lastInput.value = updated.last_name || payload.lastName;
+        emailInput.value = updated.email || payload.email;
+        displayName.textContent =
+          (updated.first_name || payload.firstName) + " " + (updated.last_name || payload.lastName);
+        displayEmail.textContent = updated.email || payload.email;
+        showMessage("Profile saved successfully.", false);
+      } catch (err) {
+        const msg = err && err.message ? err.message : "Could not save profile.";
+        showMessage(msg, true);
+      } finally {
+        setSavingState(false);
+      }
+    });
+  })();
+</script>
 {% endblock %}

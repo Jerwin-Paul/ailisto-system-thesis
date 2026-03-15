@@ -197,6 +197,21 @@ def get_user_by_email(email: str) -> dict | None:
         return dict(row) if row else None
 
 
+def update_user_profile(user_id: int, first_name: str, last_name: str, email: str) -> dict | None:
+    with get_cursor() as cur:
+        cur.execute(
+            """UPDATE users
+               SET first_name = %s,
+                   last_name = %s,
+                   email = %s
+               WHERE id = %s
+               RETURNING *""",
+            (first_name, last_name, email, user_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
 def create_user(
     email: str,
     password: str,
