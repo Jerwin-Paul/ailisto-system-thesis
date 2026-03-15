@@ -28,131 +28,77 @@
           </h3>
         </div>
         <div class="card-content space-y-4">
-          <div class="activity-item">
-            <div class="activity-icon" style="background: var(--blue-50); color: var(--blue-600);">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div class="activity-info">
-              <p class="activity-name">MATH101 - Section A</p>
-              <p class="activity-date">8:00 AM - 9:30 AM • Room 201</p>
-            </div>
-          </div>
-          <div class="activity-item">
-            <div class="activity-icon" style="background: var(--emerald-50); color: var(--emerald-600);">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div class="activity-info">
-              <p class="activity-name">SCI202 - Section B</p>
-              <p class="activity-date">10:00 AM - 11:30 AM • Room 305</p>
-            </div>
-          </div>
-          <div class="activity-item">
-            <div class="activity-icon" style="background: var(--indigo-100); color: var(--indigo-600);">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div class="activity-info">
-              <p class="activity-name">ENG301 - Section A</p>
-              <p class="activity-date">1:00 PM - 2:30 PM • Room 102</p>
-            </div>
-          </div>
+          {% if subjects %}
+            {% set ns = namespace(has_schedule=false) %}
+            {% for subj in subjects %}
+              {% for sched in subj.schedules %}
+                {% set ns.has_schedule = true %}
+                <div class="activity-item">
+                  <div class="activity-icon" style="background: var(--blue-50); color: var(--blue-600);">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  </div>
+                  <div class="activity-info">
+                    <p class="activity-name">{{ subj.course_code }} - {{ subj.section }}</p>
+                    <p class="activity-date">
+                      {{ sched.day }} • {{ sched.start_time }} - {{ sched.end_time }}
+                      {% if sched.room %}• {{ sched.room }}{% endif %}
+                    </p>
+                  </div>
+                </div>
+              {% endfor %}
+            {% endfor %}
+            {% if not ns.has_schedule %}
+              <p class="text-sm" style="color: var(--text-500);">No schedules added for your classes yet.</p>
+            {% endif %}
+          {% else %}
+            <p class="text-sm" style="color: var(--text-500);">No classes found for your account.</p>
+          {% endif %}
         </div>
       </div>
     </div>
 
     <!-- Right: Class Cards Grid -->
     <div class="classes-grid" id="classes-grid">
-      <!-- Card 1 -->
-      <div class="card">
-        <div class="card-content">
-          <div class="class-card-header">
-            <div class="class-card-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      {% if subjects %}
+        {% for subj in subjects %}
+        <div class="card">
+          <div class="card-content">
+            <div class="class-card-header">
+              <div class="class-card-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              </div>
             </div>
-          </div>
-          <h3 style="font-size: 1.125rem; font-weight: 700;">Mathematics</h3>
-          <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
-            <span class="class-code">MATH101</span>
-            <span>•</span>
-            <span>Section A</span>
-          </div>
-          <div class="class-schedule">
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              Monday, Wednesday, Friday
+            <h3 style="font-size: 1.125rem; font-weight: 700;">{{ subj.name }}</h3>
+            <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
+              <span class="class-code">{{ subj.course_code }}</span>
+              <span>•</span>
+              <span>{{ subj.section }}</span>
             </div>
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              8:00 AM - 9:30 AM
-            </div>
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              Room 201
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card 2 -->
-      <div class="card">
-        <div class="card-content">
-          <div class="class-card-header">
-            <div class="class-card-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-            </div>
-          </div>
-          <h3 style="font-size: 1.125rem; font-weight: 700;">Science</h3>
-          <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
-            <span class="class-code">SCI202</span>
-            <span>•</span>
-            <span>Section B</span>
-          </div>
-          <div class="class-schedule">
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              Tuesday, Thursday
-            </div>
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              10:00 AM - 11:30 AM
-            </div>
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              Room 305
+            <div class="class-schedule">
+              {% if subj.schedules %}
+                {% for sched in subj.schedules %}
+                <div class="class-schedule-entry">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  {{ sched.day }} • {{ sched.start_time }} - {{ sched.end_time }}{% if sched.room %} • {{ sched.room }}{% endif %}
+                </div>
+                {% endfor %}
+              {% else %}
+                <p class="text-sm" style="color: var(--text-500);">No schedules added yet.</p>
+              {% endif %}
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- Card 3 -->
-      <div class="card">
-        <div class="card-content">
-          <div class="class-card-header">
-            <div class="class-card-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-            </div>
-          </div>
-          <h3 style="font-size: 1.125rem; font-weight: 700;">English</h3>
-          <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
-            <span class="class-code">ENG301</span>
-            <span>•</span>
-            <span>Section A</span>
-          </div>
-          <div class="class-schedule">
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              Monday, Wednesday, Friday
-            </div>
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              1:00 PM - 2:30 PM
-            </div>
-            <div class="class-schedule-entry">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              Room 102
-            </div>
+        {% endfor %}
+      {% else %}
+        <div class="card">
+          <div class="card-content">
+            <h3 style="font-size: 1.125rem; font-weight: 700;">No classes yet</h3>
+            <p class="text-sm" style="color: var(--text-500); margin-top: 0.5rem;">
+              You do not have any assigned subjects. Use Add Class to create your first one.
+            </p>
           </div>
         </div>
-      </div>
+      {% endif %}
     </div>
   </div>
 </div>
