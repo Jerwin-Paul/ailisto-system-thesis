@@ -115,6 +115,44 @@
         margin-top: 4px;
         color: var(--text-secondary, #6b7280);
       }
+      .notice-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 300;
+        padding: 1rem;
+      }
+      .notice-overlay.open {
+        display: flex;
+      }
+      .notice-modal {
+        width: 100%;
+        max-width: 440px;
+        background: var(--bg-white);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-2xl);
+        box-shadow: var(--shadow-xl);
+        padding: 1.25rem;
+      }
+      .notice-title {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text-900);
+      }
+      .notice-text {
+        margin: 0.75rem 0 1rem;
+        font-size: 0.92rem;
+        color: var(--text-600);
+        line-height: 1.5;
+      }
+      .notice-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
     </style>
   </head>
   <body>
@@ -150,6 +188,24 @@
         <polyline points="22 4 12 14.01 9 11.01" />
       </svg>
       <span id="toast-msg"></span>
+    </div>
+
+    <div
+      class="notice-overlay"
+      id="approval-notice-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="approval-notice-title"
+    >
+      <div class="notice-modal">
+        <h2 class="notice-title" id="approval-notice-title">Account Created</h2>
+        <p class="notice-text" id="approval-notice-text"></p>
+        <div class="notice-actions">
+          <button type="button" class="btn btn-primary" id="approval-notice-ok">
+            Okay
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="auth-centered">
@@ -500,6 +556,24 @@
         eyeOffIcon.style.display = newType === "password" ? "none" : "block";
       }
 
+      function showApprovalNotice(message) {
+        const overlay = document.getElementById("approval-notice-overlay");
+        const text = document.getElementById("approval-notice-text");
+        const okBtn = document.getElementById("approval-notice-ok");
+        text.textContent = message;
+        overlay.classList.add("open");
+        okBtn.focus();
+
+        return new Promise((resolve) => {
+          const close = () => {
+            overlay.classList.remove("open");
+            okBtn.removeEventListener("click", close);
+            resolve();
+          };
+          okBtn.addEventListener("click", close);
+        });
+      }
+
       // ─── Form submission (AJAX) ───
       document
         .getElementById("register-form")
@@ -566,11 +640,10 @@
             const data = await res.json();
 
             if (data.success) {
-              showToast(
-                "Account created! Redirecting to sign in...",
-                "success",
+              await showApprovalNotice(
+                data.message || "Wait for Admin approval before signing in.",
               );
-              setTimeout(() => (window.location.href = data.redirect), 1000);
+              window.location.href = data.redirect;
               return;
             }
 

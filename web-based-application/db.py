@@ -61,8 +61,14 @@ def init_db():
                 first_name  TEXT NOT NULL,
                 last_name   TEXT NOT NULL,
                 role        TEXT NOT NULL DEFAULT 'teacher',
+                approval_status TEXT NOT NULL DEFAULT 'approved',
                 created_at  TIMESTAMP DEFAULT NOW()
             );
+        """)
+        # Keep older databases compatible by adding the approval column if missing.
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'approved';
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS subjects (
@@ -140,15 +146,56 @@ def get_user_by_email(email: str) -> dict | None:
         return dict(row) if row else None
 
 
-def create_user(email: str, password: str, first_name: str, last_name: str, role: str = "teacher") -> dict:
+def create_user(
+    email: str,
+    password: str,
+    first_name: str,
+    last_name: str,
+    role: str = "teacher",
+    approval_status: str = "approved",
+) -> dict:
     hashed = hash_password(password)
     with get_cursor() as cur:
         cur.execute(
-            """INSERT INTO users (email, password, first_name, last_name, role)
-               VALUES (%s, %s, %s, %s, %s) RETURNING *""",
-            (email, hashed, first_name, last_name, role),
+            """INSERT INTO users (email, password, first_name, last_name, role, approval_status)
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+            (email, hashed, first_name, last_name, role, approval_status),
         )
         return dict(cur.fetchone())
+
+
+def list_users() -> list[dict]:
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT *
+            FROM users
+            ORDER BY created_at DESC, id DESC
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_pending_users() -> list[dict]:
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT *
+            FROM users
+            WHERE approval_status = 'pending'
+            ORDER BY created_at ASC, id ASC
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def update_user_approval_status(user_id: int, approval_status: str) -> dict | None:
+    with get_cursor() as cur:
+        cur.execute(
+            """UPDATE users
+               SET approval_status = %s
+               WHERE id = %s
+               RETURNING *""",
+            (approval_status, user_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 # ─── Subject Operations ──────────────────────────────────────────────

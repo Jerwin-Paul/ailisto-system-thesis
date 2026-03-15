@@ -34,6 +34,48 @@ def login_required(f):
             if request.path.startswith("/api/"):
                 return jsonify({"error": "Authentication required"}), 401
             return redirect(url_for("login"))
+        user = db.get_user_by_id(session["user_id"])
+        if not user:
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Authentication required"}), 401
+            return redirect(url_for("login"))
+        if user.get("approval_status") != "approved":
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Account is not approved yet."}), 403
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return wrapped
+
+
+def admin_required(f):
+    """Allow access only for authenticated users with admin role."""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Authentication required"}), 401
+            return redirect(url_for("login"))
+
+        user = db.get_user_by_id(session["user_id"])
+        if not user:
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Authentication required"}), 401
+            return redirect(url_for("login"))
+
+        if user.get("approval_status") != "approved":
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Account is not approved yet."}), 403
+            return redirect(url_for("login"))
+
+        if user.get("role") != "admin":
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Admin access required."}), 403
+            return redirect(url_for("home"))
+
         return f(*args, **kwargs)
     return wrapped
 
@@ -97,6 +139,21 @@ def login():
 
         user = db.get_user_by_email(email)
         if user and db.verify_password(password, user["password"]):
+            approval_status = user.get("approval_status", "approved")
+            if approval_status == "pending":
+                msg = "Wait for Admin approval before signing in."
+                if is_ajax:
+                    return jsonify({"error": msg, "code": "pending_approval"}), 403
+                flash(msg, "error")
+                return render_template("login.html")
+
+            if approval_status == "rejected":
+                msg = "Your account request was rejected by the admin."
+                if is_ajax:
+                    return jsonify({"error": msg, "code": "account_rejected"}), 403
+                flash(msg, "error")
+                return render_template("login.html")
+
             session["user_id"] = user["id"]
             if is_ajax:
                 return jsonify({"success": True, "redirect": url_for("home")})
@@ -148,10 +205,18 @@ def register():
             flash("An account with this email already exists.", "error")
             return render_template("register.html")
 
-        db.create_user(email, password, first_name, last_name)
+        db.create_user(
+            email,
+            password,
+            first_name,
+            last_name,
+            approval_status="pending",
+        )
         create_supabase_auth_user(email, password)
+        pending_msg = "Account created. Wait for Admin approval before signing in."
         if is_ajax:
-            return jsonify({"success": True, "redirect": url_for("login")})
+            return jsonify({"success": True, "redirect": url_for("login"), "message": pending_msg})
+        flash(pending_msg, "success")
         return redirect(url_for("login"))
 
     return render_template("register.html")
@@ -440,7 +505,35 @@ def about():
     return render_template("about.html", user=user)
 
 
+@app.route("/user-management")
+@admin_required
+def user_management():
+    user = current_user()
+    users = db.list_users()
+    pending_users = db.get_pending_users()
+    return render_template("user-management.html", user=user, users=users, pending_users=pending_users)
+
+
 # ─── API Endpoints ───────────────────────────────────────────────────
+
+@app.route("/api/admin/users/<int:user_id>/approval", methods=["POST"])
+@admin_required
+def api_admin_update_user_approval(user_id):
+    payload = request.get_json(silent=True) or {}
+    status = str(payload.get("status", "")).strip().lower()
+    if status not in {"approved", "rejected"}:
+        return jsonify({"error": "Status must be 'approved' or 'rejected'."}), 400
+
+    actor = current_user()
+    if actor and actor.get("id") == user_id:
+        return jsonify({"error": "You cannot change your own approval status."}), 400
+
+    target = db.get_user_by_id(user_id)
+    if not target:
+        return jsonify({"error": "User not found."}), 404
+
+    updated = db.update_user_approval_status(user_id, status)
+    return jsonify({"success": True, "user": updated})
 
 @app.route("/api/subjects", methods=["POST"])
 @login_required
