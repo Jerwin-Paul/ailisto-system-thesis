@@ -532,7 +532,27 @@ def api_admin_update_user_approval(user_id):
     if not target:
         return jsonify({"error": "User not found."}), 404
 
-    updated = db.update_user_approval_status(user_id, status)
+    updated = db.update_user_approval_status(user_id, status, reviewed_by_user_id=actor["id"] if actor else None)
+    return jsonify({"success": True, "user": updated})
+
+
+@app.route("/api/admin/users/<int:user_id>/role", methods=["POST"])
+@admin_required
+def api_admin_update_user_role(user_id):
+    payload = request.get_json(silent=True) or {}
+    role = str(payload.get("role", "")).strip().lower()
+    if role not in {"teacher", "admin"}:
+        return jsonify({"error": "Role must be 'teacher' or 'admin'."}), 400
+
+    actor = current_user()
+    if actor and actor.get("id") == user_id:
+        return jsonify({"error": "You cannot change your own role."}), 400
+
+    target = db.get_user_by_id(user_id)
+    if not target:
+        return jsonify({"error": "User not found."}), 404
+
+    updated = db.update_user_role(user_id, role)
     return jsonify({"success": True, "user": updated})
 
 @app.route("/api/subjects", methods=["POST"])

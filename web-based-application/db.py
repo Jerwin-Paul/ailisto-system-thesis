@@ -62,6 +62,8 @@ def init_db():
                 last_name   TEXT NOT NULL,
                 role        TEXT NOT NULL DEFAULT 'teacher',
                 approval_status TEXT NOT NULL DEFAULT 'approved',
+                approved_by INTEGER REFERENCES users(id),
+                approved_at TIMESTAMP,
                 created_at  TIMESTAMP DEFAULT NOW()
             );
         """)
@@ -69,6 +71,20 @@ def init_db():
         cur.execute("""
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'approved';
+        """)
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS approved_by INTEGER;
+        """)
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+        """)
+        # Backfill audit timestamp for legacy approved accounts.
+        cur.execute("""
+            UPDATE users
+            SET approved_at = created_at
+            WHERE approval_status = 'approved' AND approved_at IS NULL;
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS subjects (
@@ -167,9 +183,15 @@ def create_user(
 def list_users() -> list[dict]:
     with get_cursor(commit=False) as cur:
         cur.execute("""
-            SELECT *
-            FROM users
-            ORDER BY created_at DESC, id DESC
+            SELECT
+                u.*,
+                CASE
+                    WHEN reviewer.id IS NULL THEN NULL
+                    ELSE reviewer.first_name || ' ' || reviewer.last_name
+                END AS approved_by_name
+            FROM users u
+            LEFT JOIN users reviewer ON reviewer.id = u.approved_by
+            ORDER BY u.created_at DESC, u.id DESC
         """)
         return [dict(r) for r in cur.fetchall()]
 
@@ -177,22 +199,43 @@ def list_users() -> list[dict]:
 def get_pending_users() -> list[dict]:
     with get_cursor(commit=False) as cur:
         cur.execute("""
-            SELECT *
-            FROM users
-            WHERE approval_status = 'pending'
-            ORDER BY created_at ASC, id ASC
+            SELECT
+                u.*,
+                CASE
+                    WHEN reviewer.id IS NULL THEN NULL
+                    ELSE reviewer.first_name || ' ' || reviewer.last_name
+                END AS approved_by_name
+            FROM users u
+            LEFT JOIN users reviewer ON reviewer.id = u.approved_by
+            WHERE u.approval_status = 'pending'
+            ORDER BY u.created_at ASC, u.id ASC
         """)
         return [dict(r) for r in cur.fetchall()]
 
 
-def update_user_approval_status(user_id: int, approval_status: str) -> dict | None:
+def update_user_role(user_id: int, role: str) -> dict | None:
     with get_cursor() as cur:
         cur.execute(
             """UPDATE users
-               SET approval_status = %s
+               SET role = %s
                WHERE id = %s
                RETURNING *""",
-            (approval_status, user_id),
+            (role, user_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def update_user_approval_status(user_id: int, approval_status: str, reviewed_by_user_id: int | None = None) -> dict | None:
+    with get_cursor() as cur:
+        cur.execute(
+            """UPDATE users
+               SET approval_status = %s,
+                   approved_by = %s,
+                   approved_at = NOW()
+               WHERE id = %s
+               RETURNING *""",
+            (approval_status, reviewed_by_user_id, user_id),
         )
         row = cur.fetchone()
         return dict(row) if row else None

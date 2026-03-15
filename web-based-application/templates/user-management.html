@@ -3,7 +3,9 @@ endblock %} {% block content %}
 <div class="space-y-6">
   <div>
     <h2 class="page-title">User Management</h2>
-    <p class="page-subtitle">Review account requests and manage user access.</p>
+    <p class="page-subtitle">
+      Review account requests, manage roles, and control user access.
+    </p>
   </div>
 
   <div class="card">
@@ -39,6 +41,7 @@ endblock %} {% block content %}
         <p style="font-weight: 600">No pending account requests</p>
         <p class="text-sm">New registrations will appear here for approval.</p>
       </div>
+
       {% if pending_users %}
       <table class="data-table" id="pending-users-table">
         <thead>
@@ -73,14 +76,14 @@ endblock %} {% block content %}
             <td>
               <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
                 <button
-                  class="btn btn-sm btn-outline-emerald js-approval-btn"
+                  class="btn btn-sm btn-outline-emerald js-pending-approval-btn"
                   data-user-id="{{ u.id }}"
                   data-status="approved"
                 >
                   Approve
                 </button>
                 <button
-                  class="btn btn-sm btn-outline-amber js-approval-btn"
+                  class="btn btn-sm btn-outline-amber js-pending-approval-btn"
                   data-user-id="{{ u.id }}"
                   data-status="rejected"
                 >
@@ -97,57 +100,191 @@ endblock %} {% block content %}
   </div>
 
   <div class="card">
-    <div class="card-header">
+    <div class="card-header all-users-header">
       <h3 class="card-title">All Users</h3>
+      <div class="all-users-search-wrap">
+        <input
+          class="form-input"
+          id="user-search"
+          type="text"
+          placeholder="Search name or email"
+          style="height: 40px; width: 100%"
+        />
+      </div>
+      <select
+        class="form-select"
+        id="status-filter"
+        style="height: 40px; width: 160px"
+      >
+        <option value="all">All Statuses</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+      </select>
     </div>
+
     <div class="card-content">
       {% if users %}
-      <table class="data-table">
+      <table class="data-table" id="all-users-table">
         <thead>
           <tr>
             <th>Name</th>
             <th>Email</th>
-            <th>Role</th>
-            <th>Status</th>
+            <th class="col-role">Role</th>
+            <th class="col-status">Status</th>
+            <th>Reviewed By</th>
+            <th>Reviewed At</th>
             <th>Created</th>
           </tr>
         </thead>
         <tbody>
           {% for u in users %}
-          <tr id="all-user-{{ u.id }}">
+          <tr
+            id="all-user-{{ u.id }}"
+            data-user-id="{{ u.id }}"
+            data-user-name="{{ (u.first_name ~ ' ' ~ u.last_name)|lower }}"
+            data-user-email="{{ u.email|lower }}"
+            data-user-status="{{ u.approval_status }}"
+            data-user-role="{{ u.role }}"
+            {%
+            if
+            u.id
+            !="user.id"
+            %}class="all-user-row"
+            {%
+            endif
+            %}
+          >
             <td><strong>{{ u.first_name }} {{ u.last_name }}</strong></td>
             <td>{{ u.email }}</td>
-            <td>
-              <span
-                class="badge"
-                style="
-                  background: var(--blue-100);
-                  color: var(--blue-600);
-                  text-transform: capitalize;
-                "
-                >{{ u.role }}</span
-              >
+
+            <!-- Role cell: badge + hidden select (shown in edit mode) -->
+            <td class="col-role" id="all-user-role-{{ u.id }}">
+              <div class="role-field">
+                <span
+                  id="all-user-role-badge-{{ u.id }}"
+                  class="badge role-pill"
+                  style="
+                    background: var(--blue-100);
+                    color: var(--blue-600);
+                    text-transform: capitalize;
+                  "
+                  >{{ u.role }}</span
+                >
+                {% if u.id != user.id %}
+                <select
+                  class="form-select js-role-select inline-editor-select role-select"
+                  id="all-user-role-select-{{ u.id }}"
+                  data-user-id="{{ u.id }}"
+                  style="display: none"
+                >
+                  <option
+                    value="teacher"
+                    {%
+                    if
+                    u.role=""
+                    ="teacher"
+                    %}selected{%
+                    endif
+                    %}
+                  >
+                    Teacher
+                  </option>
+                  <option
+                    value="admin"
+                    {%
+                    if
+                    u.role=""
+                    ="admin"
+                    %}selected{%
+                    endif
+                    %}
+                  >
+                    Admin
+                  </option>
+                </select>
+                {% endif %}
+              </div>
             </td>
-            <td id="all-user-status-{{ u.id }}">
-              {% if u.approval_status == 'approved' %}
-              <span
-                class="badge"
-                style="background: var(--emerald-50); color: var(--emerald-600)"
-                >Approved</span
-              >
-              {% elif u.approval_status == 'rejected' %}
-              <span
-                class="badge"
-                style="background: var(--red-50); color: var(--red-600)"
-                >Rejected</span
-              >
-              {% else %}
-              <span
-                class="badge"
-                style="background: var(--amber-50); color: var(--amber-500)"
-                >Pending</span
-              >
-              {% endif %}
+
+            <!-- Status cell: badge wrapper + hidden select + Edit/Save button -->
+            <td class="col-status">
+              <div class="status-actions">
+                <span class="status-field" id="all-user-status-{{ u.id }}">
+                  {% if u.approval_status == 'approved' %}
+                  <span
+                    class="badge status-pill"
+                    style="
+                      background: var(--emerald-50);
+                      color: var(--emerald-600);
+                    "
+                    >Approved</span
+                  >
+                  {% elif u.approval_status == 'rejected' %}
+                  <span
+                    class="badge status-pill"
+                    style="background: var(--red-50); color: var(--red-600)"
+                    >Rejected</span
+                  >
+                  {% else %}
+                  <span
+                    class="badge status-pill"
+                    style="background: var(--amber-50); color: var(--amber-500)"
+                    >Pending</span
+                  >
+                  {% endif %}
+                </span>
+                {% if u.id != user.id %}
+                <select
+                  class="form-select js-status-select inline-editor-select status-select"
+                  id="all-user-status-select-{{ u.id }}"
+                  data-user-id="{{ u.id }}"
+                  style="display: none"
+                >
+                  <option
+                    value="approved"
+                    {%
+                    if
+                    u.approval_status=""
+                    ="approved"
+                    %}selected{%
+                    endif
+                    %}
+                  >
+                    Approved
+                  </option>
+                  <option
+                    value="rejected"
+                    {%
+                    if
+                    u.approval_status=""
+                    ="rejected"
+                    %}selected{%
+                    endif
+                    %}
+                  >
+                    Rejected
+                  </option>
+                </select>
+                <button
+                  class="btn btn-sm btn-outline js-edit-save-btn"
+                  data-user-id="{{ u.id }}"
+                  data-mode="edit"
+                  disabled
+                  style="min-width: 70px"
+                >
+                  Edit
+                </button>
+                {% endif %}
+              </div>
+            </td>
+
+            <td id="all-user-reviewed-by-{{ u.id }}">
+              {{ u.approved_by_name if u.approved_by_name else '—' }}
+            </td>
+            <td id="all-user-reviewed-at-{{ u.id }}">
+              {{ u.approved_at.strftime('%b %d, %Y • %I:%M %p') if u.approved_at
+              else '—' }}
             </td>
             <td>
               {{ u.created_at.strftime('%b %d, %Y • %I:%M %p') if u.created_at
@@ -157,6 +294,13 @@ endblock %} {% block content %}
           {% endfor %}
         </tbody>
       </table>
+      <div
+        id="no-users-match"
+        class="empty-state"
+        style="padding: 2rem; display: none; margin-top: 0.75rem"
+      >
+        <p style="font-weight: 600">No users matched your filter</p>
+      </div>
       {% else %}
       <div class="empty-state" style="padding: 2rem">
         <p style="font-weight: 600">No users found</p>
@@ -166,15 +310,155 @@ endblock %} {% block content %}
   </div>
 </div>
 {% endblock %} {% block scripts %}
+<style>
+  .all-user-row {
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+  .all-user-row:hover {
+    background: var(--surface-1, #f8fafc);
+  }
+  .all-user-row.selected-row {
+    background: var(--blue-50, #eff6ff);
+  }
+  #all-users-table tbody tr td {
+    vertical-align: middle;
+  }
+  .all-users-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3rem;
+  }
+  .all-users-search-wrap {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(52vw, 640px);
+    padding-inline: 1rem;
+  }
+  #status-filter {
+    margin-left: auto;
+  }
+  .col-role {
+    width: 132px;
+  }
+  .col-status {
+    width: 230px;
+  }
+  .role-field,
+  .status-field {
+    width: 116px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .status-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+  }
+  .role-pill,
+  .status-pill {
+    width: 100%;
+    justify-content: center;
+  }
+  .inline-editor-select {
+    width: 100%;
+    height: 34px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+    border: 1px solid transparent;
+    padding: 0 2rem 0 0.75rem;
+    background-repeat: no-repeat;
+    background-position: right 0.7rem center;
+    background-size: 1rem;
+  }
+  .role-select {
+    background-color: var(--blue-100);
+    color: var(--blue-600);
+  }
+  .status-select.status-approved {
+    background-color: var(--emerald-50);
+    color: var(--emerald-600);
+  }
+  .status-select.status-rejected {
+    background-color: var(--red-50);
+    color: var(--red-600);
+  }
+  .status-select.status-pending {
+    background-color: var(--amber-50);
+    color: var(--amber-500);
+  }
+  @media (max-width: 900px) {
+    .all-users-header {
+      position: static;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .all-users-search-wrap,
+    #status-filter {
+      position: static;
+      transform: none;
+      justify-self: stretch;
+      width: 100%;
+      padding-inline: 0;
+    }
+  }
+</style>
 <script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let selectedUserId = null;
+  let editingUserId = null;
+
+  // ── Badge renderers ────────────────────────────────────────────────────────
   function renderStatusBadge(status) {
     if (status === "approved") {
-      return '<span class="badge" style="background: var(--emerald-50); color: var(--emerald-600);">Approved</span>';
+      return '<span class="badge status-pill" style="background: var(--emerald-50); color: var(--emerald-600);">Approved</span>';
     }
     if (status === "rejected") {
-      return '<span class="badge" style="background: var(--red-50); color: var(--red-600);">Rejected</span>';
+      return '<span class="badge status-pill" style="background: var(--red-50); color: var(--red-600);">Rejected</span>';
     }
-    return '<span class="badge" style="background: var(--amber-50); color: var(--amber-500);">Pending</span>';
+    return '<span class="badge status-pill" style="background: var(--amber-50); color: var(--amber-500);">Pending</span>';
+  }
+
+  function setStatusSelectTone(selectEl) {
+    if (!selectEl) return;
+    selectEl.classList.remove(
+      "status-approved",
+      "status-rejected",
+      "status-pending",
+    );
+    const value = selectEl.value || "pending";
+    selectEl.classList.add(`status-${value}`);
+  }
+
+  function formatNow() {
+    return new Date()
+      .toLocaleString(undefined, {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+      .replace(",", " •");
+  }
+
+  // ── Pending section helpers ────────────────────────────────────────────────
+  function setButtonsBusy(container, busy, activeButton) {
+    const buttons = container ? container.querySelectorAll("button") : [];
+    buttons.forEach((btn) => {
+      btn.disabled = busy;
+      if (!busy && btn.classList.contains("js-pending-approval-btn")) {
+        btn.textContent =
+          btn.dataset.status === "approved" ? "Approve" : "Reject";
+      }
+    });
+    if (busy && activeButton) activeButton.textContent = "Processing...";
   }
 
   function refreshPendingUi() {
@@ -182,80 +466,310 @@ endblock %} {% block content %}
     const empty = document.getElementById("pending-empty");
     const countBadge = document.getElementById("pending-count");
     const count = document.querySelectorAll("tr[id^='pending-user-']").length;
-
-    if (countBadge) {
-      countBadge.textContent = `${count} Pending`;
-    }
-
+    if (countBadge) countBadge.textContent = `${count} Pending`;
     if (count === 0) {
       if (table) table.style.display = "none";
       if (empty) empty.style.display = "flex";
-      return;
+    } else {
+      if (table) table.style.display = "table";
+      if (empty) empty.style.display = "none";
     }
-
-    if (table) table.style.display = "table";
-    if (empty) empty.style.display = "none";
   }
 
-  document.querySelectorAll(".js-approval-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const userId = Number(btn.dataset.userId);
-      const status = btn.dataset.status;
-      updateApproval(userId, status, btn);
+  // ── Filter ─────────────────────────────────────────────────────────────────
+  function applyUserFilters() {
+    const q = (document.getElementById("user-search")?.value || "")
+      .trim()
+      .toLowerCase();
+    const status = document.getElementById("status-filter")?.value || "all";
+    const rows = document.querySelectorAll("#all-users-table tbody tr");
+    let visibleCount = 0;
+    rows.forEach((row) => {
+      const matchesText =
+        !q ||
+        (row.dataset.userName || "").includes(q) ||
+        (row.dataset.userEmail || "").includes(q);
+      const matchesStatus =
+        status === "all" || (row.dataset.userStatus || "") === status;
+      const show = matchesText && matchesStatus;
+      row.style.display = show ? "" : "none";
+      if (show) visibleCount++;
     });
-  });
+    const noMatch = document.getElementById("no-users-match");
+    if (noMatch) noMatch.style.display = visibleCount === 0 ? "flex" : "none";
+  }
 
-  async function updateApproval(userId, status, triggerBtn) {
+  // ── Shared fetch helper ────────────────────────────────────────────────────
+  async function postJson(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success)
+      throw new Error(data.error || "Request failed.");
+    return data;
+  }
+
+  function updateAllUsersAuditCells(userId, actorName) {
+    const byCell = document.getElementById(`all-user-reviewed-by-${userId}`);
+    const atCell = document.getElementById(`all-user-reviewed-at-${userId}`);
+    if (byCell) byCell.textContent = actorName;
+    if (atCell) atCell.textContent = formatNow();
+  }
+
+  // ── Row selection ──────────────────────────────────────────────────────────
+  function clearSelectionVisuals() {
+    document
+      .querySelectorAll("#all-users-table .all-user-row")
+      .forEach((row) => {
+        row.classList.remove("selected-row");
+      });
+  }
+
+  function setEditButtonStates(activeUserId) {
+    document.querySelectorAll(".js-edit-save-btn").forEach((btn) => {
+      if (btn.dataset.mode === "save") {
+        return;
+      }
+      btn.disabled = Number(btn.dataset.userId) !== activeUserId;
+    });
+  }
+
+  function selectRow(userId) {
+    clearSelectionVisuals();
+    selectedUserId = userId;
+    const btn = document.querySelector(
+      `.js-edit-save-btn[data-user-id='${userId}']`,
+    );
+    if (btn && btn.dataset.mode === "edit") btn.disabled = false;
+    setEditButtonStates(userId);
+    const row = document.getElementById(`all-user-${userId}`);
+    if (row) row.classList.add("selected-row");
+  }
+
+  // ── Edit / Save mode ───────────────────────────────────────────────────────
+  function enterEditMode(userId, btn) {
+    editingUserId = userId;
+    const row = document.getElementById(`all-user-${userId}`);
+    const currentRole = row?.dataset.userRole || "teacher";
+    const currentStatus = row?.dataset.userStatus || "approved";
+
+    // Role cell: hide badge, show select
+    const roleBadge = document.getElementById(`all-user-role-badge-${userId}`);
+    const roleSelect = document.getElementById(
+      `all-user-role-select-${userId}`,
+    );
+    if (roleBadge) roleBadge.style.display = "none";
+    if (roleSelect) {
+      roleSelect.value = currentRole;
+      roleSelect.style.display = "";
+    }
+
+    // Status cell: hide badge wrapper, show select
+    const statusWrapper = document.getElementById(`all-user-status-${userId}`);
+    const statusSelect = document.getElementById(
+      `all-user-status-select-${userId}`,
+    );
+    if (statusWrapper) statusWrapper.style.display = "none";
+    if (statusSelect) {
+      statusSelect.value = currentStatus;
+      statusSelect.style.display = "";
+      setStatusSelectTone(statusSelect);
+    }
+
+    // Edit → Save
+    btn.textContent = "Save";
+    btn.dataset.mode = "save";
+    btn.classList.remove("btn-outline");
+    btn.classList.add("btn-primary");
+  }
+
+  function exitEditMode(userId, newRole, newStatus) {
+    editingUserId = null;
+    selectedUserId = null;
+
+    const row = document.getElementById(`all-user-${userId}`);
+    if (row) {
+      row.dataset.userRole = newRole;
+      row.dataset.userStatus = newStatus;
+    }
+    clearSelectionVisuals();
+
+    // Role cell: update badge text, show badge, hide select
+    const roleBadge = document.getElementById(`all-user-role-badge-${userId}`);
+    const roleSelect = document.getElementById(
+      `all-user-role-select-${userId}`,
+    );
+    if (roleBadge) {
+      roleBadge.textContent = newRole;
+      roleBadge.style.display = "";
+    }
+    if (roleSelect) roleSelect.style.display = "none";
+
+    // Status cell: update badge HTML, show wrapper, hide select
+    const statusWrapper = document.getElementById(`all-user-status-${userId}`);
+    const statusSelect = document.getElementById(
+      `all-user-status-select-${userId}`,
+    );
+    if (statusWrapper) {
+      statusWrapper.innerHTML = renderStatusBadge(newStatus);
+      statusWrapper.style.display = "";
+    }
+    if (statusSelect) statusSelect.style.display = "none";
+
+    // Save → Edit (disabled until row is selected again)
+    const btn = document.querySelector(
+      `.js-edit-save-btn[data-user-id='${userId}']`,
+    );
+    if (btn) {
+      btn.textContent = "Edit";
+      btn.dataset.mode = "edit";
+      btn.disabled = true;
+      btn.classList.remove("btn-primary");
+      btn.classList.add("btn-outline");
+    }
+    setEditButtonStates(null);
+  }
+
+  // ── Save changes ───────────────────────────────────────────────────────────
+  async function saveUser(userId, btn) {
+    const row = document.getElementById(`all-user-${userId}`);
+    const roleSelect = document.getElementById(
+      `all-user-role-select-${userId}`,
+    );
+    const statusSelect = document.getElementById(
+      `all-user-status-select-${userId}`,
+    );
+    const newRole = roleSelect?.value || row?.dataset.userRole;
+    const newStatus = statusSelect?.value || row?.dataset.userStatus;
+    const currentRole = row?.dataset.userRole;
+    const currentStatus = row?.dataset.userStatus;
+
+    if (newStatus === "rejected" && newStatus !== currentStatus) {
+      if (!window.confirm("Set this user status to Rejected?")) return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Saving...";
+
+    try {
+      if (newRole !== currentRole) {
+        await postJson(`/api/admin/users/${userId}/role`, { role: newRole });
+      }
+      if (newStatus !== currentStatus) {
+        await postJson(`/api/admin/users/${userId}/approval`, {
+          status: newStatus,
+        });
+        updateAllUsersAuditCells(
+          userId,
+          "{{ user.first_name }} {{ user.last_name }}",
+        );
+      }
+      exitEditMode(userId, newRole, newStatus);
+      applyUserFilters();
+    } catch (err) {
+      window.alert(err.message || "Failed to save changes.");
+      btn.disabled = false;
+      btn.textContent = "Save";
+    }
+  }
+
+  // ── Approve / Reject from pending section ──────────────────────────────────
+  async function approvePending(userId, status, btn) {
     if (
       status === "rejected" &&
       !window.confirm("Reject this account request?")
-    ) {
+    )
       return;
-    }
 
-    const row = document.getElementById(`pending-user-${userId}`);
-    const rowButtons = row ? row.querySelectorAll(".js-approval-btn") : [];
-    rowButtons.forEach((b) => {
-      b.disabled = true;
-      if (b === triggerBtn) {
-        b.textContent = "Processing...";
-      }
-    });
+    const pendingRow = document.getElementById(`pending-user-${userId}`);
+    const pendingActions = pendingRow?.querySelector("td:last-child");
+    if (pendingActions) setButtonsBusy(pendingActions, true, btn);
 
     try {
-      const res = await fetch(`/api/admin/users/${userId}/approval`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      const data = await res.json();
+      await postJson(`/api/admin/users/${userId}/approval`, { status });
 
-      if (!res.ok || !data.success) {
-        window.alert(data.error || "Failed to update account status.");
-        rowButtons.forEach((b) => {
-          b.disabled = false;
-          b.textContent =
-            b.dataset.status === "approved" ? "Approve" : "Reject";
-        });
-        return;
+      // Update the All Users row
+      const allRow = document.getElementById(`all-user-${userId}`);
+      if (allRow) allRow.dataset.userStatus = status;
+
+      const statusWrapper = document.getElementById(
+        `all-user-status-${userId}`,
+      );
+      if (statusWrapper) statusWrapper.innerHTML = renderStatusBadge(status);
+
+      const statusSelect = document.getElementById(
+        `all-user-status-select-${userId}`,
+      );
+      if (statusSelect) {
+        statusSelect.value = status;
+        setStatusSelectTone(statusSelect);
       }
 
-      const statusCell = document.getElementById(`all-user-status-${userId}`);
-      if (statusCell) {
-        statusCell.innerHTML = renderStatusBadge(status);
-      }
+      updateAllUsersAuditCells(
+        userId,
+        "{{ user.first_name }} {{ user.last_name }}",
+      );
 
-      if (row) {
-        row.remove();
+      if (pendingRow) {
+        pendingRow.remove();
+        refreshPendingUi();
       }
-      refreshPendingUi();
+      applyUserFilters();
     } catch (err) {
-      window.alert("Something went wrong while updating account status.");
-      rowButtons.forEach((b) => {
-        b.disabled = false;
-        b.textContent = b.dataset.status === "approved" ? "Approve" : "Reject";
-      });
+      window.alert(err.message || "Failed to update account status.");
+    } finally {
+      if (pendingActions) setButtonsBusy(pendingActions, false);
     }
   }
+
+  // ── Event listeners ────────────────────────────────────────────────────────
+
+  // Pending approval buttons
+  document.querySelectorAll(".js-pending-approval-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      approvePending(Number(btn.dataset.userId), btn.dataset.status, btn);
+    });
+  });
+
+  // Row click → select row (enables Edit button)
+  document.querySelectorAll("#all-users-table .all-user-row").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      const userId = Number(row.dataset.userId);
+      if (!userId) return;
+      // Keep selection stable while one row is actively in edit mode.
+      if (editingUserId !== null && editingUserId !== userId) return;
+      if (editingUserId === userId) return;
+      selectRow(userId);
+    });
+  });
+
+  document.querySelectorAll(".js-status-select").forEach((selectEl) => {
+    setStatusSelectTone(selectEl);
+    selectEl.addEventListener("change", () => setStatusSelectTone(selectEl));
+  });
+
+  // Edit / Save button click (use event delegation to handle dynamic state)
+  document.getElementById("all-users-table")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-edit-save-btn");
+    if (!btn) return;
+    e.stopPropagation();
+    const userId = Number(btn.dataset.userId);
+    if (btn.dataset.mode === "edit") {
+      enterEditMode(userId, btn);
+    } else {
+      saveUser(userId, btn);
+    }
+  });
+
+  // Search / filter
+  document
+    .getElementById("user-search")
+    ?.addEventListener("input", applyUserFilters);
+  document
+    .getElementById("status-filter")
+    ?.addEventListener("change", applyUserFilters);
 </script>
 {% endblock %}
