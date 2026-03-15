@@ -1,5 +1,8 @@
 {% extends "_layout.html" %} {% block title %}Profile - Ai-Listo{% endblock %}
 {% block content %}
+{% set avatar_src = (user.avatar_url or '')|trim %}
+{% set has_initial_avatar = avatar_src and avatar_src not in ['None', 'null', 'NULL'] %}
+{% set avatar_initials = ((user.first_name[:1] if user.first_name else '') ~ (user.last_name[:1] if user.last_name else ''))|upper %}
 <div class="space-y-6">
   <div>
     <h2 class="page-title">Profile</h2>
@@ -12,40 +15,84 @@
         <!-- Avatar -->
         <div style="display: flex; align-items: center; gap: 1.5rem">
           <div
+            id="profile-avatar-wrap"
+            data-avatar-url="{{ avatar_src if has_initial_avatar else '' }}"
             style="
               width: 80px;
               height: 80px;
               border-radius: 50%;
-              background: var(--border-light);
+              background: var(--blue-600);
               border: 2px solid var(--border);
+              overflow: hidden;
+              position: relative;
               display: flex;
               align-items: center;
               justify-content: center;
               color: var(--text-400);
             "
           >
+            <img
+              id="profile-avatar-img"
+              alt=""
+              style="width: 100%; height: 100%; object-fit: cover; display: none;"
+            />
             <svg
+              id="profile-avatar-fallback"
               xmlns="http://www.w3.org/2000/svg"
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              width="0"
+              height="0"
+              viewBox="0 0 1 1"
+              style="display:none;"
             >
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
             </svg>
+            <span
+              id="profile-avatar-initials"
+              style="
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                height: 100%;
+                font-family: var(--font-display);
+                font-weight: 700;
+                font-size: 1.25rem;
+                color: #fff;
+                letter-spacing: 0.02em;
+                line-height: 1;
+                text-transform: uppercase;
+              "
+            >{{ avatar_initials or 'U' }}</span>
           </div>
-          <div>
-            <h3 id="profile-display-name" style="font-size: 1.25rem">
-              {{ user.first_name }} {{ user.last_name }}
-            </h3>
-            <p id="profile-display-email" class="text-sm" style="color: var(--text-500)">
-              {{ user.email }}
-            </p>
+          <div
+            style="
+              flex: 1;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 1rem;
+              flex-wrap: wrap;
+            "
+          >
+            <div>
+              <h3 id="profile-display-name" style="font-size: 1.25rem">
+                {{ user.first_name }} {{ user.last_name }}
+              </h3>
+              <p id="profile-display-email" class="text-sm" style="color: var(--text-500)">
+                {{ user.email }}
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <input id="profile-avatar-input" type="file" accept="image/*" hidden />
+              <button id="profile-avatar-upload-btn" type="button" class="btn btn-outline">Upload Photo</button>
+              <button
+                id="profile-avatar-remove-btn"
+                type="button"
+                class="btn btn-outline"
+                {% if not has_initial_avatar %}disabled{% endif %}
+              >
+                Remove
+              </button>
+            </div>
           </div>
         </div>
 
@@ -112,8 +159,27 @@
     const messageEl = document.getElementById("profile-save-msg");
     const displayName = document.getElementById("profile-display-name");
     const displayEmail = document.getElementById("profile-display-email");
+    const avatarInput = document.getElementById("profile-avatar-input");
+    const avatarUploadBtn = document.getElementById("profile-avatar-upload-btn");
+    const avatarRemoveBtn = document.getElementById("profile-avatar-remove-btn");
+    const avatarImg = document.getElementById("profile-avatar-img");
+    const avatarInitials = document.getElementById("profile-avatar-initials");
+    const avatarWrap = document.getElementById("profile-avatar-wrap");
+    const sidebarAvatarImg = document.getElementById("sidebar-avatar-img");
+    const sidebarAvatarInitials = document.getElementById("sidebar-avatar-initials");
+    const sidebarUserName = document.getElementById("sidebar-user-name");
     const saveBtnDefaultHtml = saveBtn.innerHTML;
+    const avatarUploadDefaultText = avatarUploadBtn.textContent;
+    const avatarRemoveDefaultText = avatarRemoveBtn.textContent;
+    let hasAvatar = false;
     let messageHideTimer = null;
+
+    function getInitials(firstName, lastName) {
+      const a = (firstName || "").trim().charAt(0);
+      const b = (lastName || "").trim().charAt(0);
+      const initials = (a + b).toUpperCase();
+      return initials || "U";
+    }
 
     function setSavingState(isSaving) {
       saveBtn.disabled = isSaving;
@@ -138,6 +204,93 @@
         }, 3500);
       }
     }
+
+    function setAvatarBusy(isBusy, removeBusy) {
+      avatarUploadBtn.disabled = isBusy;
+      avatarRemoveBtn.disabled = isBusy || removeBusy || !hasAvatar;
+      avatarUploadBtn.textContent = isBusy
+        ? "Uploading..."
+        : avatarUploadDefaultText;
+      avatarRemoveBtn.textContent = removeBusy
+        ? "Removing..."
+        : avatarRemoveDefaultText;
+    }
+
+    function syncSidebarIdentity(firstName, lastName) {
+      const fullName = ((firstName || "").trim() + " " + (lastName || "").trim()).trim();
+      const initials = getInitials(firstName, lastName);
+      if (sidebarUserName) sidebarUserName.textContent = fullName || "User";
+      if (sidebarAvatarInitials) sidebarAvatarInitials.textContent = initials;
+    }
+
+    function syncSidebarAvatar(avatarUrl) {
+      if (!sidebarAvatarImg || !sidebarAvatarInitials) return;
+
+      const candidate = (avatarUrl || "").trim();
+      if (!candidate || candidate === "None" || candidate === "null") {
+        sidebarAvatarImg.removeAttribute("src");
+        sidebarAvatarImg.style.display = "none";
+        sidebarAvatarInitials.style.display = "inline-flex";
+        return;
+      }
+
+      sidebarAvatarImg.onload = function () {
+        sidebarAvatarImg.style.display = "block";
+        sidebarAvatarInitials.style.display = "none";
+      };
+      sidebarAvatarImg.onerror = function () {
+        sidebarAvatarImg.removeAttribute("src");
+        sidebarAvatarImg.style.display = "none";
+        sidebarAvatarInitials.style.display = "inline-flex";
+      };
+      sidebarAvatarImg.src = candidate + (candidate.includes("?") ? "&" : "?") + "v=" + Date.now();
+    }
+
+    function showFallbackAvatar() {
+      hasAvatar = false;
+      avatarImg.removeAttribute("src");
+      avatarImg.style.display = "none";
+      avatarInitials.style.display = "inline-flex";
+      avatarRemoveBtn.disabled = true;
+    }
+
+    function showImageAvatar(avatarUrl) {
+      const resolvedUrl =
+        avatarUrl + (avatarUrl.includes("?") ? "&" : "?") + "v=" + Date.now();
+
+      // Keep fallback visible until the image is fully loaded.
+      hasAvatar = false;
+      avatarImg.style.display = "none";
+      avatarInitials.style.display = "inline-flex";
+      avatarRemoveBtn.disabled = true;
+
+      avatarImg.onload = function () {
+        hasAvatar = true;
+        avatarImg.style.display = "block";
+        avatarInitials.style.display = "none";
+        avatarRemoveBtn.disabled = false;
+      };
+      avatarImg.onerror = function () {
+        showFallbackAvatar();
+      };
+      avatarImg.src = resolvedUrl;
+    }
+
+    function applyAvatar(avatarUrl) {
+      const candidate = (avatarUrl || "").trim();
+      if (!candidate || candidate === "None" || candidate === "null") {
+        showFallbackAvatar();
+        return;
+      }
+
+      showImageAvatar(candidate);
+    }
+
+    // Default to user icon and only show image if it can actually load.
+    (function hydrateInitialAvatar() {
+      const initialAvatarUrl = (avatarWrap.dataset.avatarUrl || "").trim();
+      applyAvatar(initialAvatarUrl);
+    })();
 
     form.addEventListener("submit", async function (e) {
       e.preventDefault();
@@ -180,12 +333,94 @@
         displayName.textContent =
           (updated.first_name || payload.firstName) + " " + (updated.last_name || payload.lastName);
         displayEmail.textContent = updated.email || payload.email;
+        avatarInitials.textContent = getInitials(
+          updated.first_name || payload.firstName,
+          updated.last_name || payload.lastName,
+        );
+        syncSidebarIdentity(
+          updated.first_name || payload.firstName,
+          updated.last_name || payload.lastName,
+        );
         showMessage("Profile saved successfully.", false);
       } catch (err) {
         const msg = err && err.message ? err.message : "Could not save profile.";
         showMessage(msg, true);
       } finally {
         setSavingState(false);
+      }
+    });
+
+    avatarUploadBtn.addEventListener("click", function () {
+      avatarInput.click();
+    });
+
+    avatarInput.addEventListener("change", async function () {
+      const file = avatarInput.files && avatarInput.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("avatar", file);
+      setAvatarBusy(true, false);
+
+      try {
+        const resp = await fetch("/api/profile/avatar", {
+          method: "POST",
+          credentials: "same-origin",
+          body: formData,
+        });
+
+        const raw = await resp.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          data = {};
+        }
+
+        if (!resp.ok) {
+          throw new Error(data.error || "Could not upload profile photo.");
+        }
+
+        applyAvatar((data.user || {}).avatar_url || null);
+        syncSidebarAvatar((data.user || {}).avatar_url || null);
+        showMessage("Profile picture updated.", false);
+      } catch (err) {
+        showMessage(err && err.message ? err.message : "Could not upload profile photo.", true);
+      } finally {
+        avatarInput.value = "";
+        setAvatarBusy(false, false);
+      }
+    });
+
+    avatarRemoveBtn.addEventListener("click", async function () {
+      if (avatarRemoveBtn.disabled) return;
+      setAvatarBusy(true, true);
+
+      try {
+        const resp = await fetch("/api/profile/avatar", {
+          method: "DELETE",
+          credentials: "same-origin",
+        });
+
+        const raw = await resp.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          data = {};
+        }
+
+        if (!resp.ok) {
+          throw new Error(data.error || "Could not remove profile photo.");
+        }
+
+        applyAvatar(null);
+        syncSidebarAvatar(null);
+        showMessage("Profile picture removed.", false);
+      } catch (err) {
+        showMessage(err && err.message ? err.message : "Could not remove profile photo.", true);
+      } finally {
+        setAvatarBusy(false, false);
       }
     });
   })();

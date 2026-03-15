@@ -42,6 +42,16 @@ def _normalize_session_times(row: dict) -> dict:
     return row
 
 
+def _normalize_user_row(row: dict | None) -> dict | None:
+    if not row:
+        return None
+
+    avatar_bytes = row.pop("avatar_image", None)
+    row.pop("avatar_mime_type", None)
+    row["avatar_url"] = f"/api/users/{row['id']}/avatar" if avatar_bytes else None
+    return row
+
+
 # ─── Connection Helpers ───────────────────────────────────────────────
 
 def get_connection():
@@ -78,6 +88,8 @@ def init_db():
                 password    TEXT NOT NULL,
                 first_name  TEXT NOT NULL,
                 last_name   TEXT NOT NULL,
+                avatar_image BYTEA,
+                avatar_mime_type TEXT,
                 role        TEXT NOT NULL DEFAULT 'teacher',
                 approval_status TEXT NOT NULL DEFAULT 'approved',
                 approved_by INTEGER REFERENCES users(id),
@@ -98,6 +110,22 @@ def init_db():
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
         """)
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS avatar_image BYTEA;
+        """)
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime_type TEXT;",
+        )
+        cur.execute(
+            """
+            UPDATE users
+            SET avatar_image = NULL,
+                avatar_mime_type = NULL
+            WHERE avatar_mime_type IS NOT NULL
+              AND avatar_image IS NULL;
+            """,
+        )
         # Backfill audit timestamp for legacy approved accounts.
         cur.execute("""
             UPDATE users
@@ -187,14 +215,14 @@ def get_user_by_id(user_id: int) -> dict | None:
     with get_cursor(commit=False) as cur:
         cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_user_row(dict(row) if row else None)
 
 
 def get_user_by_email(email: str) -> dict | None:
     with get_cursor(commit=False) as cur:
         cur.execute("SELECT * FROM users WHERE email = %s", (email,))
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_user_row(dict(row) if row else None)
 
 
 def update_user_profile(user_id: int, first_name: str, last_name: str, email: str) -> dict | None:
@@ -209,7 +237,33 @@ def update_user_profile(user_id: int, first_name: str, last_name: str, email: st
             (first_name, last_name, email, user_id),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_user_row(dict(row) if row else None)
+
+
+def update_user_avatar(user_id: int, avatar_image: bytes | None, avatar_mime_type: str | None) -> dict | None:
+    with get_cursor() as cur:
+        cur.execute(
+            """UPDATE users
+               SET avatar_image = %s,
+                   avatar_mime_type = %s
+               WHERE id = %s
+               RETURNING *""",
+            (psycopg2.Binary(avatar_image) if avatar_image is not None else None, avatar_mime_type, user_id),
+        )
+        row = cur.fetchone()
+        return _normalize_user_row(dict(row) if row else None)
+
+
+def get_user_avatar_blob(user_id: int) -> tuple[bytes, str] | None:
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            "SELECT avatar_image, avatar_mime_type FROM users WHERE id = %s",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if not row or not row.get("avatar_image"):
+            return None
+        return bytes(row["avatar_image"]), row.get("avatar_mime_type") or "image/png"
 
 
 def create_user(
@@ -227,7 +281,7 @@ def create_user(
                VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
             (email, hashed, first_name, last_name, role, approval_status),
         )
-        return dict(cur.fetchone())
+        return _normalize_user_row(dict(cur.fetchone()))
 
 
 def list_users() -> list[dict]:

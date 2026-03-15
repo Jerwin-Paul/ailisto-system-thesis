@@ -20,6 +20,8 @@ import db  # noqa: E402 — import after dotenv so DATABASE_URL is available
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(32).hex())
 
+ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
 # Bootstrap tables on startup
 db.init_db()
 
@@ -85,6 +87,16 @@ def current_user() -> dict | None:
     if uid is None:
         return None
     return db.get_user_by_id(uid)
+
+
+def _safe_user_profile_payload(user_obj: dict) -> dict:
+    return {
+        "id": user_obj.get("id"),
+        "first_name": user_obj.get("first_name"),
+        "last_name": user_obj.get("last_name"),
+        "email": user_obj.get("email"),
+        "avatar_url": user_obj.get("avatar_url"),
+    }
 
 
 # ─── Auth Pages ──────────────────────────────────────────────────────
@@ -646,13 +658,79 @@ def api_update_profile():
     if not updated:
         return jsonify({"error": "User not found."}), 404
 
-    safe_user = {
-        "id": updated.get("id"),
-        "first_name": updated.get("first_name"),
-        "last_name": updated.get("last_name"),
-        "email": updated.get("email"),
-    }
-    return jsonify({"success": True, "user": safe_user})
+    return jsonify({"success": True, "user": _safe_user_profile_payload(updated)})
+
+
+@app.route("/api/users/<int:user_id>/avatar")
+@login_required
+def api_user_avatar(user_id):
+    avatar_blob = db.get_user_avatar_blob(user_id)
+    if not avatar_blob:
+        return "", 404
+
+    avatar_bytes, mime_type = avatar_blob
+    return send_file(
+        io.BytesIO(avatar_bytes),
+        mimetype=mime_type,
+        as_attachment=False,
+        download_name=f"avatar-{user_id}",
+        max_age=0,
+    )
+
+
+@app.route("/api/profile/avatar", methods=["POST"])
+@login_required
+def api_upload_profile_avatar():
+    user = current_user()
+    file = request.files.get("avatar")
+    if not file:
+        return jsonify({"error": "No file uploaded."}), 400
+
+    original_name = file.filename or ""
+    _, ext = os.path.splitext(original_name.lower())
+    if ext not in ALLOWED_AVATAR_EXTENSIONS:
+        return jsonify({"error": "Invalid image type. Use JPG, PNG, WEBP, or GIF."}), 400
+
+    mime_type = (file.mimetype or "").lower()
+    if not mime_type.startswith("image/"):
+        return jsonify({"error": "Uploaded file must be an image."}), 400
+
+    file.stream.seek(0, os.SEEK_END)
+    file_size = file.stream.tell()
+    file.stream.seek(0)
+    if file_size > 2 * 1024 * 1024:
+        return jsonify({"error": "Image is too large. Maximum size is 2 MB."}), 400
+
+    avatar_bytes = file.read()
+    if not avatar_bytes:
+        return jsonify({"error": "Uploaded image is empty."}), 400
+
+    try:
+        updated = db.update_user_avatar(user["id"], avatar_bytes, mime_type)
+        if not updated:
+            return jsonify({"error": "User not found."}), 404
+    except Exception as exc:
+        logging.exception("Failed to upload avatar for user %s", user["id"])
+        return jsonify({"error": f"Could not upload avatar: {exc}"}), 500
+
+    return jsonify({"success": True, "user": _safe_user_profile_payload(updated)})
+
+
+@app.route("/api/profile/avatar", methods=["DELETE"])
+@login_required
+def api_remove_profile_avatar():
+    user = current_user()
+
+    try:
+        updated = db.update_user_avatar(user["id"], None, None)
+    except Exception as exc:
+        logging.exception("Failed to clear avatar for user %s", user["id"])
+        return jsonify({"error": f"Could not remove avatar: {exc}"}), 500
+
+    if not updated:
+        return jsonify({"error": "User not found."}), 404
+
+    return jsonify({"success": True, "user": _safe_user_profile_payload(updated)})
 
 @app.route("/api/admin/users/<int:user_id>/approval", methods=["POST"])
 @admin_required

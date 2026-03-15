@@ -194,22 +194,37 @@
             data-spa
             style="text-decoration:none; border-radius: var(--radius-xl); transition: background 0.2s; {% if request.path == '/profile' %}background: var(--primary-light);{% endif %}"
           >
+            {% set sidebar_avatar_src = (user.avatar_url or '')|trim %}
+            {% set sidebar_has_avatar = sidebar_avatar_src and sidebar_avatar_src not in ['None', 'null', 'NULL'] %}
+            {% set sidebar_initials = ((user.first_name[:1] if user.first_name else '') ~ (user.last_name[:1] if user.last_name else ''))|upper %}
             <div class="sidebar-avatar">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
+              <img
+                id="sidebar-avatar-img"
+                src="{{ sidebar_avatar_src if sidebar_has_avatar else '' }}"
+                alt=""
+                style="width: 100%; height: 100%; object-fit: cover; display: {% if sidebar_has_avatar %}block{% else %}none{% endif %}; border-radius: 50%;"
+              />
+              <span
+                id="sidebar-avatar-initials"
+                style="
+                  display: {% if sidebar_has_avatar %}none{% else %}inline-flex{% endif %};
+                  align-items: center;
+                  justify-content: center;
+                  width: 100%;
+                  height: 100%;
+                  border-radius: 50%;
+                  background: var(--blue-600);
+                  color: #fff;
+                  font-family: var(--font-display);
+                  font-weight: 700;
+                  font-size: 0.95rem;
+                  letter-spacing: 0.02em;
+                  text-transform: uppercase;
+                "
+              >{{ sidebar_initials or 'U' }}</span>
             </div>
             <div class="sidebar-user-info">
-              <p class="sidebar-user-name">
+              <p id="sidebar-user-name" class="sidebar-user-name">
                 {{ user.first_name }} {{ user.last_name }}
               </p>
               <p class="sidebar-user-role">{{ user.role }}</p>
