@@ -131,6 +131,7 @@
             color: #fff;
             border-radius: inherit;
             z-index: 5;
+            padding: 0 2.5rem;
           "
         >
           <div
@@ -150,6 +151,7 @@
               font-size: 0.9rem;
               font-weight: 500;
               font-family: var(--font-display);
+              text-align: center;
             "
           >
             Connecting to YOLO server…
@@ -160,6 +162,8 @@
               font-size: 0.75rem;
               color: rgba(255, 255, 255, 0.6);
               margin-top: -0.5rem;
+              text-align: center;
+              max-width: 480px;
             "
           ></p>
         </div>
@@ -297,7 +301,7 @@
         </div>
       </div>
 
-      <!-- AI Insight -->
+      <!-- Recommendations -->
       <div class="insight-box">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -313,9 +317,9 @@
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
         <div>
-          <h4 class="insight-title">AI Insight</h4>
+          <h4 class="insight-title">Recommendations</h4>
           <p class="insight-text" id="ai-insight">
-            Start a session to receive AI-powered insights.
+            Start a session to receive recommendations.
           </p>
         </div>
       </div>
@@ -820,6 +824,7 @@
     async function runInferenceLoop() {
       if (!isSessionActive) return;
       let nextDelay = 60;
+      let stopLoop = false;
 
       if (isPaused || !isCameraReady || !videoEl.videoWidth) {
         yoloStatusText.textContent = "Waiting for camera frame...";
@@ -870,6 +875,9 @@
           if (resp.status === 401) {
             throw new Error("Session expired. Please sign in again.");
           }
+          if (resp.status === 502) {
+            throw new Error("__YOLO_SERVER_DOWN__");
+          }
           throw new Error(
             data.error ||
               data.detail ||
@@ -891,38 +899,50 @@
         nextDelay = 30;
       } catch (err) {
         if (isSessionActive) {
-          inferFailureCount += 1;
-          const retryMs = Math.min(
-            5000,
-            Math.round(300 * Math.pow(1.5, Math.min(inferFailureCount, 8))),
-          );
-          nextDelay = retryMs;
+          if (err && err.message === "__YOLO_SERVER_DOWN__") {
+            yoloSpinner.style.display = "none";
+            yoloStatusText.textContent = "\u26A0\uFE0F YOLO Server is currently unavailable";
+            yoloStatusSub.textContent =
+              "The YOLO server is turned off to save computing power since this system is still under testing stage. Contact the developers to switch the servers on.";
+            yoloStatusOverlay.style.display = "flex";
+            attentionStatus.textContent = "Server unavailable";
+            aiInsight.textContent =
+              "YOLO server is offline. Contact the developers to switch it on.";
+            stopLoop = true;
+          } else {
+            inferFailureCount += 1;
+            const retryMs = Math.min(
+              5000,
+              Math.round(300 * Math.pow(1.5, Math.min(inferFailureCount, 8))),
+            );
+            nextDelay = retryMs;
 
-          const reason =
-            err && err.message
-              ? err.message
-              : "Could not process camera frame on YOLO server.";
-          yoloSpinner.style.display = "block";
-          yoloStatusText.textContent = "YOLO reconnecting...";
-          yoloStatusSub.textContent =
-            "Retrying in " +
-            (retryMs / 1000).toFixed(1) +
-            "s. Last error: " +
-            reason;
-          yoloStatusOverlay.style.display = "flex";
-          attentionStatus.textContent =
-            "Inference reconnecting... (attempt " + inferFailureCount + ")";
-          aiInsight.textContent =
-            "YOLO temporarily unavailable. Auto-retrying in " +
-            (retryMs / 1000).toFixed(1) +
-            "s. Last error: " +
-            reason;
+            const reason =
+              err && err.message
+                ? err.message
+                : "Could not process camera frame on YOLO server.";
+            yoloSpinner.style.display = "block";
+            yoloStatusText.textContent = "YOLO reconnecting...";
+            yoloStatusSub.textContent =
+              "Retrying in " +
+              (retryMs / 1000).toFixed(1) +
+              "s. Last error: " +
+              reason;
+            yoloStatusOverlay.style.display = "flex";
+            attentionStatus.textContent =
+              "Inference reconnecting... (attempt " + inferFailureCount + ")";
+            aiInsight.textContent =
+              "YOLO temporarily unavailable. Auto-retrying in " +
+              (retryMs / 1000).toFixed(1) +
+              "s. Last error: " +
+              reason;
+          }
         }
       } finally {
         inferenceInFlight = false;
       }
 
-      scheduleNextInference(nextDelay);
+      if (!stopLoop) scheduleNextInference(nextDelay);
     }
 
     function updateBadge() {
