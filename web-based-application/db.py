@@ -10,7 +10,8 @@ import json
 import hashlib
 import secrets
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
@@ -22,6 +23,23 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. Check your .env file.")
+
+APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Manila"))
+
+
+def _to_app_timezone(dt: datetime | None) -> datetime | None:
+    """Convert UTC (or naive UTC) datetimes to configured app timezone."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TIMEZONE)
+
+
+def _normalize_session_times(row: dict) -> dict:
+    row["start_time"] = _to_app_timezone(row.get("start_time"))
+    row["end_time"] = _to_app_timezone(row.get("end_time"))
+    return row
 
 
 # ─── Connection Helpers ───────────────────────────────────────────────
@@ -114,6 +132,23 @@ def init_db():
                 status        TEXT NOT NULL DEFAULT 'active',
                 summary_stats JSONB
             );
+        """)
+        # Keep older databases compatible by backfilling missing session columns.
+        cur.execute("""
+            ALTER TABLE sessions
+            ADD COLUMN IF NOT EXISTS start_time TIMESTAMP DEFAULT NOW();
+        """)
+        cur.execute("""
+            ALTER TABLE sessions
+            ADD COLUMN IF NOT EXISTS end_time TIMESTAMP;
+        """)
+        cur.execute("""
+            ALTER TABLE sessions
+            ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+        """)
+        cur.execute("""
+            ALTER TABLE sessions
+            ADD COLUMN IF NOT EXISTS summary_stats JSONB;
         """)
 
 
@@ -312,7 +347,17 @@ def get_sessions(teacher_id: int) -> list[dict]:
             WHERE sub.teacher_id = %s
             ORDER BY s.start_time DESC
         """, (teacher_id,))
-        return [dict(r) for r in cur.fetchall()]
+        return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
+
+
+def get_subject_for_teacher(subject_id: int, teacher_id: int) -> dict | None:
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            "SELECT * FROM subjects WHERE id = %s AND teacher_id = %s",
+            (subject_id, teacher_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 def create_session(subject_id: int) -> dict:
@@ -322,7 +367,7 @@ def create_session(subject_id: int) -> dict:
                VALUES (%s, 'active', NOW()) RETURNING *""",
             (subject_id,),
         )
-        return dict(cur.fetchone())
+        return _normalize_session_times(dict(cur.fetchone()))
 
 
 def end_session(session_id: int, summary_stats: dict) -> dict:
@@ -332,7 +377,7 @@ def end_session(session_id: int, summary_stats: dict) -> dict:
                summary_stats = %s WHERE id = %s RETURNING *""",
             (json.dumps(summary_stats), session_id),
         )
-        return dict(cur.fetchone())
+        return _normalize_session_times(dict(cur.fetchone()))
 
 
 def get_sessions_by_date_range(teacher_id: int, start_date: str, end_date: str) -> list[dict]:
@@ -347,7 +392,7 @@ def get_sessions_by_date_range(teacher_id: int, start_date: str, end_date: str) 
               AND s.start_time < (%s::date + INTERVAL '1 day')
             ORDER BY s.start_time ASC
         """, (teacher_id, start_date, end_date))
-        return [dict(r) for r in cur.fetchall()]
+        return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
 
 
 def get_dashboard_stats(teacher_id: int) -> dict:
@@ -377,7 +422,7 @@ def get_dashboard_stats(teacher_id: int) -> dict:
             WHERE sub.teacher_id = %s
             ORDER BY s.start_time DESC LIMIT 5
         """, (teacher_id,))
-        recent = [dict(r) for r in cur.fetchall()]
+        recent = [_normalize_session_times(dict(r)) for r in cur.fetchall()]
 
         return {
             "total_sessions": total_sessions,

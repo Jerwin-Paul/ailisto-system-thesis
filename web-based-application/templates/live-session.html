@@ -347,7 +347,10 @@
     var inferLoopTimeout = null;
     var inferenceInFlight = false;
     var inferFailureCount = 0;
+    var currentSessionId = null;
     var yoloInferUrl = "{{ url_for('yolo_infer') }}";
+    var sessionsApiUrl = "{{ url_for('api_start_session') }}";
+    var endSessionUrlTemplate = "{{ url_for('api_end_session', session_id=0) }}";
     var captureCanvas = document.createElement("canvas");
     var captureCtx = captureCanvas.getContext("2d");
 
@@ -661,12 +664,64 @@
     }
 
     // ─── Session Functions ───
-    function startSession() {
-      if (!isCameraReady || !classSelect.value) return;
+    function getSessionSummaryStats() {
+      if (!attentionHistory.length) {
+        return {};
+      }
+
+      const total = attentionHistory.reduce((sum, point) => sum + point.value, 0);
+      const avg = Math.round(total / attentionHistory.length);
+      return {
+        avgAttention: avg,
+        sampleCount: attentionHistory.length,
+      };
+    }
+
+    function getEndSessionUrl(sessionId) {
+      return endSessionUrlTemplate.replace("/0/end", "/" + sessionId + "/end");
+    }
+
+    async function startSession() {
+      if (!isCameraReady || !classSelect.value || isSessionActive) return;
+
+      let startedSession = null;
+      try {
+        const resp = await fetch(sessionsApiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ subjectId: Number(classSelect.value) }),
+        });
+        const raw = await resp.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          data = {};
+        }
+        if (!resp.ok) {
+          throw new Error(
+            data.error ||
+              data.detail ||
+              raw ||
+              resp.status + " " + resp.statusText ||
+              "Could not start session.",
+          );
+        }
+        startedSession = data;
+      } catch (err) {
+        const msg = err && err.message ? err.message : "Could not start session.";
+        attentionStatus.textContent = "Session start failed";
+        aiInsight.textContent = "Session could not be started: " + msg;
+        return;
+      }
+
+      currentSessionId = startedSession.id;
       isSessionActive = true;
       isPaused = false;
       inferenceInFlight = false;
       inferFailureCount = 0;
+      attentionHistory = [];
 
       // Keep local camera preview visible and draw detections on top.
       videoEl.style.display = "block";
@@ -710,11 +765,15 @@
         : "Monitoring student attention...";
     }
 
-    function endSession() {
+    async function endSession() {
+      const sessionIdToEnd = currentSessionId;
+      const summaryStats = getSessionSummaryStats();
+
       isSessionActive = false;
       isPaused = false;
       inferenceInFlight = false;
       attentionHistory = [];
+      currentSessionId = null;
       if (inferLoopTimeout) {
         clearTimeout(inferLoopTimeout);
         inferLoopTimeout = null;
@@ -743,6 +802,23 @@
         trendChart.data.labels = [];
         trendChart.data.datasets[0].data = [];
         trendChart.update();
+      }
+
+      if (sessionIdToEnd) {
+        try {
+          const resp = await fetch(getEndSessionUrl(sessionIdToEnd), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ summaryStats: summaryStats }),
+          });
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.error || "Could not save session summary.");
+          }
+        } catch (err) {
+          console.error("Failed to end session in backend:", err);
+        }
       }
     }
 

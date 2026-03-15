@@ -108,7 +108,6 @@
             <th>Class</th>
             <th>Date</th>
             <th>Duration</th>
-            <th>Status</th>
             <th>Avg. Attention</th>
           </tr>
         </thead>
@@ -125,21 +124,6 @@
               s.start_time).total_seconds()) | int %} {% set hrs = (secs //
               3600) | int %} {% set mins = ((secs % 3600) // 60) | int %} {% if
               hrs > 0 %}{{ hrs }}h {% endif %}{{ mins }}m {% else %}—{% endif %}
-            </td>
-            <td>
-              {% if s.status == 'completed' %}
-              <span
-                class="badge"
-                style="background: var(--emerald-50); color: var(--emerald-600)"
-                >Completed</span
-              >
-              {% else %}
-              <span
-                class="badge"
-                style="background: var(--amber-50); color: var(--amber-500)"
-                >Active</span
-              >
-              {% endif %}
             </td>
             <td>
               {% if s.summary_stats and s.summary_stats.avgAttention is defined

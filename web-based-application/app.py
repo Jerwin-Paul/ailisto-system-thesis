@@ -588,17 +588,46 @@ def api_update_schedules(subject_id):
 @app.route("/api/sessions", methods=["POST"])
 @login_required
 def api_start_session():
-    data = request.get_json()
-    s = db.create_session(data["subjectId"])
-    return jsonify(s, default=str), 201
+    user = current_user()
+    data = request.get_json(silent=True) or {}
+    subject_id = data.get("subjectId")
+
+    try:
+        subject_id = int(subject_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "A valid subjectId is required."}), 400
+
+    subject = db.get_subject_for_teacher(subject_id, user["id"])
+    if not subject:
+        return jsonify({"error": "Subject not found for your account."}), 404
+
+    try:
+        s = db.create_session(subject_id)
+    except Exception as exc:
+        logging.exception("Failed to create session for user %s subject %s", user["id"], subject_id)
+        return jsonify({"error": f"Could not start session: {exc}"}), 500
+
+    return jsonify(s), 201
 
 
 @app.route("/api/sessions/<int:session_id>/end", methods=["POST"])
 @login_required
 def api_end_session(session_id):
-    data = request.get_json()
-    s = db.end_session(session_id, data.get("summaryStats", {}))
-    return jsonify(s, default=str)
+    user = current_user()
+    data = request.get_json(silent=True) or {}
+
+    # Ensure this session belongs to the signed-in teacher.
+    sessions_list = db.get_sessions(user["id"])
+    if not any(s["id"] == session_id for s in sessions_list):
+        return jsonify({"error": "Session not found for your account."}), 404
+
+    try:
+        s = db.end_session(session_id, data.get("summaryStats", {}))
+    except Exception as exc:
+        logging.exception("Failed to end session %s for user %s", session_id, user["id"])
+        return jsonify({"error": f"Could not end session: {exc}"}), 500
+
+    return jsonify(s)
 
 
 def _build_report_pdf(user: dict, start_date: str, end_date: str, sessions_list: list) -> io.BytesIO:
