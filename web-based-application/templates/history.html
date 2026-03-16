@@ -97,12 +97,20 @@
 
   <!-- Session Table -->
   <div class="card">
-    <div class="card-header">
+    <div class="card-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
       <h3 class="card-title">All Sessions</h3>
+      {% if subjects %}
+      <select id="subject-filter" style="font-size:0.875rem; padding:0.35rem 0.65rem; border:1px solid #cbd5e1; border-radius:0.375rem; background:#fff; color:#334155; cursor:pointer;">
+        <option value="all">All Subjects</option>
+        {% for subj in subjects %}
+        <option value="{{ subj.id }}">{{ subj.course_code }} - {{ subj.section }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
     </div>
     <div class="card-content">
       {% if sessions %}
-      <table class="data-table">
+      <table class="data-table" id="sessions-table">
         <thead>
           <tr>
             <th>Class</th>
@@ -113,7 +121,7 @@
         </thead>
         <tbody>
           {% for s in sessions %}
-          <tr>
+          <tr data-subject-id="{{ s.subject_id }}">
             <td><strong>{{ s.course_code }} - {{ s.section }}</strong></td>
             <td>
               {{ s.start_time.strftime('%b %d, %Y • %I:%M %p') if s.start_time
@@ -161,6 +169,17 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const subjectFilter = document.getElementById('subject-filter');
+  if (subjectFilter) {
+    subjectFilter.addEventListener('change', function () {
+      const selected = this.value;
+      document.querySelectorAll('#sessions-table tbody tr').forEach(function (row) {
+        row.hidden = selected !== 'all' && row.dataset.subjectId !== selected;
+      });
+    });
+  }
+</script>
 <script>
   const chartData = {{ chart_data | tojson }};
   const labels = chartData.map(d => d.label);
