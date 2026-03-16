@@ -545,9 +545,67 @@ def yolo_infer():
 @app.route("/classes")
 @login_required
 def classes():
+    import datetime as _dt
     user = current_user()
     subjects = db.get_subjects(user["id"])
-    return render_template("classes.html", user=user, subjects=subjects)
+
+    def _fmt_time(t):
+        if t is None:
+            return None
+        if isinstance(t, _dt.time):
+            return t.strftime('%H:%M')
+        if isinstance(t, _dt.timedelta):
+            total = int(t.total_seconds())
+            h, rem = divmod(total, 3600)
+            m = rem // 60
+            return f'{h:02d}:{m:02d}'
+        return str(t)
+
+    groups_map = {}
+    groups_order = []
+    today_schedule_map = {}
+    today_schedule_order = []
+    for subj in subjects:
+        key = (subj['name'], subj['course_code'])
+        if key not in groups_map:
+            groups_map[key] = {
+                'name': subj['name'],
+                'course_code': subj['course_code'],
+                'sections': [],
+            }
+            groups_order.append(key)
+        if subj.get('section'):
+            section_schedules = [
+                {**sch,
+                 'start_time': _fmt_time(sch.get('start_time')),
+                 'end_time': _fmt_time(sch.get('end_time'))}
+                for sch in subj.get('schedules', [])
+            ]
+            groups_map[key]['sections'].append({
+                'id': subj['id'],
+                'section': subj['section'],
+                'schedules': section_schedules,
+            })
+
+            today_key = (subj['course_code'], subj['section'])
+            if today_key not in today_schedule_map:
+                today_schedule_map[today_key] = {
+                    'course_code': subj['course_code'],
+                    'section': subj['section'],
+                    'schedules': [],
+                }
+                today_schedule_order.append(today_key)
+            today_schedule_map[today_key]['schedules'].extend(section_schedules)
+
+    subject_groups = [groups_map[k] for k in groups_order]
+    today_schedule_groups = [today_schedule_map[k] for k in today_schedule_order]
+    return render_template(
+        "classes.html",
+        user=user,
+        subjects=subjects,
+        subject_groups=subject_groups,
+        today_schedule_groups=today_schedule_groups,
+    )
 
 
 @app.route("/history")

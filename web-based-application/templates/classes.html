@@ -4,185 +4,565 @@
 
 {% block content %}
 <div class="space-y-6">
+
   <!-- Header -->
   <div class="page-header">
     <div>
       <h2 class="page-title">My Classes</h2>
-      <p class="page-subtitle">Manage your classes, sections, and schedules.</p>
+      <p class="page-subtitle">Manage your subjects and sections.</p>
     </div>
-    <button class="btn btn-primary btn-lg" onclick="openModal()">
+    <button class="btn btn-primary btn-lg" onclick="openModal('add-subject-modal')">
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      Add Class
+      Add Subject
     </button>
   </div>
 
-  <!-- Two-column: Schedule Panel + Class Cards -->
+  <!-- Two-column: Schedule Panel + Subject Cards -->
   <div class="classes-layout">
-    <!-- Left: Schedule Panel -->
+
+    <!-- Left: Today's Schedule -->
     <div class="schedule-panel">
       <div class="card">
         <div class="card-header">
           <h3 class="card-title">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Today's Schedule
+            Schedule
           </h3>
         </div>
         <div class="card-content space-y-4">
-          {% if subjects %}
-            {% set ns = namespace(has_schedule=false) %}
-            {% for subj in subjects %}
-              {% for sched in subj.schedules %}
-                {% set ns.has_schedule = true %}
-                <div class="activity-item">
-                  <div class="activity-icon" style="background: var(--blue-50); color: var(--blue-600);">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  </div>
-                  <div class="activity-info">
-                    <p class="activity-name">{{ subj.course_code }} - {{ subj.section }}</p>
+          {% if today_schedule_groups %}
+            {% for entry in today_schedule_groups %}
+              {% if entry.schedules %}
+              <div class="activity-item" style="align-items:flex-start;">
+                <div class="activity-icon" style="background:var(--blue-50); color:var(--blue-600); margin-top:0.15rem;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div class="activity-info" style="display:flex; flex-direction:column; gap:0.4rem;">
+                  <p class="activity-name">{{ entry.course_code }} – {{ entry.section }}</p>
+                  <div style="display:flex; flex-direction:column; gap:0.2rem;">
+                    {% for sched in entry.schedules %}
                     <p class="activity-date">
-                      {{ sched.day }} • {{ sched.start_time }} - {{ sched.end_time }}
-                      {% if sched.room %}• {{ sched.room }}{% endif %}
+                      {{ sched.day }} • {{ sched.start_time }} – {{ sched.end_time }}{% if sched.room %} • {{ sched.room }}{% endif %}
                     </p>
+                    {% endfor %}
                   </div>
                 </div>
-              {% endfor %}
+              </div>
+              {% endif %}
             {% endfor %}
-            {% if not ns.has_schedule %}
-              <p class="text-sm" style="color: var(--text-500);">No schedules added for your classes yet.</p>
-            {% endif %}
           {% else %}
-            <p class="text-sm" style="color: var(--text-500);">No classes found for your account.</p>
+            <p class="text-sm" style="color:var(--text-500);">No schedules added for your classes yet.</p>
           {% endif %}
         </div>
       </div>
     </div>
 
-    <!-- Right: Class Cards Grid -->
+    <!-- Right: Subject Cards Grid -->
     <div class="classes-grid" id="classes-grid">
-      {% if subjects %}
-        {% for subj in subjects %}
-        <div class="card">
+      {% if subject_groups %}
+        {% for group in subject_groups %}
+        <div class="card" style="cursor:pointer; user-select:none;" onclick="showSubjectDetail({{ loop.index0 }})">
           <div class="card-content">
             <div class="class-card-header">
               <div class="class-card-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
               </div>
             </div>
-            <h3 style="font-size: 1.125rem; font-weight: 700;">{{ subj.name }}</h3>
-            <div style="display:flex; gap:0.5rem; font-size:0.875rem; color:var(--text-500); margin-top:0.25rem;">
-              <span class="class-code">{{ subj.course_code }}</span>
-              <span>•</span>
-              <span>{{ subj.section }}</span>
+            <h3 style="font-size:1.125rem; font-weight:700;">{{ group.name }}</h3>
+            <div style="margin-top:0.25rem;">
+              <span class="class-code">{{ group.course_code }}</span>
             </div>
-            <div class="class-schedule">
-              {% if subj.schedules %}
-                {% for sched in subj.schedules %}
-                <div class="class-schedule-entry">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                  {{ sched.day }} • {{ sched.start_time }} - {{ sched.end_time }}{% if sched.room %} • {{ sched.room }}{% endif %}
-                </div>
+            <!-- Section chips -->
+            <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border-light); display:flex; flex-wrap:wrap; gap:0.375rem;">
+              {% if group.sections %}
+                {% for sect in group.sections %}
+                <span style="display:inline-flex; align-items:center; font-size:0.75rem; font-weight:500; padding:0.2rem 0.65rem; background:var(--blue-50); color:var(--blue-600); border-radius:9999px;">{{ sect.section }}</span>
                 {% endfor %}
               {% else %}
-                <p class="text-sm" style="color: var(--text-500);">No schedules added yet.</p>
+                <p style="font-size:0.8rem; color:var(--text-400);">No sections yet</p>
               {% endif %}
             </div>
           </div>
         </div>
         {% endfor %}
       {% else %}
-        <div class="card">
-          <div class="card-content">
-            <h3 style="font-size: 1.125rem; font-weight: 700;">No classes yet</h3>
-            <p class="text-sm" style="color: var(--text-500); margin-top: 0.5rem;">
-              You do not have any assigned subjects. Use Add Class to create your first one.
-            </p>
-          </div>
+        <div class="empty-state">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <p style="font-weight:500;">No subjects yet</p>
+          <p class="text-sm">Use "Add Subject" to create your first subject.</p>
         </div>
       {% endif %}
     </div>
+
   </div>
 </div>
 
-<!-- Add Class Modal -->
-<div class="modal-overlay" id="add-class-modal">
-  <div class="modal">
-    <h3 class="modal-title">Add New Class</h3>
-    <p class="modal-subtitle">Create a new class with schedule details.</p>
+<!-- ── Subject Detail Modal ── -->
+<div class="modal-overlay" id="subject-detail-modal">
+  <div class="modal" style="max-width:820px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.25rem;">
+      <div>
+        <h3 class="modal-title" id="detail-name"></h3>
+        <p style="font-size:0.875rem; font-family:monospace; color:var(--text-500); margin-top:0.15rem;" id="detail-code"></p>
+      </div>
+      <button type="button" onclick="closeModal('subject-detail-modal')" style="background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.25rem; line-height:1; padding:0.25rem;">&#x2715;</button>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:1rem;">
+      <p style="font-size:0.875rem; color:var(--text-500);">Click a section to manage its schedules.</p>
+      <button type="button" class="btn btn-primary" onclick="openAddSectionForCurrentSubject()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Section
+      </button>
+    </div>
+    <div id="detail-sections" class="space-y-3"></div>
+  </div>
+</div>
 
-    <form onsubmit="event.preventDefault(); closeModal();" class="space-y-4">
+<!-- ── Add Subject Modal ── -->
+<div class="modal-overlay" id="add-subject-modal">
+  <div class="modal">
+    <h3 class="modal-title">Add Subject</h3>
+    <p class="modal-subtitle">Register a new subject by entering its name and course code.</p>
+    <form id="add-subject-form" onsubmit="event.preventDefault(); submitAddSubject();" class="space-y-4">
       <div class="form-group">
-        <label class="form-label" for="class-name">Class Name</label>
-        <input class="form-input" type="text" id="class-name" placeholder="Mathematics" required />
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label" for="class-code">Code</label>
-          <input class="form-input" type="text" id="class-code" placeholder="MATH101" required />
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="class-section">Section</label>
-          <input class="form-input" type="text" id="class-section" placeholder="Section A" required />
-        </div>
+        <label class="form-label" for="subj-name">Subject Name</label>
+        <input class="form-input" type="text" id="subj-name" placeholder="e.g. Mathematics" required />
       </div>
       <div class="form-group">
-        <label class="form-label">Schedule</label>
-        <div id="schedule-entries" class="space-y-2">
-          <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr 1fr auto; align-items: end;">
-            <div>
-              <select class="form-select" style="height:40px;">
-                <option>Day</option>
-                <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
-                <option>Thursday</option><option>Friday</option>
-              </select>
-            </div>
-            <div><input class="form-input" type="time" style="height:40px;" placeholder="Start" /></div>
-            <div><input class="form-input" type="time" style="height:40px;" placeholder="End" /></div>
-            <div><input class="form-input" type="text" style="height:40px;" placeholder="Room" /></div>
-          </div>
-        </div>
-        <button type="button" class="btn btn-outline w-full" style="margin-top:0.75rem; border-style: dashed;" onclick="addScheduleEntry()">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Schedule
-        </button>
+        <label class="form-label" for="subj-code">Course Code</label>
+        <input class="form-input" type="text" id="subj-code" placeholder="e.g. MATH101" required />
       </div>
-      <button type="submit" class="btn btn-primary w-full">Create Class</button>
+      <div style="display:flex; gap:0.75rem; justify-content:flex-end; margin-top:0.5rem;">
+        <button type="button" class="btn btn-outline" onclick="closeModal('add-subject-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="add-subj-btn">Add Subject</button>
+      </div>
     </form>
   </div>
 </div>
 
+<!-- ── Add Section Modal ── -->
+<div class="modal-overlay" id="add-section-modal">
+  <div class="modal" style="max-width:820px;">
+    <h3 class="modal-title">Add Section</h3>
+    <p class="modal-subtitle">Add a new section to the selected subject.</p>
+    <form id="add-section-form" onsubmit="event.preventDefault(); submitAddSection();" class="space-y-4">
+      <div style="padding:0.875rem 1rem; border:1px solid var(--border); border-radius:0.75rem; background:var(--bg);">
+        <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400);">Subject</div>
+        <div style="margin-top:0.25rem; font-weight:600; color:var(--text-900);" id="add-section-subject-name"></div>
+        <div style="margin-top:0.15rem; font-size:0.825rem; color:var(--text-500); font-family:monospace;" id="add-section-subject-code"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="sect-name">Section Name</label>
+          <input class="form-input" type="text" id="sect-name" placeholder="e.g. CS432" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="sect-room">Room Number</label>
+          <input class="form-input" type="text" id="sect-room" placeholder="e.g. Q321" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Schedule</label>
+        <div id="sect-schedule-entries" class="space-y-2">
+          <div class="form-row schedule-row" style="grid-template-columns:1.2fr 1fr 1fr 1fr auto; align-items:end;">
+            <div>
+              <select class="form-select" style="height:40px;">
+                <option value="">Day</option>
+                <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+                <option>Thursday</option><option>Friday</option><option>Saturday</option>
+              </select>
+            </div>
+            <div><input class="form-input" type="time" style="height:40px;" /></div>
+            <div><input class="form-input" type="time" style="height:40px;" /></div>
+            <div><input class="form-input" type="text" style="height:40px;" placeholder="Room" /></div>
+            <div>
+              <button type="button" onclick="removeScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Remove row">&#x2715;</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline w-full" style="margin-top:0.75rem; border-style:dashed;" onclick="addSectScheduleRow()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Schedule
+        </button>
+      </div>
+      <div style="display:flex; gap:0.75rem; justify-content:flex-end; margin-top:0.5rem;">
+        <button type="button" class="btn btn-outline" onclick="closeModal('add-section-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="add-sect-btn">Add Section</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Section Schedule Editor Modal ── -->
+<div class="modal-overlay" id="section-schedule-modal">
+  <div class="modal" style="max-width:820px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem;">
+      <div>
+        <h3 class="modal-title" id="section-editor-title">Section</h3>
+        <p class="modal-subtitle" id="section-editor-subtitle" style="margin-bottom:0;">Manage schedules for this section.</p>
+      </div>
+      <button type="button" onclick="closeModal('section-schedule-modal')" style="background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.25rem; line-height:1; padding:0.25rem;">&#x2715;</button>
+    </div>
+    <div id="section-schedule-list" class="space-y-2"></div>
+    <button type="button" class="btn btn-outline w-full" style="margin-top:0.75rem; border-style:dashed;" onclick="addEditorScheduleRow()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Schedule
+    </button>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-top:1rem; flex-wrap:wrap;">
+      <button type="button" class="btn btn-outline" id="delete-section-btn" style="color:var(--red-600); border-color:rgba(220,38,38,0.18);" onclick="deleteCurrentSection()">Delete Section</button>
+      <div style="display:flex; gap:0.75rem;">
+      <button type="button" class="btn btn-outline" onclick="closeModal('section-schedule-modal')">Cancel</button>
+      <button type="button" class="btn btn-primary" id="save-section-schedules-btn" onclick="saveSectionSchedules()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-  function openModal() {
-    document.getElementById('add-class-modal').classList.add('open');
+  const subjectGroupsData = {{ subject_groups | tojson }};
+  let selectedSubjectIndex = null;
+  let selectedSectionId = null;
+
+  function openModal(id) {
+    document.getElementById(id).classList.add('open');
   }
 
-  function closeModal() {
-    document.getElementById('add-class-modal').classList.remove('open');
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
   }
 
-  // Close modal on overlay click
-  document.getElementById('add-class-modal').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
+  document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+    overlay.addEventListener('click', function(e) {
+      if (e.target === this) closeModal(this.id);
+    });
   });
 
-  function addScheduleEntry() {
-    const container = document.getElementById('schedule-entries');
+  /* ── Subject detail modal ── */
+  function showSubjectDetail(index) {
+    selectedSubjectIndex = index;
+    const group = subjectGroupsData[index];
+    document.getElementById('detail-name').textContent = group.name;
+    document.getElementById('detail-code').textContent = group.course_code;
+    const container = document.getElementById('detail-sections');
+    container.innerHTML = '';
+    if (!group.sections || group.sections.length === 0) {
+      container.innerHTML = '<p style="font-size:0.875rem; color:var(--text-400);">No sections yet. Use \u201CAdd Section\u201D to add one.</p>';
+    } else {
+      group.sections.forEach(function(sect) {
+        const el = document.createElement('div');
+        el.style.cssText = 'background:var(--bg); border:1px solid var(--border-light); border-radius:0.85rem; padding:1rem 1.1rem; margin-bottom:1rem; cursor:pointer; transition:border-color 0.2s, box-shadow 0.2s;';
+        el.onmouseenter = function() { this.style.borderColor = 'var(--blue-100)'; this.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.08)'; };
+        el.onmouseleave = function() { this.style.borderColor = 'var(--border-light)'; this.style.boxShadow = 'none'; };
+        el.onclick = function() { openSectionScheduleEditor(sect.id); };
+        let schedHtml = '';
+        if (sect.schedules && sect.schedules.length > 0) {
+          sect.schedules.forEach(function(sch) {
+            schedHtml +=
+              '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:0.5rem; margin-top:0.625rem; padding:0.7rem 0.8rem; border-radius:0.75rem; background:#fff; border:1px solid var(--border-light);">'
+              + '<div style="font-size:0.78rem; color:var(--text-500);"><div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400); margin-bottom:0.2rem;">Day</div><div style="font-weight:600; color:var(--text-700);">' + sch.day + '</div></div>'
+              + '<div style="font-size:0.78rem; color:var(--text-500);"><div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400); margin-bottom:0.2rem;">Time</div><div style="font-weight:600; color:var(--text-700);">' + sch.start_time + ' \u2013 ' + sch.end_time + '</div></div>'
+              + '<div style="font-size:0.78rem; color:var(--text-500);"><div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400); margin-bottom:0.2rem;">Room</div><div style="font-weight:600; color:var(--text-700);">' + (sch.room || 'Not set') + '</div></div>'
+              + '</div>';
+          });
+        } else {
+          schedHtml = '<p style="font-size:0.8rem; color:var(--text-400); margin-top:0.375rem;">No schedule added.</p>';
+        }
+        el.innerHTML = '<div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">'
+          + '<div style="font-weight:600; font-size:0.9rem;">Section ' + sect.section + '</div>'
+          + '<div style="font-size:0.75rem; color:var(--blue-600);">Manage schedules</div>'
+          + '</div>' + schedHtml;
+        container.appendChild(el);
+      });
+    }
+    openModal('subject-detail-modal');
+  }
+
+  function openAddSectionForCurrentSubject() {
+    if (selectedSubjectIndex === null) return;
+    const group = subjectGroupsData[selectedSubjectIndex];
+    document.getElementById('add-section-subject-name').textContent = group.name;
+    document.getElementById('add-section-subject-code').textContent = group.course_code;
+    resetAddSectionForm();
+    openModal('add-section-modal');
+  }
+
+  /* ── Schedule manager for Add Section ── */
+  function addSectScheduleRow() {
+    const container = document.getElementById('sect-schedule-entries');
     const row = document.createElement('div');
-    row.className = 'form-row';
-    row.style.gridTemplateColumns = '1fr 1fr 1fr 1fr auto';
+    row.className = 'form-row schedule-row';
+    row.style.gridTemplateColumns = '1.2fr 1fr 1fr 1fr auto';
     row.style.alignItems = 'end';
-    row.innerHTML = `
-      <div>
-        <select class="form-select" style="height:40px;">
-          <option>Day</option>
-          <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
-          <option>Thursday</option><option>Friday</option>
-        </select>
-      </div>
-      <div><input class="form-input" type="time" style="height:40px;" /></div>
-      <div><input class="form-input" type="time" style="height:40px;" /></div>
-      <div><input class="form-input" type="text" style="height:40px;" placeholder="Room" /></div>
-    `;
+    row.innerHTML =
+      '<div><select class="form-select" style="height:40px;">'
+      + '<option value="">Day</option>'
+      + '<option>Monday</option><option>Tuesday</option><option>Wednesday</option>'
+      + '<option>Thursday</option><option>Friday</option><option>Saturday</option>'
+      + '</select></div>'
+      + '<div><input class="form-input" type="time" style="height:40px;" /></div>'
+      + '<div><input class="form-input" type="time" style="height:40px;" /></div>'
+      + '<div><input class="form-input" type="text" style="height:40px;" placeholder="Room" /></div>'
+      + '<div><button type="button" onclick="removeScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Remove">&#x2715;</button></div>';
     container.appendChild(row);
+  }
+
+  function removeScheduleRow(btn) {
+    const rows = document.querySelectorAll('#sect-schedule-entries .schedule-row');
+    if (rows.length > 1) {
+      btn.closest('.schedule-row').remove();
+    }
+  }
+
+  function resetAddSectionForm() {
+    document.getElementById('sect-name').value = '';
+    document.getElementById('sect-room').value = '';
+    const container = document.getElementById('sect-schedule-entries');
+    container.innerHTML = '';
+    addSectScheduleRow();
+  }
+
+  function findSectionById(sectionId) {
+    for (const group of subjectGroupsData) {
+      const section = (group.sections || []).find(function(item) { return item.id === sectionId; });
+      if (section) {
+        return { group: group, section: section };
+      }
+    }
+    return null;
+  }
+
+  function normalizeTimeText(value) {
+    if (!value) return '';
+    const raw = String(value);
+    const parts = raw.split(':');
+    if (parts.length >= 2) {
+      return parts[0].padStart(2, '0') + ':' + parts[1].padStart(2, '0');
+    }
+    return raw;
+  }
+
+  function normalizeScheduleForUi(schedule) {
+    return {
+      day: schedule.day || '',
+      start_time: normalizeTimeText(schedule.start_time || schedule.startTime),
+      end_time: normalizeTimeText(schedule.end_time || schedule.endTime),
+      room: schedule.room || ''
+    };
+  }
+
+  function rerenderSelectedSubjectDetail() {
+    if (selectedSubjectIndex === null) return;
+    showSubjectDetail(selectedSubjectIndex);
+  }
+
+  function buildScheduleEditorRow(schedule) {
+    const row = document.createElement('div');
+    row.className = 'form-row editor-schedule-row';
+    row.dataset.existing = schedule && schedule.day ? 'true' : 'false';
+    row.style.gridTemplateColumns = '1.2fr 1fr 1fr 1fr auto';
+    row.style.alignItems = 'end';
+    row.innerHTML =
+      '<div><select class="form-select" style="height:40px;">'
+      + '<option value="">Day</option>'
+      + '<option' + ((schedule.day || '') === 'Monday' ? ' selected' : '') + '>Monday</option>'
+      + '<option' + ((schedule.day || '') === 'Tuesday' ? ' selected' : '') + '>Tuesday</option>'
+      + '<option' + ((schedule.day || '') === 'Wednesday' ? ' selected' : '') + '>Wednesday</option>'
+      + '<option' + ((schedule.day || '') === 'Thursday' ? ' selected' : '') + '>Thursday</option>'
+      + '<option' + ((schedule.day || '') === 'Friday' ? ' selected' : '') + '>Friday</option>'
+      + '<option' + ((schedule.day || '') === 'Saturday' ? ' selected' : '') + '>Saturday</option>'
+      + '</select></div>'
+      + '<div><input class="form-input" type="time" style="height:40px;" value="' + (schedule.start_time || '') + '" /></div>'
+      + '<div><input class="form-input" type="time" style="height:40px;" value="' + (schedule.end_time || '') + '" /></div>'
+      + '<div><input class="form-input" type="text" style="height:40px;" placeholder="Room" value="' + (schedule.room || '') + '" /></div>'
+      + '<div><button type="button" onclick="removeEditorScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Delete schedule">&#x2715;</button></div>';
+    return row;
+  }
+
+  function openSectionScheduleEditor(sectionId) {
+    const result = findSectionById(sectionId);
+    if (!result) return;
+    selectedSectionId = sectionId;
+    document.getElementById('section-editor-title').textContent = 'Section ' + result.section.section;
+    document.getElementById('section-editor-subtitle').textContent = result.group.name + ' (' + result.group.course_code + ')';
+    const container = document.getElementById('section-schedule-list');
+    container.innerHTML = '';
+    if (result.section.schedules && result.section.schedules.length) {
+      result.section.schedules.forEach(function(schedule) {
+        container.appendChild(buildScheduleEditorRow(schedule));
+      });
+    } else {
+      container.appendChild(buildScheduleEditorRow({}));
+    }
+    openModal('section-schedule-modal');
+  }
+
+  function addEditorScheduleRow() {
+    document.getElementById('section-schedule-list').appendChild(buildScheduleEditorRow({}));
+  }
+
+  function removeEditorScheduleRow(btn) {
+    const targetRow = btn.closest('.editor-schedule-row');
+    const isExisting = targetRow && targetRow.dataset.existing === 'true';
+    if (isExisting) {
+      const confirmed = window.confirm('Remove this saved schedule? Click Save Changes to apply the deletion.');
+      if (!confirmed) return;
+    }
+    const rows = document.querySelectorAll('#section-schedule-list .editor-schedule-row');
+    if (rows.length > 1) {
+      targetRow.remove();
+    } else {
+      const row = rows[0];
+      row.querySelector('select').value = '';
+      row.querySelectorAll('input')[0].value = '';
+      row.querySelectorAll('input')[1].value = '';
+      row.querySelectorAll('input')[2].value = '';
+      row.dataset.existing = 'false';
+    }
+  }
+
+  async function saveSectionSchedules() {
+    if (!selectedSectionId) return;
+    const schedules = [];
+    document.querySelectorAll('#section-schedule-list .editor-schedule-row').forEach(function(row) {
+      const day = row.querySelector('select').value;
+      const inputs = row.querySelectorAll('input');
+      const startTime = inputs[0] ? inputs[0].value : '';
+      const endTime = inputs[1] ? inputs[1].value : '';
+      const room = inputs[2] ? inputs[2].value.trim() : '';
+      if (day && startTime && endTime) {
+        schedules.push({ day: day, startTime: startTime, endTime: endTime, room: room });
+      }
+    });
+    const btn = document.getElementById('save-section-schedules-btn');
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg> Saving...';
+    try {
+      const res = await fetch('/api/subjects/' + selectedSectionId + '/schedules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedules: schedules })
+      });
+      if (res.ok) {
+        const updatedSchedules = await res.json();
+        const found = findSectionById(selectedSectionId);
+        if (found) {
+          found.section.schedules = (updatedSchedules || []).map(normalizeScheduleForUi);
+        }
+        closeModal('section-schedule-modal');
+        rerenderSelectedSubjectDetail();
+      } else {
+        alert('Failed to save schedules. Please try again.');
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalContent;
+    }
+  }
+
+  async function deleteCurrentSection() {
+    if (!selectedSectionId) return;
+    const result = findSectionById(selectedSectionId);
+    const sectionLabel = result ? result.section.section : 'this section';
+    const confirmed = window.confirm('Delete section ' + sectionLabel + '? This action cannot be undone.');
+    if (!confirmed) return;
+    const btn = document.getElementById('delete-section-btn');
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg> Deleting...';
+    try {
+      const res = await fetch('/api/subjects/' + selectedSectionId, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const group = subjectGroupsData[selectedSubjectIndex];
+        if (group && group.sections) {
+          group.sections = group.sections.filter(function(item) { return item.id !== selectedSectionId; });
+        }
+        closeModal('section-schedule-modal');
+        selectedSectionId = null;
+        rerenderSelectedSubjectDetail();
+      } else {
+        alert('Failed to delete section. Please try again.');
+      }
+    } catch (error) {
+      alert('Failed to delete section. Please try again.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalContent;
+    }
+  }
+
+  /* ── Submit: Add Subject ── */
+  async function submitAddSubject() {
+    const name = document.getElementById('subj-name').value.trim();
+    const code = document.getElementById('subj-code').value.trim();
+    if (!name || !code) return;
+    const btn = document.getElementById('add-subj-btn');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/subjects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, courseCode: code, section: '', schedule: [] })
+      });
+      if (res.ok) { location.reload(); }
+      else { alert('Failed to add subject. Please try again.'); }
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── Submit: Add Section ── */
+  async function submitAddSection() {
+    if (selectedSubjectIndex === null) return;
+    const group = subjectGroupsData[selectedSubjectIndex];
+    const courseCode = group.course_code;
+    const subjName = group.name;
+    const section = document.getElementById('sect-name').value.trim();
+    const defaultRoom = document.getElementById('sect-room').value.trim();
+    if (!courseCode || !section) return;
+    const scheduleEntries = [];
+    document.querySelectorAll('#sect-schedule-entries .schedule-row').forEach(function(row) {
+      const day = row.querySelector('select').value;
+      const timeInputs = row.querySelectorAll('input[type="time"]');
+      const roomInput = row.querySelector('input[type="text"]');
+      const startTime = timeInputs[0] ? timeInputs[0].value : '';
+      const endTime = timeInputs[1] ? timeInputs[1].value : '';
+      if (day && startTime && endTime) {
+        scheduleEntries.push({ day: day, startTime: startTime, endTime: endTime, room: roomInput && roomInput.value.trim() ? roomInput.value.trim() : defaultRoom });
+      }
+    });
+    const btn = document.getElementById('add-sect-btn');
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg> Adding...';
+    try {
+      const res = await fetch('/api/subjects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: subjName, courseCode: courseCode, section: section, schedule: scheduleEntries })
+      });
+      if (res.ok) {
+        const createdSection = await res.json();
+        const group = subjectGroupsData[selectedSubjectIndex];
+        if (group) {
+          if (!Array.isArray(group.sections)) group.sections = [];
+          group.sections.push({
+            id: createdSection.id,
+            section: createdSection.section,
+            schedules: (createdSection.schedules || scheduleEntries || []).map(normalizeScheduleForUi)
+          });
+        }
+        closeModal('add-section-modal');
+        rerenderSelectedSubjectDetail();
+      } else {
+        alert('Failed to add section. Please try again.');
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalContent;
+    }
   }
 </script>
 {% endblock %}
