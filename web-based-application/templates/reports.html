@@ -23,12 +23,36 @@
           margin-bottom: 1.25rem;
         "
       >
-        Select a date range to compile a PDF report of all session attention
-        data within those dates.
+        Select a date range with optional subject and section filters to compile
+        a more targeted PDF report.
       </p>
       <div
         style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap"
       >
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 180px; margin-bottom: 0"
+        >
+          <label class="form-label" for="reportSubject">Subject</label>
+          <select id="reportSubject" class="form-select">
+            <option value="">All Subjects</option>
+            {% for subj in subject_filters %}
+            <option value="{{ subj.course_code }}">{{ subj.course_code }}{% if subj.name %} - {{ subj.name }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 180px; margin-bottom: 0"
+        >
+          <label class="form-label" for="reportSection">Section</label>
+          <select id="reportSection" class="form-select">
+            <option value="">All Sections</option>
+            {% for section in section_filters %}
+            <option value="{{ section }}">{{ section }}</option>
+            {% endfor %}
+          </select>
+        </div>
         <div
           class="form-group"
           style="flex: 1; min-width: 150px; margin-bottom: 0"
@@ -153,10 +177,16 @@
 
   let currentStartDate = "";
   let currentEndDate = "";
+  let currentSubjectCode = "";
+  let currentSection = "";
 
   function generatePreview() {
     const startDate = document.getElementById("reportStartDate").value;
     const endDate = document.getElementById("reportEndDate").value;
+    const subjectCode = document.getElementById("reportSubject").value;
+    const sectionValue = document.getElementById("reportSection").value;
+    const subjectText = document.getElementById("reportSubject").selectedOptions[0].text;
+    const sectionText = document.getElementById("reportSection").selectedOptions[0].text;
     const errEl = document.getElementById("reportError");
     const btn = document.getElementById("generateBtn");
 
@@ -176,15 +206,23 @@
 
     currentStartDate = startDate;
     currentEndDate = endDate;
+    currentSubjectCode = subjectCode;
+    currentSection = sectionValue;
 
     btn.disabled = true;
     btn.innerHTML = "Generating…";
 
-    const previewUrl = `/api/preview-report?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+    const params = new URLSearchParams({
+      startDate,
+      endDate,
+      subjectCode,
+      section: sectionValue,
+    });
+    const previewUrl = `/api/preview-report?${params.toString()}`;
     const iframe = document.getElementById("pdfPreview");
 
     document.getElementById("previewDateLabel").textContent =
-      `${startDate}  →  ${endDate}`;
+      `${startDate}  →  ${endDate} | ${subjectText} | ${sectionText}`;
     const section = document.getElementById("previewSection");
     section.style.display = "block";
 
@@ -212,6 +250,8 @@
         body: JSON.stringify({
           startDate: currentStartDate,
           endDate: currentEndDate,
+          subjectCode: currentSubjectCode,
+          section: currentSection,
         }),
       });
       if (!resp.ok) {
@@ -223,7 +263,9 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `ailisto-report-${currentStartDate}-to-${currentEndDate}.pdf`;
+      const subjectSuffix = currentSubjectCode ? `-${currentSubjectCode}` : "";
+      const sectionSuffix = currentSection ? `-${currentSection}` : "";
+      a.download = `ailisto-report-${currentStartDate}-to-${currentEndDate}${subjectSuffix}${sectionSuffix}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -449,8 +449,14 @@ def end_session(session_id: int, summary_stats: dict) -> dict:
         return _normalize_session_times(dict(cur.fetchone()))
 
 
-def get_sessions_by_date_range(teacher_id: int, start_date: str, end_date: str) -> list[dict]:
-    """Return sessions for the teacher whose start_time falls within [start_date, end_date] (inclusive)."""
+def get_sessions_by_date_range(
+    teacher_id: int,
+    start_date: str,
+    end_date: str,
+    subject_code: str = "",
+    section: str = "",
+) -> list[dict]:
+    """Return teacher sessions in date range with optional subject and/or section filters."""
     with get_cursor(commit=False) as cur:
         cur.execute("""
             SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
@@ -459,8 +465,18 @@ def get_sessions_by_date_range(teacher_id: int, start_date: str, end_date: str) 
             WHERE sub.teacher_id = %s
               AND s.start_time >= %s::date
               AND s.start_time < (%s::date + INTERVAL '1 day')
+              AND (%s = '' OR sub.course_code = %s)
+              AND (%s = '' OR sub.section = %s)
             ORDER BY s.start_time ASC
-        """, (teacher_id, start_date, end_date))
+        """, (
+            teacher_id,
+            start_date,
+            end_date,
+            subject_code,
+            subject_code,
+            section,
+            section,
+        ))
         return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
 
 

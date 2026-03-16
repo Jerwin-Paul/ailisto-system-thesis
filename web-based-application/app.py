@@ -637,7 +637,29 @@ def history():
 @login_required
 def reports():
     user = current_user()
-    return render_template("reports.html", user=user)
+    subjects = db.get_subjects(user["id"])
+
+    # Keep subject filter unique by course code so one choice can span sections.
+    seen_course_codes = set()
+    subject_filters = []
+    section_filters = sorted({str(s.get("section", "")).strip() for s in subjects if s.get("section")})
+
+    for subj in subjects:
+        code = str(subj.get("course_code", "")).strip()
+        name = str(subj.get("name", "")).strip()
+        if not code or code in seen_course_codes:
+            continue
+        seen_course_codes.add(code)
+        subject_filters.append({"course_code": code, "name": name})
+
+    subject_filters.sort(key=lambda s: s["course_code"])
+
+    return render_template(
+        "reports.html",
+        user=user,
+        subject_filters=subject_filters,
+        section_filters=section_filters,
+    )
 
 
 @app.route("/profile")
@@ -904,7 +926,14 @@ def api_end_session(session_id):
     return jsonify(s)
 
 
-def _build_report_pdf(user: dict, start_date: str, end_date: str, sessions_list: list) -> io.BytesIO:
+def _build_report_pdf(
+    user: dict,
+    start_date: str,
+    end_date: str,
+    sessions_list: list,
+    subject_filter: str = "",
+    section_filter: str = "",
+) -> io.BytesIO:
     """Build the report PDF and return a seeked BytesIO buffer."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -987,6 +1016,8 @@ def _build_report_pdf(user: dict, start_date: str, end_date: str, sessions_list:
     generated_at = datetime.now().strftime("%B %d, %Y at %I:%M %p")
     story.append(Paragraph(f"<b>Report Period:</b> {start_display} to {end_display}", normal_style))
     story.append(Paragraph(f"<b>Teacher:</b> {teacher_name}", normal_style))
+    story.append(Paragraph(f"<b>Subject Filter:</b> {subject_filter or 'All Subjects'}", normal_style))
+    story.append(Paragraph(f"<b>Section Filter:</b> {section_filter or 'All Sections'}", normal_style))
     story.append(Paragraph(f"<b>Generated:</b> {generated_at}", normal_style))
     story.append(Spacer(1, 0.5 * cm))
 
@@ -1078,16 +1109,36 @@ def api_generate_report():
     data = request.get_json(silent=True) or {}
     start_date = data.get("startDate", "")
     end_date = data.get("endDate", "")
+    subject_code = str(data.get("subjectCode", "")).strip()
+    section = str(data.get("section", "")).strip()
     if not start_date or not end_date:
         return jsonify({"error": "startDate and endDate are required"}), 400
     user = current_user()
     try:
-        sessions_list = db.get_sessions_by_date_range(user["id"], start_date, end_date)
-        buf = _build_report_pdf(user, start_date, end_date, sessions_list)
+        sessions_list = db.get_sessions_by_date_range(
+            user["id"],
+            start_date,
+            end_date,
+            subject_code=subject_code,
+            section=section,
+        )
+        buf = _build_report_pdf(
+            user,
+            start_date,
+            end_date,
+            sessions_list,
+            subject_filter=subject_code,
+            section_filter=section,
+        )
     except Exception as exc:
         logging.error("Report error: %s", exc)
         return jsonify({"error": "Failed to generate report"}), 500
-    filename = f"ailisto-report-{start_date}-to-{end_date}.pdf"
+    filename = f"ailisto-report-{start_date}-to-{end_date}"
+    if subject_code:
+        filename += f"-{subject_code}"
+    if section:
+        filename += f"-{section}"
+    filename += ".pdf"
     return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=filename)
 
 
@@ -1097,12 +1148,27 @@ def api_preview_report():
     """Return the PDF report inline for browser preview."""
     start_date = request.args.get("startDate", "")
     end_date = request.args.get("endDate", "")
+    subject_code = request.args.get("subjectCode", "").strip()
+    section = request.args.get("section", "").strip()
     if not start_date or not end_date:
         return jsonify({"error": "startDate and endDate are required"}), 400
     user = current_user()
     try:
-        sessions_list = db.get_sessions_by_date_range(user["id"], start_date, end_date)
-        buf = _build_report_pdf(user, start_date, end_date, sessions_list)
+        sessions_list = db.get_sessions_by_date_range(
+            user["id"],
+            start_date,
+            end_date,
+            subject_code=subject_code,
+            section=section,
+        )
+        buf = _build_report_pdf(
+            user,
+            start_date,
+            end_date,
+            sessions_list,
+            subject_filter=subject_code,
+            section_filter=section,
+        )
     except Exception as exc:
         logging.error("Report preview error: %s", exc)
         return jsonify({"error": "Failed to generate report"}), 500
