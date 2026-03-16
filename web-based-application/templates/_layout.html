@@ -336,6 +336,54 @@
 
               history.pushState({}, "", href);
 
+              // Replace page-level dynamic assets from fetched body
+              document
+                .querySelectorAll("[data-spa-dynamic]")
+                .forEach((el) => el.remove());
+
+              const routerScript = document.querySelector("script[data-spa-router]");
+              const fetchedBodyChildren = [...doc.body.children].filter((el) => {
+                const tag = el.tagName;
+                if (tag !== "STYLE" && tag !== "SCRIPT") return false;
+                if (tag === "SCRIPT" && el.hasAttribute("data-spa-router"))
+                  return false;
+                return true;
+              });
+
+              for (const el of fetchedBodyChildren) {
+                if (el.tagName === "STYLE") {
+                  const styleEl = document.createElement("style");
+                  styleEl.textContent = el.textContent;
+                  styleEl.setAttribute("data-spa-dynamic", "true");
+                  if (routerScript) {
+                    document.body.insertBefore(styleEl, routerScript);
+                  } else {
+                    document.body.appendChild(styleEl);
+                  }
+                  continue;
+                }
+
+                if (el.tagName === "SCRIPT") {
+                  await new Promise((resolve) => {
+                    const scriptEl = document.createElement("script");
+                    scriptEl.setAttribute("data-spa-dynamic", "true");
+                    if (el.src) {
+                      scriptEl.src = el.src;
+                      scriptEl.onload = scriptEl.onerror = resolve;
+                    } else {
+                      scriptEl.textContent = el.textContent;
+                      scriptEl.onload = scriptEl.onerror = resolve;
+                    }
+                    if (routerScript) {
+                      document.body.insertBefore(scriptEl, routerScript);
+                    } else {
+                      document.body.appendChild(scriptEl);
+                    }
+                    if (!el.src) resolve();
+                  });
+                }
+              }
+
               // Run page-specific scripts
               contentEl.querySelectorAll("script").forEach((old) => {
                 const s = document.createElement("script");

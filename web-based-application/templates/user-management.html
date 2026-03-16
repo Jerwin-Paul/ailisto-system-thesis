@@ -681,51 +681,73 @@ endblock %} {% block content %}
     }
   }
 
-  // ── Event listeners ────────────────────────────────────────────────────────
-
-  // Pending approval buttons
-  document.querySelectorAll(".js-pending-approval-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      approvePending(Number(btn.dataset.userId), btn.dataset.status, btn);
-    });
-  });
-
-  // Row click → select row (enables Edit button)
-  document.querySelectorAll("#all-users-table .all-user-row").forEach((row) => {
-    row.addEventListener("click", (e) => {
-      const userId = Number(row.dataset.userId);
-      if (!userId) return;
-      // Keep selection stable while one row is actively in edit mode.
-      if (editingUserId !== null && editingUserId !== userId) return;
-      if (editingUserId === userId) return;
-      selectRow(userId);
-    });
-  });
-
-  document.querySelectorAll(".js-status-select").forEach((selectEl) => {
-    setStatusSelectTone(selectEl);
-    selectEl.addEventListener("change", () => setStatusSelectTone(selectEl));
-  });
-
-  // Edit / Save button click (use event delegation to handle dynamic state)
-  document.getElementById("all-users-table")?.addEventListener("click", (e) => {
-    const btn = e.target.closest(".js-edit-save-btn");
-    if (!btn) return;
-    e.stopPropagation();
-    const userId = Number(btn.dataset.userId);
-    if (btn.dataset.mode === "edit") {
-      enterEditMode(userId, btn);
-    } else {
-      saveUser(userId, btn);
+  // ── Initialization ────────────────────────────────────────────────────────
+  function initUserManagementPage() {
+    // Remove previous event listeners by cloning nodes (prevents duplicate listeners on re-init)
+    function replaceWithClone(selector) {
+      document.querySelectorAll(selector).forEach((el) => {
+        const clone = el.cloneNode(true);
+        el.parentNode.replaceChild(clone, el);
+      });
     }
-  });
 
-  // Search / filter
-  document
-    .getElementById("user-search")
-    ?.addEventListener("input", applyUserFilters);
-  document
-    .getElementById("status-filter")
-    ?.addEventListener("change", applyUserFilters);
+    replaceWithClone('.js-pending-approval-btn');
+    replaceWithClone('#all-users-table .all-user-row');
+    replaceWithClone('.js-status-select');
+    replaceWithClone('#user-search');
+    replaceWithClone('#status-filter');
+
+    // Pending approval buttons
+    document.querySelectorAll(".js-pending-approval-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        approvePending(Number(btn.dataset.userId), btn.dataset.status, btn);
+      });
+    });
+
+    // Row click → select row (enables Edit button)
+    document.querySelectorAll("#all-users-table .all-user-row").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        const userId = Number(row.dataset.userId);
+        if (!userId) return;
+        // Keep selection stable while one row is actively in edit mode.
+        if (editingUserId !== null && editingUserId !== userId) return;
+        if (editingUserId === userId) return;
+        selectRow(userId);
+      });
+    });
+
+    document.querySelectorAll(".js-status-select").forEach((selectEl) => {
+      setStatusSelectTone(selectEl);
+      selectEl.addEventListener("change", () => setStatusSelectTone(selectEl));
+    });
+
+    // Edit / Save button click (use event delegation to handle dynamic state)
+    document.getElementById("all-users-table")?.addEventListener("click", (e) => {
+      const btn = e.target.closest(".js-edit-save-btn");
+      if (!btn) return;
+      e.stopPropagation();
+      const userId = Number(btn.dataset.userId);
+      if (btn.dataset.mode === "edit") {
+        enterEditMode(userId, btn);
+      } else {
+        saveUser(userId, btn);
+      }
+    });
+
+    // Search / filter
+    document
+      .getElementById("user-search")
+      ?.addEventListener("input", applyUserFilters);
+    document
+      .getElementById("status-filter")
+      ?.addEventListener("change", applyUserFilters);
+  }
+
+  // Call on page load and after SPA dynamic injection.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initUserManagementPage);
+  } else {
+    initUserManagementPage();
+  }
 </script>
 {% endblock %}
