@@ -68,18 +68,23 @@
           <option value="">Choose a camera...</option>
         </select>
 
-        <!-- Class Select -->
+        <!-- Subject Select -->
         <select
-          id="class-select"
+          id="subject-select"
           class="form-select"
           style="width: 220px; flex-shrink: 0"
         >
-          <option value="">Select Class</option>
-          {% for subj in subjects %}
-          <option value="{{ subj.id }}">
-            {{ subj.name }} ({{ subj.section }})
-          </option>
-          {% endfor %}
+          <option value="">Select Subject</option>
+        </select>
+
+        <!-- Section Select -->
+        <select
+          id="section-select"
+          class="form-select"
+          style="width: 220px; flex-shrink: 0"
+          disabled
+        >
+          <option value="">Select Section</option>
         </select>
       </div>
 
@@ -327,6 +332,10 @@
   </div>
 </div>
 
+<script id="subjects-data" type="application/json">
+  {{ subjects|tojson }}
+</script>
+
 <script>
   (function () {
     // ─── Cleanup any previous live-session stream (SPA re-entry) ───
@@ -351,6 +360,15 @@
     var yoloInferUrl = "{{ url_for('yolo_infer') }}";
     var sessionsApiUrl = "{{ url_for('api_start_session') }}";
     var endSessionUrlTemplate = "{{ url_for('api_end_session', session_id=0) }}";
+    var subjectsData = [];
+    try {
+      var subjectsDataEl = document.getElementById("subjects-data");
+      subjectsData = JSON.parse(
+        (subjectsDataEl && subjectsDataEl.textContent) || "[]",
+      );
+    } catch (_) {
+      subjectsData = [];
+    }
     var captureCanvas = document.createElement("canvas");
     var captureCtx = captureCanvas.getContext("2d");
 
@@ -361,7 +379,8 @@
     var badgeDot = document.getElementById("badge-dot");
     var badgeText = document.getElementById("badge-text");
     var cameraSelect = document.getElementById("camera-select");
-    var classSelect = document.getElementById("class-select");
+    var subjectSelect = document.getElementById("subject-select");
+    var sectionSelect = document.getElementById("section-select");
     var startBtn = document.getElementById("start-btn");
     var controls = document.getElementById("session-controls");
     var camOnIcon = document.getElementById("cam-on-icon");
@@ -376,6 +395,84 @@
     var yoloSpinner = document.getElementById("yolo-spinner");
     var yoloStatusText = document.getElementById("yolo-status-text");
     var yoloStatusSub = document.getElementById("yolo-status-sub");
+
+    function sortAlpha(values) {
+      return values.sort(function (a, b) {
+        return a.localeCompare(b, undefined, { sensitivity: "base" });
+      });
+    }
+
+    function populateSubjectOptions() {
+      var selected = subjectSelect.value;
+      var namesSet = new Set();
+      subjectsData.forEach(function (subj) {
+        if (subj && subj.name) namesSet.add(String(subj.name));
+      });
+
+      var names = sortAlpha(Array.from(namesSet));
+      while (subjectSelect.options.length > 1) subjectSelect.remove(1);
+      names.forEach(function (name) {
+        var opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        subjectSelect.appendChild(opt);
+      });
+
+      if (selected && names.indexOf(selected) >= 0) {
+        subjectSelect.value = selected;
+      }
+    }
+
+    function populateSectionOptions() {
+      var selectedSubject = subjectSelect.value;
+      var selectedSection = sectionSelect.value;
+
+      while (sectionSelect.options.length > 1) sectionSelect.remove(1);
+      sectionSelect.value = "";
+
+      if (!selectedSubject) {
+        sectionSelect.disabled = true;
+        return;
+      }
+
+      var sectionsSet = new Set();
+      subjectsData.forEach(function (subj) {
+        if (!subj || !subj.name) return;
+        if (String(subj.name) !== selectedSubject) return;
+        sectionsSet.add(String(subj.section || ""));
+      });
+
+      var sections = sortAlpha(Array.from(sectionsSet));
+      sections.forEach(function (section) {
+        var opt = document.createElement("option");
+        opt.value = section;
+        opt.textContent = section || "(No Section)";
+        sectionSelect.appendChild(opt);
+      });
+
+      sectionSelect.disabled = sections.length === 0;
+      if (selectedSection && sections.indexOf(selectedSection) >= 0) {
+        sectionSelect.value = selectedSection;
+      } else if (sections.length === 1) {
+        sectionSelect.value = sections[0];
+      }
+    }
+
+    function getSelectedSubjectId() {
+      var selectedSubject = subjectSelect.value;
+      var selectedSection = sectionSelect.value;
+      if (!selectedSubject || !selectedSection) return null;
+
+      var match = subjectsData.find(function (subj) {
+        if (!subj || subj.id == null) return false;
+        return (
+          String(subj.name || "") === selectedSubject &&
+          String(subj.section || "") === selectedSection
+        );
+      });
+
+      return match ? Number(match.id) : null;
+    }
 
     // ─── Register SPA cleanup (called before DOM swap) ───
     window.__pageCleanup = function () {
@@ -429,6 +526,9 @@
     (async function init() {
       updateToggleIcon();
       initTrendChart();
+      populateSubjectOptions();
+      populateSectionOptions();
+      updateControls();
 
       // Check if mediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -682,7 +782,8 @@
     }
 
     async function startSession() {
-      if (!isCameraReady || !classSelect.value || isSessionActive) return;
+      var selectedSubjectId = getSelectedSubjectId();
+      if (!isCameraReady || !selectedSubjectId || isSessionActive) return;
 
       let startedSession = null;
       try {
@@ -690,7 +791,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ subjectId: Number(classSelect.value) }),
+          body: JSON.stringify({ subjectId: selectedSubjectId }),
         });
         const raw = await resp.text();
         let data = {};
@@ -1034,7 +1135,7 @@
     }
 
     function updateControls() {
-      startBtn.disabled = !isCameraReady || !classSelect.value;
+      startBtn.disabled = !isCameraReady || !getSelectedSubjectId();
 
       if (isSessionActive) {
         controls.innerHTML = `
@@ -1051,7 +1152,7 @@
         </button>`;
       } else {
         controls.innerHTML = `
-        <button id="start-btn" class="btn btn-emerald btn-lg" ${!isCameraReady || !classSelect.value ? "disabled" : ""} onclick="startSession()">
+        <button id="start-btn" class="btn btn-emerald btn-lg" ${!isCameraReady || !getSelectedSubjectId() ? "disabled" : ""} onclick="startSession()">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Start Session
         </button>`;
@@ -1124,8 +1225,12 @@
       }, 2000);
     }
 
-    // Enable start button when class is selected
-    classSelect.addEventListener("change", updateControls);
+    // Enable start button when subject + section are selected
+    subjectSelect.addEventListener("change", function () {
+      populateSectionOptions();
+      updateControls();
+    });
+    sectionSelect.addEventListener("change", updateControls);
 
     // ─── Expose functions for onclick attributes (needed inside IIFE) ───
     window.toggleCamera = toggleCamera;
