@@ -317,6 +317,17 @@ def get_pending_users() -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def get_approved_teachers() -> list[dict]:
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT id, first_name, last_name, email
+            FROM users
+            WHERE role = 'teacher' AND approval_status = 'approved'
+            ORDER BY first_name, last_name
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
 def update_user_role(user_id: int, role: str) -> dict | None:
     with get_cursor() as cur:
         cur.execute(

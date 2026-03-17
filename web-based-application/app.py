@@ -612,20 +612,43 @@ def classes():
 @login_required
 def history():
     user = current_user()
-    sessions_list = db.get_sessions(user["id"])
-    stats = db.get_dashboard_stats(user["id"])
-    subjects = db.get_subjects(user["id"])
+
+    # Admin can browse any teacher's history via ?teacher_id=X
+    teachers = []
+    selected_teacher = None
+    effective_teacher_id = user["id"]
+
+    if user.get("role") == "admin":
+        teachers = db.get_approved_teachers()
+        teacher_id_param = request.args.get("teacher_id", type=int)
+        if teacher_id_param:
+            candidate = db.get_user_by_id(teacher_id_param)
+            if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
+                selected_teacher = candidate
+                effective_teacher_id = teacher_id_param
+
+    sessions_list = db.get_sessions(effective_teacher_id)
+    stats = db.get_dashboard_stats(effective_teacher_id)
+    subjects = db.get_subjects(effective_teacher_id)
+
     seen_course_codes = set()
     subject_filters = []
+    subject_section_map = {}  # { course_code: [section, ...] }
     section_filters = sorted({str(s.get("section", "")).strip() for s in subjects if s.get("section")})
 
     for subj in subjects:
         code = str(subj.get("course_code", "")).strip()
         name = str(subj.get("name", "")).strip()
-        if not code or code in seen_course_codes:
+        section = str(subj.get("section", "")).strip()
+        if not code:
             continue
-        seen_course_codes.add(code)
-        subject_filters.append({"course_code": code, "name": name})
+        if code not in seen_course_codes:
+            seen_course_codes.add(code)
+            subject_filters.append({"course_code": code, "name": name})
+        if code not in subject_section_map:
+            subject_section_map[code] = []
+        if section and section not in subject_section_map[code]:
+            subject_section_map[code].append(section)
 
     subject_filters.sort(key=lambda s: s["course_code"])
 
@@ -646,6 +669,9 @@ def history():
         subject_filters=subject_filters,
         section_filters=section_filters,
         chart_data=chart_data,
+        teachers=teachers,
+        selected_teacher=selected_teacher,
+        subject_section_map=subject_section_map,
     )
 
 

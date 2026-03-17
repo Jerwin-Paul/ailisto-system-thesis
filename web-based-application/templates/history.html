@@ -102,14 +102,31 @@
       style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;"
     >
       <h3 class="card-title" style="margin-bottom: 0.35rem">All Sessions</h3>
-      {% if subject_filters or section_filters %}
       <div
         style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap"
       >
+        {% if user.role == 'admin' and teachers %}
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 200px; margin-bottom: 0"
+        >
+          <label class="form-label" style="font-size: 0.75rem; margin-bottom: 0.25rem">Teacher</label>
+          <select id="teacher-filter" class="form-select" aria-label="Filter by teacher">
+            <option value="">— Select a Teacher —</option>
+            {% for t in teachers %}
+            <option value="{{ t.id }}" {% if selected_teacher and selected_teacher.id == t.id %}selected{% endif %}>
+              {{ t.first_name }} {{ t.last_name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        {% if subject_filters or section_filters %}
         <div
           class="form-group"
           style="flex: 1; min-width: 180px; margin-bottom: 0"
         >
+          <label class="form-label" style="font-size: 0.75rem; margin-bottom: 0.25rem">Subject</label>
           <select id="subject-filter" class="form-select" aria-label="Filter by subject">
             <option value="">All Subjects</option>
             {% for subj in subject_filters %}
@@ -121,6 +138,7 @@
           class="form-group"
           style="flex: 1; min-width: 180px; margin-bottom: 0"
         >
+          <label class="form-label" style="font-size: 0.75rem; margin-bottom: 0.25rem">Section</label>
           <select id="section-filter" class="form-select" aria-label="Filter by section">
             <option value="">All Sections</option>
             {% for section in section_filters %}
@@ -128,8 +146,8 @@
             {% endfor %}
           </select>
         </div>
+        {% endif %}
       </div>
-      {% endif %}
     </div>
     <div class="card-content">
       {% if sessions %}
@@ -195,6 +213,47 @@
 <script>
   const subjectFilter = document.getElementById('subject-filter');
   const sectionFilter = document.getElementById('section-filter');
+  const teacherFilter = document.getElementById('teacher-filter');
+  const subjectSectionMap = {{ subject_section_map | tojson }};
+
+  // When teacher changes, reload the page with the selected teacher_id
+  if (teacherFilter) {
+    teacherFilter.addEventListener('change', function () {
+      const teacherId = this.value;
+      const url = new URL(window.location.href);
+      if (teacherId) {
+        url.searchParams.set('teacher_id', teacherId);
+      } else {
+        url.searchParams.delete('teacher_id');
+      }
+      window.location.href = url.toString();
+    });
+  }
+
+  // When subject changes, cascade the section dropdown
+  function updateSectionOptions(selectedSubject) {
+    if (!sectionFilter) return;
+    const currentSection = sectionFilter.value;
+    sectionFilter.innerHTML = '<option value="">All Sections</option>';
+    let sections = [];
+    if (selectedSubject && subjectSectionMap[selectedSubject]) {
+      sections = subjectSectionMap[selectedSubject].slice().sort();
+    } else {
+      // Show all sections across all subjects
+      const seen = new Set();
+      Object.values(subjectSectionMap).forEach(function (arr) {
+        arr.forEach(function (s) { seen.add(s); });
+      });
+      sections = Array.from(seen).sort();
+    }
+    sections.forEach(function (sec) {
+      const opt = document.createElement('option');
+      opt.value = sec;
+      opt.textContent = sec;
+      if (sec === currentSection) opt.selected = true;
+      sectionFilter.appendChild(opt);
+    });
+  }
 
   function applySessionFilters() {
     const selectedSubject = subjectFilter ? subjectFilter.value : '';
@@ -207,9 +266,19 @@
     });
   }
 
-  if (subjectFilter || sectionFilter) {
-    if (subjectFilter) subjectFilter.addEventListener('change', applySessionFilters);
-    if (sectionFilter) sectionFilter.addEventListener('change', applySessionFilters);
+  if (subjectFilter) {
+    subjectFilter.addEventListener('change', function () {
+      updateSectionOptions(this.value);
+      applySessionFilters();
+    });
+  }
+  if (sectionFilter) {
+    sectionFilter.addEventListener('change', applySessionFilters);
+  }
+
+  // Initialise section options based on current subject selection
+  if (subjectFilter) {
+    updateSectionOptions(subjectFilter.value);
   }
 </script>
 <script>
