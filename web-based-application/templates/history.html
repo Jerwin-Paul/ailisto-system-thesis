@@ -97,15 +97,38 @@
 
   <!-- Session Table -->
   <div class="card">
-    <div class="card-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
-      <h3 class="card-title">All Sessions</h3>
-      {% if subjects %}
-      <select id="subject-filter" style="font-size:0.875rem; padding:0.35rem 0.65rem; border:1px solid #cbd5e1; border-radius:0.375rem; background:#fff; color:#334155; cursor:pointer;">
-        <option value="all">All Subjects</option>
-        {% for subj in subjects %}
-        <option value="{{ subj.id }}">{{ subj.course_code }} - {{ subj.section }}</option>
-        {% endfor %}
-      </select>
+    <div
+      class="card-header"
+      style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;"
+    >
+      <h3 class="card-title" style="margin-bottom: 0.35rem">All Sessions</h3>
+      {% if subject_filters or section_filters %}
+      <div
+        style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap"
+      >
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 180px; margin-bottom: 0"
+        >
+          <select id="subject-filter" class="form-select" aria-label="Filter by subject">
+            <option value="">All Subjects</option>
+            {% for subj in subject_filters %}
+            <option value="{{ subj.course_code }}">{{ subj.course_code }}{% if subj.name %} - {{ subj.name }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 180px; margin-bottom: 0"
+        >
+          <select id="section-filter" class="form-select" aria-label="Filter by section">
+            <option value="">All Sections</option>
+            {% for section in section_filters %}
+            <option value="{{ section }}">{{ section }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
       {% endif %}
     </div>
     <div class="card-content">
@@ -121,7 +144,7 @@
         </thead>
         <tbody>
           {% for s in sessions %}
-          <tr data-subject-id="{{ s.subject_id }}">
+          <tr data-course-code="{{ s.course_code }}" data-section="{{ s.section }}">
             <td><strong>{{ s.course_code }} - {{ s.section }}</strong></td>
             <td>
               {{ s.start_time.strftime('%b %d, %Y • %I:%M %p') if s.start_time
@@ -171,13 +194,22 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
   const subjectFilter = document.getElementById('subject-filter');
-  if (subjectFilter) {
-    subjectFilter.addEventListener('change', function () {
-      const selected = this.value;
-      document.querySelectorAll('#sessions-table tbody tr').forEach(function (row) {
-        row.hidden = selected !== 'all' && row.dataset.subjectId !== selected;
-      });
+  const sectionFilter = document.getElementById('section-filter');
+
+  function applySessionFilters() {
+    const selectedSubject = subjectFilter ? subjectFilter.value : '';
+    const selectedSection = sectionFilter ? sectionFilter.value : '';
+
+    document.querySelectorAll('#sessions-table tbody tr').forEach(function (row) {
+      const subjectMatches = !selectedSubject || row.dataset.courseCode === selectedSubject;
+      const sectionMatches = !selectedSection || row.dataset.section === selectedSection;
+      row.hidden = !(subjectMatches && sectionMatches);
     });
+  }
+
+  if (subjectFilter || sectionFilter) {
+    if (subjectFilter) subjectFilter.addEventListener('change', applySessionFilters);
+    if (sectionFilter) sectionFilter.addEventListener('change', applySessionFilters);
   }
 </script>
 <script>

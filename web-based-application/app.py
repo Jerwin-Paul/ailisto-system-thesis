@@ -615,6 +615,20 @@ def history():
     sessions_list = db.get_sessions(user["id"])
     stats = db.get_dashboard_stats(user["id"])
     subjects = db.get_subjects(user["id"])
+    seen_course_codes = set()
+    subject_filters = []
+    section_filters = sorted({str(s.get("section", "")).strip() for s in subjects if s.get("section")})
+
+    for subj in subjects:
+        code = str(subj.get("course_code", "")).strip()
+        name = str(subj.get("name", "")).strip()
+        if not code or code in seen_course_codes:
+            continue
+        seen_course_codes.add(code)
+        subject_filters.append({"course_code": code, "name": name})
+
+    subject_filters.sort(key=lambda s: s["course_code"])
+
     chart_data = [
         {
             "label": s["start_time"].strftime("%b %d") if s.get("start_time") else "",
@@ -629,6 +643,8 @@ def history():
         sessions=sessions_list,
         stats=stats,
         subjects=subjects,
+        subject_filters=subject_filters,
+        section_filters=section_filters,
         chart_data=chart_data,
     )
 
