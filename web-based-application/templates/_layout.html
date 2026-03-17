@@ -336,6 +336,14 @@
 
               history.pushState({}, "", href);
 
+              function cloneScriptElement(sourceScript) {
+                const scriptEl = document.createElement("script");
+                Array.from(sourceScript.attributes).forEach((attr) => {
+                  scriptEl.setAttribute(attr.name, attr.value);
+                });
+                return scriptEl;
+              }
+
               // Replace page-level dynamic assets from fetched body
               document
                 .querySelectorAll("[data-spa-dynamic]")
@@ -365,7 +373,7 @@
 
                 if (el.tagName === "SCRIPT") {
                   await new Promise((resolve) => {
-                    const scriptEl = document.createElement("script");
+                    const scriptEl = cloneScriptElement(el);
                     scriptEl.setAttribute("data-spa-dynamic", "true");
                     if (el.src) {
                       scriptEl.src = el.src;
@@ -386,7 +394,7 @@
 
               // Run page-specific scripts
               contentEl.querySelectorAll("script").forEach((old) => {
-                const s = document.createElement("script");
+                const s = cloneScriptElement(old);
                 if (old.src) s.src = old.src;
                 else s.textContent = old.textContent;
                 old.parentNode.replaceChild(s, old);
