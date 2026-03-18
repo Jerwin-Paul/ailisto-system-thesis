@@ -264,11 +264,11 @@
 
     <!-- Right Column: Real-time Stats -->
     <div class="space-y-6">
-      <!-- Current Attention Score -->
+      <!-- Current Attention Level -->
       <div class="card card-borderless">
         <div class="attention-score-display">
-          <p class="stat-label">Current Attention Score</p>
-          <div class="attention-score-value" id="attention-value">--%</div>
+          <p class="stat-label">Current Attention Level</p>
+          <div class="attention-score-value" id="attention-value">--</div>
           <p
             class="text-xs"
             style="color: var(--text-400)"
@@ -894,7 +894,7 @@
 
       updateBadge();
       updateControls();
-      attentionValue.textContent = "--%";
+      attentionValue.textContent = "--";
       attentionValue.className = "attention-score-value";
       attentionStatus.textContent = "Updated in real-time";
       aiInsight.textContent = "Start a session to receive AI-powered insights.";
@@ -964,28 +964,93 @@
         ctx.strokeRect(x1, y1, w, h);
 
         const confPct = Math.round((det.conf || 0) * 100);
-        const label = (det.label || "person") + " " + confPct + "%";
+        const attentionLabel = normalizeAttentionLabel(det.attention);
+        const label =
+          (det.label || "person") +
+          " " +
+          confPct +
+          "%" +
+          (attentionLabel ? " | Attention: " + attentionLabel : "");
         const ty = y1 > 24 ? y1 - 8 : y1 + 20;
         ctx.fillText(label, x1, ty);
       });
     }
 
+    function normalizeAttentionLabel(rawValue) {
+      if (rawValue === null || rawValue === undefined) return null;
+      const value = String(rawValue).trim().toLowerCase();
+      if (!value) return null;
+
+      if (value === "0" || value === "low") return "Low";
+      if (value === "1" || value === "medium") return "Medium";
+      if (value === "2" || value === "high") return "High";
+      return null;
+    }
+
+    function attentionLabelToScore(label) {
+      if (label === "High") return 90;
+      if (label === "Medium") return 70;
+      if (label === "Low") return 45;
+      return null;
+    }
+
+    function scoreToAttentionLabel(score) {
+      if (score > 80) return "High";
+      if (score > 60) return "Medium";
+      return "Low";
+    }
+
     function updateAttentionFromDetections(detections) {
-      const count = detections ? detections.length : 0;
-      const score = Math.max(45, Math.min(95, 55 + count * 7));
+      const items = Array.isArray(detections) ? detections : [];
+      const labelCounts = { Low: 0, Medium: 0, High: 0 };
+      const scores = [];
+
+      items.forEach((det) => {
+        const label = normalizeAttentionLabel(det && det.attention);
+        if (!label) return;
+
+        labelCounts[label] += 1;
+        const mappedScore = attentionLabelToScore(label);
+        if (mappedScore !== null) scores.push(mappedScore);
+      });
+
+      let score;
+      let level;
+
+      if (scores.length > 0) {
+        const total = scores.reduce((sum, val) => sum + val, 0);
+        score = Math.round(total / scores.length);
+
+        const ranked = ["Low", "Medium", "High"];
+        level = ranked.reduce((best, current) => {
+          if (labelCounts[current] > labelCounts[best]) return current;
+          if (labelCounts[current] === labelCounts[best]) {
+            return attentionLabelToScore(current) > attentionLabelToScore(best)
+              ? current
+              : best;
+          }
+          return best;
+        }, "Low");
+      } else {
+        const count = items.length;
+        score = Math.max(45, Math.min(95, 55 + count * 7));
+        level = scoreToAttentionLabel(score);
+      }
 
       attentionHistory.push({ time: Date.now(), value: score });
       if (attentionHistory.length > 30) attentionHistory.shift();
 
-      attentionValue.textContent = score + "%";
+      attentionValue.textContent = level;
       attentionValue.className =
-        "attention-score-value " +
-        (score > 80 ? "high" : score > 60 ? "medium" : "low");
+        "attention-score-value " + level.toLowerCase();
 
-      if (score > 80)
+      attentionStatus.textContent =
+        "Attention level: " + level + " (" + score + "%)";
+
+      if (level === "High")
         aiInsight.textContent =
           "Great engagement! Most students appear attentive.";
-      else if (score > 60)
+      else if (level === "Medium")
         aiInsight.textContent =
           "Attention is moderate. Try a quick interactive prompt to lift focus.";
       else
@@ -1070,9 +1135,6 @@
         yoloStatusOverlay.style.display = "none";
         drawDetections(detections, data.width, data.height);
         updateAttentionFromDetections(detections);
-        attentionStatus.textContent = "Updated in real-time";
-        aiInsight.textContent =
-          "Monitoring student attention from your camera\u2026";
         nextDelay = 30;
       } catch (err) {
         if (isSessionActive) {
@@ -1202,10 +1264,12 @@
         if (attentionHistory.length > 30) attentionHistory.shift();
 
         // Update score display
-        attentionValue.textContent = score + "%";
+        const level = scoreToAttentionLabel(score);
+        attentionValue.textContent = level;
         attentionValue.className =
-          "attention-score-value " +
-          (score > 80 ? "high" : score > 60 ? "medium" : "low");
+          "attention-score-value " + level.toLowerCase();
+        attentionStatus.textContent =
+          "Attention level: " + level + " (" + score + "%)";
 
         // Update insight
         if (score > 80)
