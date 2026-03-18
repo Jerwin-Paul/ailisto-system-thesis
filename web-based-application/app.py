@@ -1173,7 +1173,14 @@ def api_generate_report():
             section_filter=section,
         )
     except Exception as exc:
-        logging.error("Report error: %s", exc)
+        logging.exception(
+            "Report generation failed for user=%s start=%s end=%s subject=%s section=%s",
+            user["id"],
+            start_date,
+            end_date,
+            subject_code,
+            section,
+        )
         return jsonify({"error": "Failed to generate report"}), 500
     filename = f"ailisto-report-{start_date}-to-{end_date}"
     if subject_code:
@@ -1212,7 +1219,14 @@ def api_preview_report():
             section_filter=section,
         )
     except Exception as exc:
-        logging.error("Report preview error: %s", exc)
+        logging.exception(
+            "Report preview failed for user=%s start=%s end=%s subject=%s section=%s",
+            user["id"],
+            start_date,
+            end_date,
+            subject_code,
+            section,
+        )
         return jsonify({"error": "Failed to generate report"}), 500
     return send_file(buf, mimetype="application/pdf", as_attachment=False)
 
