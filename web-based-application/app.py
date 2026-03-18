@@ -1144,6 +1144,15 @@ def _build_report_pdf(
     return buf
 
 
+def _build_report_filename(start_date: str, end_date: str, subject_code: str = "", section: str = "") -> str:
+    filename = f"ailisto-report-{start_date}-to-{end_date}"
+    if subject_code:
+        filename += f"-{subject_code}"
+    if section:
+        filename += f"-{section}"
+    return f"{filename}.pdf"
+
+
 @app.route("/api/generate-report", methods=["POST"])
 @login_required
 def api_generate_report():
@@ -1182,12 +1191,7 @@ def api_generate_report():
             section,
         )
         return jsonify({"error": "Failed to generate report"}), 500
-    filename = f"ailisto-report-{start_date}-to-{end_date}"
-    if subject_code:
-        filename += f"-{subject_code}"
-    if section:
-        filename += f"-{section}"
-    filename += ".pdf"
+    filename = _build_report_filename(start_date, end_date, subject_code, section)
     return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=filename)
 
 
@@ -1228,7 +1232,8 @@ def api_preview_report():
             section,
         )
         return jsonify({"error": "Failed to generate report"}), 500
-    return send_file(buf, mimetype="application/pdf", as_attachment=False)
+    filename = _build_report_filename(start_date, end_date, subject_code, section)
+    return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name=filename)
 
 
 # ─── Run ──────────────────────────────────────────────────────────────
