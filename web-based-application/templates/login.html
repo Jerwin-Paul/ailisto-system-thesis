@@ -98,6 +98,56 @@
         border-radius: 50%;
         animation: spin 0.6s linear infinite;
       }
+      .otp-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 220;
+        display: grid;
+        place-items: center;
+        padding: 1rem;
+        background: rgba(15, 23, 42, 0.45);
+      }
+      .otp-modal[hidden] {
+        display: none;
+      }
+      .otp-card {
+        width: min(100%, 440px);
+        background: #ffffff;
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow-xl);
+        padding: 1.4rem;
+        border: 1px solid var(--border-color);
+      }
+      .otp-title {
+        margin: 0;
+        color: var(--text-primary);
+        font-size: 1.2rem;
+        font-weight: 700;
+      }
+      .otp-message {
+        margin-top: 0.55rem;
+        margin-bottom: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.93rem;
+        line-height: 1.45;
+      }
+      .otp-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.65rem;
+        margin-top: 0.95rem;
+      }
+      .otp-actions .btn {
+        min-width: 112px;
+      }
+      .btn.btn-ghost {
+        background: #f1f5f9;
+        color: #0f172a;
+        border: 1px solid #e2e8f0;
+      }
+      .btn.btn-ghost:hover {
+        background: #e2e8f0;
+      }
     </style>
   </head>
   <body>
@@ -133,6 +183,55 @@
         <polyline points="22 4 12 14.01 9 11.01" />
       </svg>
       <span id="toast-msg"></span>
+    </div>
+
+    <div class="otp-modal" id="otp-modal" hidden>
+      <div class="otp-card" role="dialog" aria-modal="true" aria-labelledby="otp-title">
+        <h3 class="otp-title" id="otp-title">OTP Verification</h3>
+        <p class="otp-message" id="otp-message">
+          An OTP has been sent to your email. Please check your inbox and enter the code below.
+        </p>
+        <form id="otp-form" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="otp">One-Time Password (OTP)</label>
+            <input
+              class="form-input"
+              type="text"
+              id="otp"
+              name="otp"
+              inputmode="numeric"
+              maxlength="12"
+              pattern="[0-9]{6,12}"
+              placeholder="Enter OTP code"
+              autocomplete="one-time-code"
+            />
+            <p class="field-error" id="otp-error">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span></span>
+            </p>
+          </div>
+
+          <div class="otp-actions">
+            <button type="button" class="btn btn-ghost" id="otp-cancel-btn">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="otp-submit-btn">
+              <span class="btn-spinner"></span>
+              Verify OTP
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <div class="auth-layout">
@@ -370,6 +469,23 @@
         });
       });
 
+      function showOtpModal(message) {
+        const modal = document.getElementById("otp-modal");
+        const msg = document.getElementById("otp-message");
+        const otpInput = document.getElementById("otp");
+        if (message) msg.textContent = message;
+        modal.hidden = false;
+        otpInput.value = "";
+        otpInput.classList.remove("input-error");
+        document.getElementById("otp-error").classList.remove("show");
+        setTimeout(() => otpInput.focus(), 0);
+      }
+
+      function hideOtpModal() {
+        const modal = document.getElementById("otp-modal");
+        modal.hidden = true;
+      }
+
       // ─── Password toggle ───
       function togglePassword() {
         const input = document.getElementById("password");
@@ -429,6 +545,15 @@
               return;
             }
 
+            if (data.otp_required) {
+              showOtpModal(
+                data.message ||
+                  "An OTP has been sent to your email. Please check your inbox and enter it below."
+              );
+              showToast("OTP sent to your email.", "success");
+              return;
+            }
+
             // Server error
             if (data.field) {
               showFieldError(data.field, data.error);
@@ -440,6 +565,70 @@
             btn.classList.remove("btn-loading");
           }
         });
+
+      document.getElementById("otp-cancel-btn").addEventListener("click", () => {
+        hideOtpModal();
+        showToast("OTP verification cancelled. Please sign in again.", "error");
+      });
+
+      document.getElementById("otp-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const otpInput = document.getElementById("otp");
+        const otpError = document.getElementById("otp-error");
+        otpError.classList.remove("show");
+        otpInput.classList.remove("input-error");
+
+        const otp = otpInput.value.trim();
+        if (!otp) {
+          otpError.querySelector("span").textContent = "OTP is required.";
+          otpError.classList.add("show");
+          otpInput.classList.add("input-error");
+          return;
+        }
+        if (!/^\d{6,12}$/.test(otp)) {
+          otpError.querySelector("span").textContent =
+            "OTP must be a numeric code with 6 to 12 digits.";
+          otpError.classList.add("show");
+          otpInput.classList.add("input-error");
+          return;
+        }
+
+        const submitBtn = document.getElementById("otp-submit-btn");
+        submitBtn.classList.add("btn-loading");
+
+        try {
+          const formData = new FormData();
+          formData.append("otp", otp);
+
+          const res = await fetch("/verify-login-otp", {
+            method: "POST",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+            body: formData,
+          });
+          const data = await res.json();
+
+          if (data.success) {
+            showToast("OTP verified. Redirecting...", "success");
+            setTimeout(() => (window.location.href = data.redirect), 500);
+            return;
+          }
+
+          otpError.querySelector("span").textContent = data.error || "Invalid OTP.";
+          otpError.classList.add("show");
+          otpInput.classList.add("input-error");
+          showToast(data.error || "OTP verification failed.", "error");
+        } catch (err) {
+          showToast("Something went wrong during OTP verification.", "error");
+        } finally {
+          submitBtn.classList.remove("btn-loading");
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !document.getElementById("otp-modal").hidden) {
+          hideOtpModal();
+        }
+      });
     </script>
   </body>
 </html>

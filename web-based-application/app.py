@@ -2,6 +2,7 @@ import os
 import io
 import json
 import logging
+import time
 import requests
 from functools import wraps
 from datetime import datetime
@@ -21,6 +22,9 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(32).hex())
 
 ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+LOGIN_OTP_TTL_SECONDS = int(os.environ.get("LOGIN_OTP_TTL_SECONDS", "3600"))
+LOGIN_OTP_MAX_ATTEMPTS = int(os.environ.get("LOGIN_OTP_MAX_ATTEMPTS", "5"))
+LOGIN_OTP_ENABLED = os.environ.get("LOGIN_OTP_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 # Bootstrap tables on startup
 db.init_db()
@@ -97,6 +101,70 @@ def _safe_user_profile_payload(user_obj: dict) -> dict:
         "email": user_obj.get("email"),
         "avatar_url": user_obj.get("avatar_url"),
     }
+
+
+def _supabase_public_headers(anon_key: str) -> dict:
+    return {
+        "apikey": anon_key,
+        "Content-Type": "application/json",
+    }
+
+
+def _send_login_otp_email(to_email: str) -> tuple[bool, str | None]:
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+    supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    if not supabase_url or not supabase_anon_key:
+        logging.error("OTP email not sent: SUPABASE_URL/SUPABASE_ANON_KEY is not configured")
+        return False, "Supabase Auth is not configured."
+
+    try:
+        resp = requests.post(
+            f"{supabase_url}/auth/v1/otp",
+            json={"email": to_email, "create_user": False},
+            headers=_supabase_public_headers(supabase_anon_key),
+            timeout=10,
+        )
+        if not resp.ok:
+            err_msg = "Could not send OTP email."
+            try:
+                payload = resp.json() if resp.content else {}
+                err_msg = payload.get("msg") or payload.get("error_description") or payload.get("error") or err_msg
+            except ValueError:
+                pass
+            logging.error("Supabase OTP send failed for %s: %s %s", to_email, resp.status_code, resp.text)
+            return False, err_msg
+        return True, None
+    except Exception as exc:
+        logging.error("Supabase OTP send request failed for %s: %s", to_email, exc)
+        return False, "Could not send OTP email."
+
+
+def _verify_login_otp_email(email: str, otp: str) -> tuple[bool, str | None]:
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+    supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    if not supabase_url or not supabase_anon_key:
+        return False, "Supabase Auth is not configured."
+
+    try:
+        resp = requests.post(
+            f"{supabase_url}/auth/v1/verify",
+            json={"type": "email", "email": email, "token": otp},
+            headers=_supabase_public_headers(supabase_anon_key),
+            timeout=10,
+        )
+        if not resp.ok:
+            err_msg = "Invalid or expired OTP code."
+            try:
+                payload = resp.json() if resp.content else {}
+                err_msg = payload.get("msg") or payload.get("error_description") or payload.get("error") or err_msg
+            except ValueError:
+                pass
+            logging.warning("Supabase OTP verify failed for %s: %s %s", email, resp.status_code, resp.text)
+            return False, err_msg
+        return True, None
+    except Exception as exc:
+        logging.error("Supabase OTP verify request failed for %s: %s", email, exc)
+        return False, "Could not verify OTP code."
 
 
 # ─── Auth Pages ──────────────────────────────────────────────────────
@@ -252,16 +320,124 @@ def login():
                 flash(msg, "error")
                 return render_template("login.html")
 
-            session["user_id"] = user["id"]
-            if is_ajax:
-                return jsonify({"success": True, "redirect": url_for("home")})
-            return redirect(url_for("home"))
+            if not LOGIN_OTP_ENABLED:
+                session.pop("pending_login", None)
+                session["user_id"] = user["id"]
+                if is_ajax:
+                    return jsonify({"success": True, "redirect": url_for("home")})
+                return redirect(url_for("home"))
 
+            now_ts = int(time.time())
+            session["pending_login"] = {
+                "user_id": user["id"],
+                "email": user.get("email", ""),
+                "otp_sent_at": now_ts,
+                "attempts": 0,
+            }
+
+            sent, send_error = _send_login_otp_email(to_email=user.get("email", ""))
+            if not sent:
+                session.pop("pending_login", None)
+                if is_ajax:
+                    return jsonify({"error": send_error or "Unable to send OTP email. Please try again."}), 503
+                flash(send_error or "Unable to send OTP email. Please try again.", "error")
+                return render_template("login.html")
+
+            if is_ajax:
+                return jsonify(
+                    {
+                        "otp_required": True,
+                        "message": "An OTP has been sent to your email. Please check your inbox.",
+                    }
+                )
+            flash("An OTP has been sent to your email. Please check your inbox.", "success")
+            return render_template("login.html")
+
+        session.pop("pending_login", None)
         if is_ajax:
             return jsonify({"error": "Invalid email or password."}), 401
         flash("Invalid email or password.", "error")
 
     return render_template("login.html")
+
+
+@app.route("/verify-login-otp", methods=["POST"])
+def verify_login_otp():
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    otp = request.form.get("otp", "").strip()
+
+    if not otp:
+        if is_ajax:
+            return jsonify({"error": "OTP is required.", "field": "otp"}), 400
+        flash("OTP is required.", "error")
+        return render_template("login.html")
+
+    if not otp.isdigit() or len(otp) < 6 or len(otp) > 12:
+        if is_ajax:
+            return jsonify({"error": "OTP must be a numeric code with 6 to 12 digits.", "field": "otp"}), 400
+        flash("OTP must be a numeric code with 6 to 12 digits.", "error")
+        return render_template("login.html")
+
+    pending_login = session.get("pending_login") or {}
+    if not pending_login:
+        msg = "Your sign-in session has expired. Please sign in again."
+        if is_ajax:
+            return jsonify({"error": msg}), 400
+        flash(msg, "error")
+        return render_template("login.html")
+
+    now_ts = int(time.time())
+    otp_sent_at = int(pending_login.get("otp_sent_at", 0))
+
+    # OTP is valid only within the configured time window.
+    if now_ts - otp_sent_at > LOGIN_OTP_TTL_SECONDS:
+        session.pop("pending_login", None)
+        msg = "OTP has expired. Please sign in again to get a new OTP."
+        if is_ajax:
+            return jsonify({"error": msg, "field": "otp"}), 400
+        flash(msg, "error")
+        return render_template("login.html")
+
+    attempts = int(pending_login.get("attempts", 0))
+    if attempts >= LOGIN_OTP_MAX_ATTEMPTS:
+        session.pop("pending_login", None)
+        msg = "Too many incorrect OTP attempts. Please sign in again."
+        if is_ajax:
+            return jsonify({"error": msg}), 429
+        flash(msg, "error")
+        return render_template("login.html")
+
+    verify_ok, verify_error = _verify_login_otp_email(
+        email=str(pending_login.get("email", "")),
+        otp=otp,
+    )
+    if not verify_ok:
+        pending_login["attempts"] = attempts + 1
+        session["pending_login"] = pending_login
+        remaining = max(0, LOGIN_OTP_MAX_ATTEMPTS - pending_login["attempts"])
+        msg = verify_error or "Invalid OTP code."
+        if remaining:
+            msg = f"{msg} {remaining} attempt(s) left."
+        if is_ajax:
+            return jsonify({"error": msg, "field": "otp"}), 401
+        flash(msg, "error")
+        return render_template("login.html")
+
+    user_id = pending_login.get("user_id")
+    user = db.get_user_by_id(user_id) if user_id else None
+    if not user or user.get("approval_status") != "approved":
+        session.pop("pending_login", None)
+        msg = "Your account is not available for login."
+        if is_ajax:
+            return jsonify({"error": msg}), 403
+        flash(msg, "error")
+        return render_template("login.html")
+
+    session.pop("pending_login", None)
+    session["user_id"] = user["id"]
+    if is_ajax:
+        return jsonify({"success": True, "redirect": url_for("home")})
+    return redirect(url_for("home"))
 
 
 @app.route("/register", methods=["GET", "POST"])
