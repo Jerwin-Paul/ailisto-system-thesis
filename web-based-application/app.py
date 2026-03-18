@@ -110,6 +110,17 @@ def _supabase_public_headers(anon_key: str) -> dict:
     }
 
 
+def _humanize_otp_send_error(raw_error: str) -> str:
+    clean = (raw_error or "").strip()
+    lowered = clean.lower()
+    if "error sending magic link email" in lowered:
+        return (
+            "Supabase could not send the OTP email via SMTP. "
+            "Check Supabase Auth Email settings (SMTP host, port, username, app password, and sender email)."
+        )
+    return clean or "Could not send OTP email."
+
+
 def _send_login_otp_email(to_email: str) -> tuple[bool, str | None]:
     supabase_url = os.environ.get("SUPABASE_URL", "").strip()
     supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
@@ -131,6 +142,7 @@ def _send_login_otp_email(to_email: str) -> tuple[bool, str | None]:
                 err_msg = payload.get("msg") or payload.get("error_description") or payload.get("error") or err_msg
             except ValueError:
                 pass
+            err_msg = _humanize_otp_send_error(err_msg)
             logging.error("Supabase OTP send failed for %s: %s %s", to_email, resp.status_code, resp.text)
             return False, err_msg
         return True, None
