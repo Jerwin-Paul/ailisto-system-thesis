@@ -520,8 +520,80 @@ def get_dashboard_stats(teacher_id: int) -> dict:
         """, (teacher_id,))
         recent = [_normalize_session_times(dict(r)) for r in cur.fetchall()]
 
+        # Per-class attention summary for dashboard cards.
+        cur.execute("""
+            SELECT
+                sub.id,
+                sub.name,
+                sub.course_code,
+                sub.section,
+                COUNT(s.id) AS total_sessions,
+                AVG(
+                    CASE
+                        WHEN s.summary_stats IS NOT NULL
+                         AND s.summary_stats->>'avgAttention' IS NOT NULL
+                        THEN (s.summary_stats->>'avgAttention')::float
+                        ELSE NULL
+                    END
+                ) AS avg_attention
+            FROM subjects sub
+            LEFT JOIN sessions s ON s.subject_id = sub.id
+            WHERE sub.teacher_id = %s
+            GROUP BY sub.id, sub.name, sub.course_code, sub.section
+            ORDER BY sub.course_code ASC, sub.section ASC
+        """, (teacher_id,))
+        class_rows = cur.fetchall()
+        class_attention = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "course_code": row["course_code"],
+                "section": row["section"],
+                "total_sessions": row["total_sessions"],
+                "avg_attention": round(row["avg_attention"]) if row["avg_attention"] is not None else None,
+            }
+            for row in class_rows
+        ]
+
+        # Last 7 days trend for chart data.
+        cur.execute("""
+            WITH days AS (
+                SELECT generate_series(
+                    CURRENT_DATE - INTERVAL '6 day',
+                    CURRENT_DATE,
+                    INTERVAL '1 day'
+                )::date AS day
+            )
+            SELECT
+                d.day,
+                AVG(
+                    CASE
+                        WHEN sub.id IS NOT NULL
+                         AND s.summary_stats IS NOT NULL
+                         AND s.summary_stats->>'avgAttention' IS NOT NULL
+                        THEN (s.summary_stats->>'avgAttention')::float
+                        ELSE NULL
+                    END
+                ) AS avg_attention
+            FROM days d
+            LEFT JOIN sessions s ON s.start_time::date = d.day
+            LEFT JOIN subjects sub ON s.subject_id = sub.id AND sub.teacher_id = %s
+            GROUP BY d.day
+            ORDER BY d.day ASC
+        """, (teacher_id,))
+        weekly_rows = cur.fetchall()
+        weekly_attention = [
+            {
+                "label": row["day"].strftime("%a"),
+                "value": round(row["avg_attention"]) if row["avg_attention"] is not None else None,
+            }
+            for row in weekly_rows
+        ]
+
         return {
             "total_sessions": total_sessions,
             "avg_attention": avg_attention,
             "recent": recent,
+            "class_attention": class_attention,
+            "weekly_attention": weekly_attention,
         }
