@@ -117,25 +117,87 @@
         box-shadow: var(--shadow-xl);
         padding: 1.4rem;
         border: 1px solid var(--border-color);
+        --otp-section-gap: 1.35rem;
+        --otp-tight-gap: 0.65rem;
       }
       .otp-title {
         margin: 0;
         color: var(--text-primary);
         font-size: 1.2rem;
         font-weight: 700;
+        text-align: center;
       }
       .otp-message {
         margin-top: 0.55rem;
-        margin-bottom: 1rem;
+        margin-bottom: var(--otp-section-gap);
         color: var(--text-secondary);
         font-size: 0.93rem;
         line-height: 1.45;
+        text-align: center;
+      }
+      .otp-resend-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        margin-top: var(--otp-tight-gap);
+        margin-bottom: 0;
+      }
+      #otp-form .form-group:first-child {
+        margin-top: 0;
+      }
+      #otp-form .form-group:first-child .form-label {
+        margin-bottom: var(--otp-tight-gap);
+      }
+      .otp-resend-text {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.84rem;
+        line-height: 1.4;
+      }
+      .otp-resend-timer {
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+      }
+      .otp-resend-link {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--primary);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .otp-resend-link:hover {
+        text-decoration: underline;
+      }
+      .otp-resend-link.is-disabled,
+      .otp-resend-link.is-loading {
+        opacity: 0.6;
+        pointer-events: none;
+        text-decoration: none;
+      }
+      .login-lockout {
+        display: none;
+        margin-top: 1rem;
+        margin-bottom: 0.6rem;
+        padding: 0.65rem 0.8rem;
+        border-radius: 10px;
+        background: #fff4e5;
+        border: 1px solid #ffd8a8;
+        color: #92400e;
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+      .login-lockout.show {
+        display: block;
+      }
+      .login-lockout .lockout-timer {
+        font-weight: 700;
       }
       .otp-actions {
         display: flex;
-        justify-content: flex-end;
+        justify-content: center;
         gap: 0.65rem;
-        margin-top: 0.95rem;
+        margin-top: var(--otp-section-gap);
       }
       .otp-actions .btn {
         min-width: 112px;
@@ -189,7 +251,7 @@
       <div class="otp-card" role="dialog" aria-modal="true" aria-labelledby="otp-title">
         <h3 class="otp-title" id="otp-title">OTP Verification</h3>
         <p class="otp-message" id="otp-message">
-          An OTP has been sent to your email. Please check your inbox and enter the code below.
+          An OTP has been sent to your email. Please check your inbox or spam folder and enter the code.
         </p>
         <form id="otp-form" novalidate>
           <div class="form-group">
@@ -221,6 +283,12 @@
               </svg>
               <span></span>
             </p>
+          </div>
+
+          <div class="otp-resend-row">
+            <span class="otp-resend-text">Didn't receive the code?</span>
+            <a href="#" class="otp-resend-link is-disabled" id="otp-resend-link" aria-disabled="true">Resend</a>
+            <span class="otp-resend-timer" id="otp-resend-timer">01:00</span>
           </div>
 
           <div class="otp-actions">
@@ -273,6 +341,15 @@
           <p class="auth-form-subtitle">
             Sign in to access your teacher dashboard
           </p>
+
+          <div
+            class="login-lockout{% if lockout_seconds and lockout_seconds > 0 %} show{% endif %}"
+            id="login-lockout"
+            data-seconds="{{ lockout_seconds|default(0) }}"
+          >
+            <span id="login-lockout-message">{{ lockout_message|default('') }}</span>
+            <span class="lockout-timer" id="login-lockout-timer"></span>
+          </div>
 
           <form
             id="login-form"
@@ -422,7 +499,7 @@
     <script>
       // ─── Toast ───
       let toastTimer;
-      function showToast(message, type) {
+      function showToast(message, type, duration = 4500) {
         const toast = document.getElementById("toast");
         const msg = document.getElementById("toast-msg");
         const errIcon = document.getElementById("toast-icon-error");
@@ -437,7 +514,7 @@
         okIcon.style.display = type === "success" ? "block" : "none";
 
         requestAnimationFrame(() => toast.classList.add("show"));
-        toastTimer = setTimeout(() => toast.classList.remove("show"), 4500);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), duration);
       }
 
       // ─── Field-level errors ───
@@ -469,7 +546,71 @@
         });
       });
 
-      function showOtpModal(message) {
+      let otpResendCountdownTimer = null;
+      let otpResendSecondsLeft = 0;
+      let otpResendUnlockAtMs = 0;
+      let loginLockCountdownTimer = null;
+
+      function formatOtpCountdown(seconds) {
+        const clamped = Math.max(0, Number(seconds) || 0);
+        const mins = Math.floor(clamped / 60)
+          .toString()
+          .padStart(2, "0");
+        const secs = (clamped % 60).toString().padStart(2, "0");
+        return `${mins}:${secs}`;
+      }
+
+      function updateOtpResendUi() {
+        const timerEl = document.getElementById("otp-resend-timer");
+        const resendLink = document.getElementById("otp-resend-link");
+        if (!timerEl || !resendLink) return;
+
+        if (otpResendUnlockAtMs > 0) {
+          const remaining = Math.max(
+            0,
+            Math.ceil((otpResendUnlockAtMs - Date.now()) / 1000)
+          );
+          otpResendSecondsLeft = remaining;
+        }
+
+        if (otpResendSecondsLeft > 0) {
+          timerEl.textContent = formatOtpCountdown(otpResendSecondsLeft);
+          resendLink.classList.add("is-disabled");
+          resendLink.setAttribute("aria-disabled", "true");
+          return;
+        }
+
+        timerEl.textContent = "00:00";
+        resendLink.classList.remove("is-disabled");
+        resendLink.setAttribute("aria-disabled", "false");
+      }
+
+      function stopOtpResendCountdown() {
+        if (otpResendCountdownTimer) {
+          clearInterval(otpResendCountdownTimer);
+          otpResendCountdownTimer = null;
+        }
+      }
+
+      function startOtpResendCountdown(seconds) {
+        stopOtpResendCountdown();
+        const serverSeconds = Math.max(0, Math.ceil(Number(seconds) || 0));
+        otpResendSecondsLeft = serverSeconds;
+        otpResendUnlockAtMs = Date.now() + otpResendSecondsLeft * 1000;
+        updateOtpResendUi();
+
+        if (otpResendSecondsLeft === 0) return;
+
+        otpResendCountdownTimer = setInterval(() => {
+          updateOtpResendUi();
+          if (otpResendSecondsLeft === 0) {
+            stopOtpResendCountdown();
+            otpResendUnlockAtMs = 0;
+          }
+        }, 1000);
+      }
+
+      function showOtpModal(message, resendAvailableIn = 60) {
         const modal = document.getElementById("otp-modal");
         const msg = document.getElementById("otp-message");
         const otpInput = document.getElementById("otp");
@@ -478,12 +619,107 @@
         otpInput.value = "";
         otpInput.classList.remove("input-error");
         document.getElementById("otp-error").classList.remove("show");
+        startOtpResendCountdown(resendAvailableIn);
         setTimeout(() => otpInput.focus(), 0);
       }
 
       function hideOtpModal() {
         const modal = document.getElementById("otp-modal");
         modal.hidden = true;
+        stopOtpResendCountdown();
+      }
+
+      function stopLoginLockoutCountdown() {
+        if (loginLockCountdownTimer) {
+          clearInterval(loginLockCountdownTimer);
+          loginLockCountdownTimer = null;
+        }
+      }
+
+      function updateLoginLockoutUi(secondsLeft) {
+        const lockout = document.getElementById("login-lockout");
+        const lockoutMsg = document.getElementById("login-lockout-message");
+        const lockoutTimer = document.getElementById("login-lockout-timer");
+        const submitBtn = document.getElementById("submit-btn");
+        if (!lockout || !lockoutMsg || !lockoutTimer || !submitBtn) return;
+
+        if (secondsLeft > 0) {
+          lockout.classList.add("show");
+          lockoutMsg.textContent =
+            "Too many incorrect OTP attempts. You are temporarily timed out. Try to sign in again after";
+          lockoutTimer.textContent = ` ${formatOtpCountdown(secondsLeft)}.`;
+          submitBtn.disabled = true;
+          return;
+        }
+
+        lockout.classList.remove("show");
+        lockoutMsg.textContent = "";
+        lockoutTimer.textContent = "";
+        submitBtn.disabled = false;
+      }
+
+      function startLoginLockoutCountdown(seconds) {
+        let secondsLeft = Math.max(0, Number(seconds) || 0);
+        stopLoginLockoutCountdown();
+        updateLoginLockoutUi(secondsLeft);
+
+        if (secondsLeft === 0) return;
+
+        loginLockCountdownTimer = setInterval(() => {
+          secondsLeft = Math.max(0, secondsLeft - 1);
+          updateLoginLockoutUi(secondsLeft);
+          if (secondsLeft === 0) {
+            stopLoginLockoutCountdown();
+          }
+        }, 1000);
+      }
+
+      async function resendLoginOtp() {
+        const resendLink = document.getElementById("otp-resend-link");
+        if (
+          resendLink.classList.contains("is-disabled") ||
+          resendLink.classList.contains("is-loading")
+        ) {
+          return;
+        }
+
+        resendLink.classList.add("is-loading");
+        try {
+          const res = await fetch("/resend-login-otp", {
+            method: "POST",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+          });
+          const data = await res.json();
+
+          if (data.success) {
+            startOtpResendCountdown(data.resend_available_in || 60);
+            const otpMsg = document.getElementById("otp-message");
+            otpMsg.textContent =
+              "An OTP has been sent to your email. Please check your inbox or spam folder and enter the code.";
+            showToast(data.message || "A new OTP has been sent.", "success");
+            return;
+          }
+
+          if (typeof data.retry_after === "number") {
+            if (res.status === 429 && data.code === "otp_locked") {
+              hideOtpModal();
+              startLoginLockoutCountdown(data.retry_after);
+              showToast(data.error || "You are temporarily timed out.", "error", 12000);
+              return;
+            }
+            startOtpResendCountdown(data.retry_after);
+          }
+
+          if (res.status === 400) {
+            hideOtpModal();
+          }
+
+          showToast(data.error || "Unable to resend OTP.", "error");
+        } catch (err) {
+          showToast("Something went wrong while resending OTP.", "error");
+        } finally {
+          resendLink.classList.remove("is-loading");
+        }
       }
 
       // ─── Password toggle ───
@@ -548,9 +784,16 @@
             if (data.otp_required) {
               showOtpModal(
                 data.message ||
-                  "An OTP has been sent to your email. Please check your inbox and enter it below."
+                  "An OTP has been sent to your email. Please check your inbox or spam folder and enter the code.",
+                data.resend_available_in || 60
               );
               showToast("OTP sent to your email.", "success");
+              return;
+            }
+
+            if (res.status === 429 && typeof data.retry_after === "number") {
+              startLoginLockoutCountdown(data.retry_after);
+              showToast(data.error || "You are temporarily timed out.", "error", 12000);
               return;
             }
 
@@ -569,6 +812,11 @@
       document.getElementById("otp-cancel-btn").addEventListener("click", () => {
         hideOtpModal();
         showToast("OTP verification cancelled. Please sign in again.", "error");
+      });
+
+      document.getElementById("otp-resend-link").addEventListener("click", (e) => {
+        e.preventDefault();
+        resendLoginOtp();
       });
 
       document.getElementById("otp-form").addEventListener("submit", async (e) => {
@@ -613,6 +861,15 @@
             return;
           }
 
+          if (res.status === 429) {
+            hideOtpModal();
+            if (typeof data.retry_after === "number") {
+              startLoginLockoutCountdown(data.retry_after);
+            }
+            showToast(data.error || "Too many OTP attempts. Please sign in again later.", "error", 12000);
+            return;
+          }
+
           otpError.querySelector("span").textContent = data.error || "Invalid OTP.";
           otpError.classList.add("show");
           otpInput.classList.add("input-error");
@@ -629,6 +886,8 @@
           hideOtpModal();
         }
       });
+
+      startLoginLockoutCountdown(Number(document.getElementById("login-lockout").dataset.seconds || 0));
     </script>
   </body>
 </html>

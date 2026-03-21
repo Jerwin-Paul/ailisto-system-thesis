@@ -2,6 +2,7 @@ import os
 import io
 import json
 import logging
+import re
 import time
 import requests
 from functools import wraps
@@ -22,8 +23,10 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(32).hex())
 
 ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-LOGIN_OTP_TTL_SECONDS = int(os.environ.get("LOGIN_OTP_TTL_SECONDS", "3600"))
+LOGIN_OTP_TTL_SECONDS = int(os.environ.get("LOGIN_OTP_TTL_SECONDS", "300"))
 LOGIN_OTP_MAX_ATTEMPTS = int(os.environ.get("LOGIN_OTP_MAX_ATTEMPTS", "5"))
+LOGIN_OTP_RESEND_COOLDOWN_SECONDS = int(os.environ.get("LOGIN_OTP_RESEND_COOLDOWN_SECONDS", "60"))
+LOGIN_OTP_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_OTP_LOCKOUT_SECONDS", "300"))
 LOGIN_OTP_ENABLED = os.environ.get("LOGIN_OTP_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 # Bootstrap tables on startup
@@ -179,6 +182,51 @@ def _verify_login_otp_email(email: str, otp: str) -> tuple[bool, str | None]:
         return False, "Could not verify OTP code."
 
 
+def _format_wait_time(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    minutes, sec = divmod(seconds, 60)
+    if minutes and sec:
+        return f"{minutes} minute(s) and {sec} second(s)"
+    if minutes:
+        return f"{minutes} minute(s)"
+    return f"{sec} second(s)"
+
+
+def _extract_retry_after_seconds(message: str) -> int | None:
+    text = str(message or "")
+    match = re.search(r"after\s+(\d+)\s+second", text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        value = int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return max(0, value)
+
+
+def _login_lockout_context() -> dict:
+    now_ts = int(time.time())
+    lock_state = session.get("login_otp_lock") or {}
+    lock_until = int(lock_state.get("until", 0) or 0)
+    if lock_until <= now_ts:
+        if lock_until:
+            session.pop("login_otp_lock", None)
+        return {"lockout_message": "", "lockout_seconds": 0}
+
+    wait_for = lock_until - now_ts
+    msg = (
+        "Too many incorrect OTP attempts. "
+        f"You are temporarily timed out. Please try to sign in again after {_format_wait_time(wait_for)}."
+    )
+    return {"lockout_message": msg, "lockout_seconds": wait_for}
+
+
+def _render_login_page(**extra_context):
+    context = _login_lockout_context()
+    context.update(extra_context)
+    return render_template("login.html", **context)
+
+
 # ─── Auth Pages ──────────────────────────────────────────────────────
 
 def create_supabase_auth_user(email: str, password: str):
@@ -307,13 +355,13 @@ def login():
             if is_ajax:
                 return jsonify({"error": "Email is required.", "field": "email"}), 400
             flash("Email is required.", "error")
-            return render_template("login.html")
+            return _render_login_page()
 
         if not password:
             if is_ajax:
                 return jsonify({"error": "Password is required.", "field": "password"}), 400
             flash("Password is required.", "error")
-            return render_template("login.html")
+            return _render_login_page()
 
         user = db.get_user_by_email(email)
         if user and db.verify_password(password, user["password"]):
@@ -323,14 +371,36 @@ def login():
                 if is_ajax:
                     return jsonify({"error": msg, "code": "pending_approval"}), 403
                 flash(msg, "error")
-                return render_template("login.html")
+                return _render_login_page()
 
             if approval_status == "rejected":
                 msg = "Your account request was rejected by the admin."
                 if is_ajax:
                     return jsonify({"error": msg, "code": "account_rejected"}), 403
                 flash(msg, "error")
-                return render_template("login.html")
+                return _render_login_page()
+
+            now_ts = int(time.time())
+
+            if LOGIN_OTP_ENABLED:
+                # Lock is scoped to the email currently trying to sign in on this browser session.
+                lock_state = session.get("login_otp_lock") or {}
+                lock_email = str(lock_state.get("email", "")).strip().lower()
+                lock_until = int(lock_state.get("until", 0) or 0)
+                user_email = str(user.get("email", "")).strip().lower()
+                if lock_email == user_email and lock_until > now_ts:
+                    wait_for = lock_until - now_ts
+                    msg = (
+                        "Too many incorrect OTP attempts. "
+                        f"You are temporarily timed out. Please try to sign in again after {_format_wait_time(wait_for)}."
+                    )
+                    if is_ajax:
+                        return jsonify({"error": msg, "retry_after": wait_for, "code": "otp_locked"}), 429
+                    flash(msg, "error")
+                    return _render_login_page()
+
+                if lock_email == user_email and lock_until <= now_ts:
+                    session.pop("login_otp_lock", None)
 
             if not LOGIN_OTP_ENABLED:
                 session.pop("pending_login", None)
@@ -339,12 +409,13 @@ def login():
                     return jsonify({"success": True, "redirect": url_for("home")})
                 return redirect(url_for("home"))
 
-            now_ts = int(time.time())
             session["pending_login"] = {
                 "user_id": user["id"],
                 "email": user.get("email", ""),
                 "otp_sent_at": now_ts,
                 "attempts": 0,
+                "resend_window_seconds": LOGIN_OTP_RESEND_COOLDOWN_SECONDS,
+                "resend_not_before": now_ts + LOGIN_OTP_RESEND_COOLDOWN_SECONDS,
             }
 
             sent, send_error = _send_login_otp_email(to_email=user.get("email", ""))
@@ -353,24 +424,38 @@ def login():
                 if is_ajax:
                     return jsonify({"error": send_error or "Unable to send OTP email. Please try again."}), 503
                 flash(send_error or "Unable to send OTP email. Please try again.", "error")
-                return render_template("login.html")
+                return _render_login_page()
+
+            # Use the post-send timestamp so cooldown starts when OTP dispatch completes.
+            otp_sent_at = int(time.time())
+            pending_login = session.get("pending_login") or {}
+            pending_login["otp_sent_at"] = otp_sent_at
+            resend_window_seconds = int(
+                pending_login.get("resend_window_seconds", LOGIN_OTP_RESEND_COOLDOWN_SECONDS) or 0
+            )
+            resend_window_seconds = max(LOGIN_OTP_RESEND_COOLDOWN_SECONDS, resend_window_seconds)
+            pending_login["resend_window_seconds"] = resend_window_seconds
+            pending_login["resend_not_before"] = otp_sent_at + resend_window_seconds
+            session["pending_login"] = pending_login
 
             if is_ajax:
                 return jsonify(
                     {
                         "otp_required": True,
-                        "message": "An OTP has been sent to your email. Please check your inbox.",
+                        "message": "An OTP has been sent to your email. Please check your inbox or spam folder and enter the code.",
+                        "otp_expires_in": LOGIN_OTP_TTL_SECONDS,
+                        "resend_available_in": resend_window_seconds,
                     }
                 )
-            flash("An OTP has been sent to your email. Please check your inbox.", "success")
-            return render_template("login.html")
+            flash("An OTP has been sent to your email. Please check your inbox or spam folder and enter the code.", "success")
+            return _render_login_page()
 
         session.pop("pending_login", None)
         if is_ajax:
             return jsonify({"error": "Invalid email or password."}), 401
         flash("Invalid email or password.", "error")
 
-    return render_template("login.html")
+    return _render_login_page()
 
 
 @app.route("/verify-login-otp", methods=["POST"])
@@ -382,13 +467,13 @@ def verify_login_otp():
         if is_ajax:
             return jsonify({"error": "OTP is required.", "field": "otp"}), 400
         flash("OTP is required.", "error")
-        return render_template("login.html")
+        return _render_login_page()
 
     if not otp.isdigit() or len(otp) < 6 or len(otp) > 12:
         if is_ajax:
             return jsonify({"error": "OTP must be a numeric code with 6 to 12 digits.", "field": "otp"}), 400
         flash("OTP must be a numeric code with 6 to 12 digits.", "error")
-        return render_template("login.html")
+        return _render_login_page()
 
     pending_login = session.get("pending_login") or {}
     if not pending_login:
@@ -396,10 +481,29 @@ def verify_login_otp():
         if is_ajax:
             return jsonify({"error": msg}), 400
         flash(msg, "error")
-        return render_template("login.html")
+        return _render_login_page()
 
     now_ts = int(time.time())
     otp_sent_at = int(pending_login.get("otp_sent_at", 0))
+    pending_email = str(pending_login.get("email", "")).strip().lower()
+
+    lock_state = session.get("login_otp_lock") or {}
+    lock_email = str(lock_state.get("email", "")).strip().lower()
+    lock_until = int(lock_state.get("until", 0) or 0)
+    if lock_email == pending_email and lock_until > now_ts:
+        wait_for = lock_until - now_ts
+        msg = (
+            "Too many incorrect OTP attempts. "
+            f"You are temporarily timed out. Please try to sign in again after {_format_wait_time(wait_for)}."
+        )
+        session.pop("pending_login", None)
+        if is_ajax:
+            return jsonify({"error": msg, "retry_after": wait_for, "code": "otp_locked"}), 429
+        flash(msg, "error")
+        return _render_login_page()
+
+    if lock_email == pending_email and lock_until <= now_ts:
+        session.pop("login_otp_lock", None)
 
     # OTP is valid only within the configured time window.
     if now_ts - otp_sent_at > LOGIN_OTP_TTL_SECONDS:
@@ -408,16 +512,22 @@ def verify_login_otp():
         if is_ajax:
             return jsonify({"error": msg, "field": "otp"}), 400
         flash(msg, "error")
-        return render_template("login.html")
+        return _render_login_page()
 
     attempts = int(pending_login.get("attempts", 0))
     if attempts >= LOGIN_OTP_MAX_ATTEMPTS:
+        lock_until = now_ts + LOGIN_OTP_LOCKOUT_SECONDS
+        session["login_otp_lock"] = {"email": pending_email, "until": lock_until}
         session.pop("pending_login", None)
-        msg = "Too many incorrect OTP attempts. Please sign in again."
+        wait_for = lock_until - now_ts
+        msg = (
+            "Too many incorrect OTP attempts. "
+            f"You are temporarily timed out. Please try to sign in again after {_format_wait_time(wait_for)}."
+        )
         if is_ajax:
-            return jsonify({"error": msg}), 429
+            return jsonify({"error": msg, "retry_after": wait_for, "code": "otp_locked"}), 429
         flash(msg, "error")
-        return render_template("login.html")
+        return _render_login_page()
 
     verify_ok, verify_error = _verify_login_otp_email(
         email=str(pending_login.get("email", "")),
@@ -426,6 +536,21 @@ def verify_login_otp():
     if not verify_ok:
         pending_login["attempts"] = attempts + 1
         session["pending_login"] = pending_login
+
+        if pending_login["attempts"] >= LOGIN_OTP_MAX_ATTEMPTS:
+            lock_until = now_ts + LOGIN_OTP_LOCKOUT_SECONDS
+            session["login_otp_lock"] = {"email": pending_email, "until": lock_until}
+            session.pop("pending_login", None)
+            wait_for = lock_until - now_ts
+            msg = (
+                "Too many incorrect OTP attempts. "
+                f"You are temporarily timed out. Please try to sign in again after {_format_wait_time(wait_for)}."
+            )
+            if is_ajax:
+                return jsonify({"error": msg, "retry_after": wait_for, "code": "otp_locked"}), 429
+            flash(msg, "error")
+            return _render_login_page()
+
         remaining = max(0, LOGIN_OTP_MAX_ATTEMPTS - pending_login["attempts"])
         msg = verify_error or "Invalid OTP code."
         if remaining:
@@ -433,7 +558,7 @@ def verify_login_otp():
         if is_ajax:
             return jsonify({"error": msg, "field": "otp"}), 401
         flash(msg, "error")
-        return render_template("login.html")
+        return _render_login_page()
 
     user_id = pending_login.get("user_id")
     user = db.get_user_by_id(user_id) if user_id else None
@@ -443,13 +568,108 @@ def verify_login_otp():
         if is_ajax:
             return jsonify({"error": msg}), 403
         flash(msg, "error")
-        return render_template("login.html")
+        return _render_login_page()
 
     session.pop("pending_login", None)
     session["user_id"] = user["id"]
     if is_ajax:
         return jsonify({"success": True, "redirect": url_for("home")})
     return redirect(url_for("home"))
+
+
+@app.route("/resend-login-otp", methods=["POST"])
+def resend_login_otp():
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    pending_login = session.get("pending_login") or {}
+    if not pending_login:
+        msg = "Your sign-in session has expired. Please sign in again."
+        if is_ajax:
+            return jsonify({"error": msg}), 400
+        flash(msg, "error")
+        return _render_login_page()
+
+    now_ts = int(time.time())
+    pending_email = str(pending_login.get("email", "")).strip().lower()
+    otp_sent_at = int(pending_login.get("otp_sent_at", 0) or 0)
+    resend_window_seconds = int(
+        pending_login.get("resend_window_seconds", LOGIN_OTP_RESEND_COOLDOWN_SECONDS) or 0
+    )
+    resend_window_seconds = max(LOGIN_OTP_RESEND_COOLDOWN_SECONDS, resend_window_seconds)
+    resend_not_before = int(
+        pending_login.get("resend_not_before", otp_sent_at + resend_window_seconds) or 0
+    )
+
+    lock_state = session.get("login_otp_lock") or {}
+    lock_email = str(lock_state.get("email", "")).strip().lower()
+    lock_until = int(lock_state.get("until", 0) or 0)
+    if lock_email == pending_email and lock_until > now_ts:
+        wait_for = lock_until - now_ts
+        msg = (
+            "Too many incorrect OTP attempts. "
+            f"You are temporarily timed out. Please try to sign in again after {_format_wait_time(wait_for)}."
+        )
+        session.pop("pending_login", None)
+        if is_ajax:
+            return jsonify({"error": msg, "retry_after": wait_for, "code": "otp_locked"}), 429
+        flash(msg, "error")
+        return _render_login_page()
+
+    if now_ts - otp_sent_at > LOGIN_OTP_TTL_SECONDS:
+        session.pop("pending_login", None)
+        msg = "OTP has expired. Please sign in again to get a new OTP."
+        if is_ajax:
+            return jsonify({"error": msg}), 400
+        flash(msg, "error")
+        return _render_login_page()
+
+    if now_ts < resend_not_before:
+        retry_after = resend_not_before - now_ts
+        msg = f"Please wait {_format_wait_time(retry_after)} before requesting another OTP."
+        if is_ajax:
+            return jsonify({"error": msg, "retry_after": retry_after, "code": "resend_cooldown"}), 429
+        flash(msg, "error")
+        return _render_login_page()
+
+    sent, send_error = _send_login_otp_email(to_email=str(pending_login.get("email", "")))
+    if not sent:
+        provider_retry_after = _extract_retry_after_seconds(send_error or "")
+        if is_ajax and provider_retry_after is not None:
+            elapsed_since_last_send = max(0, now_ts - otp_sent_at)
+            learned_window = max(
+                resend_window_seconds,
+                elapsed_since_last_send + provider_retry_after,
+            )
+            pending_login["resend_window_seconds"] = learned_window
+            pending_login["resend_not_before"] = now_ts + provider_retry_after
+            session["pending_login"] = pending_login
+            return jsonify(
+                {
+                    "error": send_error or "Please wait before requesting another OTP.",
+                    "retry_after": provider_retry_after,
+                    "code": "resend_cooldown",
+                }
+            ), 429
+        if is_ajax:
+            return jsonify({"error": send_error or "Unable to send OTP email. Please try again."}), 503
+        flash(send_error or "Unable to send OTP email. Please try again.", "error")
+        return _render_login_page()
+
+    sent_at = int(time.time())
+    pending_login["otp_sent_at"] = sent_at
+    pending_login["resend_window_seconds"] = resend_window_seconds
+    pending_login["resend_not_before"] = sent_at + resend_window_seconds
+    session["pending_login"] = pending_login
+    msg = "A new OTP has been sent to your email."
+    if is_ajax:
+        return jsonify(
+            {
+                "success": True,
+                "message": msg,
+                "resend_available_in": resend_window_seconds,
+            }
+        )
+    flash(msg, "success")
+    return _render_login_page()
 
 
 @app.route("/register", methods=["GET", "POST"])
