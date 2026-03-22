@@ -40,24 +40,37 @@ def _password_policy_unmet(password: str) -> list[str]:
     unmet = []
     symbol_pattern = f"[{re.escape(PASSWORD_REQUIRED_SYMBOLS)}]"
     if len(password) < 8:
-        unmet.append("at least 8 characters")
+        unmet.append("8 characters")
     if not re.search(r"[A-Z]", password):
-        unmet.append("at least one uppercase letter")
+        unmet.append("uppercase letter")
     if not re.search(r"[a-z]", password):
-        unmet.append("at least one lowercase letter")
+        unmet.append("lowercase letter")
     if not re.search(r"\d", password):
-        unmet.append("at least one number")
+        unmet.append("number")
     if not re.search(symbol_pattern, password):
-        unmet.append(f"at least one symbol ({PASSWORD_REQUIRED_SYMBOLS})")
+        unmet.append(f"symbol ({PASSWORD_REQUIRED_SYMBOLS})")
     return unmet
 
 
 def _password_policy_message(unmet: list[str]) -> str:
     if not unmet:
         return ""
-    if len(unmet) == 1:
-        return f"Password must include {unmet[0]}."
-    return "Password must include " + ", ".join(unmet[:-1]) + f", and {unmet[-1]}."
+    length_missing = "8 characters" in unmet
+    other_reqs = [item for item in unmet if item != "8 characters"]
+
+    parts = []
+    if length_missing:
+        parts.append("at least 8 characters")
+
+    if other_reqs:
+        if len(other_reqs) == 1:
+            parts.append(f"at least one {other_reqs[0]}")
+        else:
+            parts.append("at least one " + ", ".join(other_reqs[:-1]) + f", and {other_reqs[-1]}")
+
+    if len(parts) == 1:
+        return f"Password must include {parts[0]}."
+    return f"Password must include {parts[0]} and {parts[1]}."
 
 def login_required(f):
     """Redirect to /login if no user session."""
