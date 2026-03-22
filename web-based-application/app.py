@@ -832,7 +832,15 @@ def reset_password():
                 return jsonify({"error": "No account found for this email."}), 404
             return render_template("reset-password.html")
 
+        if db.verify_password(new_password, user["password"]):
+            if is_ajax:
+                return jsonify({"error": "New password must be different from your current password.", "field": "password"}), 400
+            return render_template("reset-password.html")
+
         db.update_user_password(user["id"], new_password)
+
+        # Invalidate any existing authenticated browser session immediately.
+        session.clear()
 
         if is_ajax:
             return jsonify({"success": True, "redirect": url_for("login")})

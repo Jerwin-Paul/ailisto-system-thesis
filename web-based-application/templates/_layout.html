@@ -261,6 +261,14 @@
 
     {% block scripts %}{% endblock %}
 
+    <script>
+      window.addEventListener("storage", (event) => {
+        if (event.key === "ailisto_force_logout" && event.newValue) {
+          window.location.href = "/login";
+        }
+      });
+    </script>
+
     <!-- SPA-like navigation -->
     <script data-spa-router>
       if (!window.__spaRouterInit) {
