@@ -511,13 +511,31 @@
         { label: "Very strong", color: "#16a34a" },
       ];
       function calcStrength(pwd) {
-        if (pwd.length < 6) return 0;
+        if (pwd.length < 8) return 0;
         let score = 1;
         if (pwd.length >= 10) score++;
         if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) score++;
         if (/\d/.test(pwd)) score++;
-        if (/[^A-Za-z0-9]/.test(pwd)) score++;
+        if (/[!@#$%^&*]/.test(pwd)) score++;
         return Math.min(score, 4);
+      }
+
+      function getPasswordPolicyUnmet(pwd) {
+        const unmet = [];
+        if (pwd.length < 8) unmet.push("at least 8 characters");
+        if (!/[A-Z]/.test(pwd)) unmet.push("at least one uppercase letter");
+        if (!/[a-z]/.test(pwd)) unmet.push("at least one lowercase letter");
+        if (!/\d/.test(pwd)) unmet.push("at least one number");
+        if (!/[!@#$%^&*]/.test(pwd)) {
+          unmet.push("at least one symbol (!@#$%^&*)");
+        }
+        return unmet;
+      }
+
+      function formatPasswordPolicyMessage(unmet) {
+        if (!unmet.length) return "";
+        if (unmet.length === 1) return `Password must include ${unmet[0]}.`;
+        return `Password must include ${unmet.slice(0, -1).join(", ")}, and ${unmet[unmet.length - 1]}.`;
       }
       const bars = [1, 2, 3, 4].map((i) => document.getElementById("bar" + i));
       document
@@ -607,12 +625,12 @@
           if (!password) {
             showFieldError("password", "Password is required.");
             hasErr = true;
-          } else if (password.length < 6) {
-            showFieldError(
-              "password",
-              "Password must be at least 6 characters.",
-            );
-            hasErr = true;
+          } else {
+            const unmet = getPasswordPolicyUnmet(password);
+            if (unmet.length) {
+              showFieldError("password", formatPasswordPolicyMessage(unmet));
+              hasErr = true;
+            }
           }
           if (password && password !== confirm) {
             showFieldError("confirmPassword", "Passwords do not match.");

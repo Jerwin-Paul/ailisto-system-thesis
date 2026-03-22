@@ -28,12 +28,36 @@ LOGIN_OTP_MAX_ATTEMPTS = int(os.environ.get("LOGIN_OTP_MAX_ATTEMPTS", "5"))
 LOGIN_OTP_RESEND_COOLDOWN_SECONDS = int(os.environ.get("LOGIN_OTP_RESEND_COOLDOWN_SECONDS", "60"))
 LOGIN_OTP_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_OTP_LOCKOUT_SECONDS", "300"))
 LOGIN_OTP_ENABLED = os.environ.get("LOGIN_OTP_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+PASSWORD_REQUIRED_SYMBOLS = "!@#$%^&*"
 
 # Bootstrap tables on startup
 db.init_db()
 
 
 # ─── Auth Helpers ─────────────────────────────────────────────────────
+
+def _password_policy_unmet(password: str) -> list[str]:
+    unmet = []
+    symbol_pattern = f"[{re.escape(PASSWORD_REQUIRED_SYMBOLS)}]"
+    if len(password) < 8:
+        unmet.append("at least 8 characters")
+    if not re.search(r"[A-Z]", password):
+        unmet.append("at least one uppercase letter")
+    if not re.search(r"[a-z]", password):
+        unmet.append("at least one lowercase letter")
+    if not re.search(r"\d", password):
+        unmet.append("at least one number")
+    if not re.search(symbol_pattern, password):
+        unmet.append(f"at least one symbol ({PASSWORD_REQUIRED_SYMBOLS})")
+    return unmet
+
+
+def _password_policy_message(unmet: list[str]) -> str:
+    if not unmet:
+        return ""
+    if len(unmet) == 1:
+        return f"Password must include {unmet[0]}."
+    return "Password must include " + ", ".join(unmet[:-1]) + f", and {unmet[-1]}."
 
 def login_required(f):
     """Redirect to /login if no user session."""
@@ -694,8 +718,10 @@ def register():
             errors["email"] = "Please enter a valid email address."
         if not password:
             errors["password"] = "Password is required."
-        elif len(password) < 6:
-            errors["password"] = "Password must be at least 6 characters."
+        else:
+            unmet = _password_policy_unmet(password)
+            if unmet:
+                errors["password"] = _password_policy_message(unmet)
         if password and password != confirm:
             errors["confirmPassword"] = "Passwords do not match."
 
@@ -816,9 +842,10 @@ def reset_password():
                 return jsonify({"error": "Password is required.", "field": "password"}), 400
             return render_template("reset-password.html")
 
-        if len(new_password) < 6:
+        unmet = _password_policy_unmet(new_password)
+        if unmet:
             if is_ajax:
-                return jsonify({"error": "Password must be at least 6 characters.", "field": "password"}), 400
+                return jsonify({"error": _password_policy_message(unmet), "field": "password"}), 400
             return render_template("reset-password.html")
 
         if new_password != confirm:
