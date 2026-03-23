@@ -29,7 +29,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </div>
           <div>
-            <p class="stat-label">Avg. Attention</p>
+            <p class="stat-label">Total Avg. Attention</p>
             <h3 class="stat-value">{{ stats.avg_attention }}%</h3>
           </div>
         </div>
@@ -102,11 +102,38 @@
   <div class="grid-2-1">
     <!-- Chart Section -->
     <div class="card">
-      <div class="card-header">
+      <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
         <h3 class="card-title">Weekly Attention Trends</h3>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <button 
+            type="button" 
+            class="btn btn-ghost btn-sm" 
+            id="prev-week-btn"
+            onclick="previousWeek()"
+            style="padding: 0.5rem 0.75rem;"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          </button>
+          <span id="week-date-range" style="font-size: 0.875rem; color: var(--text-600); min-width: 140px; text-align: center; white-space: nowrap;">Loading...</span>
+          <button 
+            type="button" 
+            class="btn btn-ghost btn-sm" 
+            id="next-week-btn"
+            onclick="nextWeek()"
+            style="padding: 0.5rem 0.75rem;"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+        </div>
       </div>
       <div class="card-content">
         <div style="height: 300px; position: relative;">
+          <div
+            id="weekly-loading-overlay"
+            style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; background: rgba(255,255,255,0.75); z-index:5;"
+          >
+            <div class="page-loading-spinner" style="width:32px; height:32px;"></div>
+          </div>
           <canvas id="weeklyChart"></canvas>
         </div>
       </div>
@@ -116,7 +143,7 @@
     <div class="card" style="height: 100%;">
       <div class="card-header" style="display:flex; align-items:center; justify-content:space-between;">
         <h3 class="card-title">Recent Sessions</h3>
-        <a href="/history" class="btn btn-ghost btn-sm" style="color: var(--primary); padding:0;">
+        <a href="/history" data-spa class="btn btn-ghost btn-sm" style="color: var(--primary); padding:0;">
           View All
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </a>
@@ -155,64 +182,178 @@
 
 {% block scripts %}
 <script>
-  // Weekly Attention Trends area chart
-  const ctx = document.getElementById('weeklyChart').getContext('2d');
-  const weeklyAttention = {{ stats.weekly_attention | tojson }};
-  const weeklyLabels = weeklyAttention.map(item => item.label);
-  const weeklyValues = weeklyAttention.map(item => item.value);
-  const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-  gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
-  gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+  (() => {
+    const chartCanvas = document.getElementById('weeklyChart');
+    const dateRangeEl = document.getElementById('week-date-range');
+    const prevBtn = document.getElementById('prev-week-btn');
+    const nextBtn = document.getElementById('next-week-btn');
+    if (!chartCanvas || !dateRangeEl || !prevBtn || !nextBtn) return;
 
-  new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: weeklyLabels,
-      datasets: [{
-        label: 'Attention %',
-        data: weeklyValues,
-        borderColor: '#3b82f6',
-        borderWidth: 3,
-        backgroundColor: gradient,
-        fill: true,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 6,
-        pointHoverBackgroundColor: '#3b82f6',
-        pointHoverBorderColor: '#fff',
-        pointHoverBorderWidth: 2,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#fff',
-          titleColor: '#0f172a',
-          bodyColor: '#64748b',
-          borderColor: '#e2e8f0',
-          borderWidth: 1,
-          cornerRadius: 12,
-          padding: 12,
-          boxPadding: 4,
-          displayColors: false,
-        }
-      },
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { color: '#64748b', padding: 10 },
-          border: { display: false }
-        },
-        y: {
-          grid: { color: '#e2e8f0', drawBorder: false },
-          ticks: { color: '#64748b' },
-          border: { display: false }
-        }
+    let currentWeekDate = new Date();
+    let weeklyChart = null;
+    let isWeeklyLoading = false;
+    const WEEKLY_STATE_KEY = 'ailisto_weekly_trends_state';
+
+    function setWeeklyLoading(loading) {
+      isWeeklyLoading = loading;
+
+      const overlay = document.getElementById('weekly-loading-overlay');
+      if (!overlay) return;
+
+      overlay.style.display = loading ? 'flex' : 'none';
+      prevBtn.disabled = loading;
+      nextBtn.disabled = loading;
+    }
+
+    function formatDateRange(startDate, endDate) {
+      const options = { month: 'short', day: 'numeric' };
+      const start = startDate.toLocaleDateString('en-US', options);
+      const end = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      return `${start} - ${end}`;
+    }
+
+    function saveWeeklyState(data) {
+      try {
+        sessionStorage.setItem(WEEKLY_STATE_KEY, JSON.stringify(data));
+      } catch (error) {
+        // Ignore storage failures; chart still works without persistence.
       }
     }
-  });
+
+    function loadSavedWeeklyState() {
+      try {
+        const raw = sessionStorage.getItem(WEEKLY_STATE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.weekly_attention)) return null;
+        return parsed;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function updateWeeklyChart(weeklyAttention) {
+      const ctx = chartCanvas.getContext('2d');
+      const weeklyLabels = weeklyAttention.map((item) => item.label);
+      const weeklyValues = weeklyAttention.map((item) => item.value);
+      const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+      gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+      gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+
+      if (weeklyChart) {
+        weeklyChart.destroy();
+      }
+
+      weeklyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: weeklyLabels,
+          datasets: [{
+            label: 'Attention %',
+            data: weeklyValues,
+            borderColor: '#3b82f6',
+            borderWidth: 3,
+            backgroundColor: gradient,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: '#3b82f6',
+            pointHoverBorderColor: '#fff',
+            pointHoverBorderWidth: 2,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#fff',
+              titleColor: '#0f172a',
+              bodyColor: '#64748b',
+              borderColor: '#e2e8f0',
+              borderWidth: 1,
+              cornerRadius: 12,
+              padding: 12,
+              boxPadding: 4,
+              displayColors: false,
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#64748b', padding: 10 },
+              border: { display: false },
+            },
+            y: {
+              grid: { color: '#e2e8f0', drawBorder: false },
+              ticks: { color: '#64748b' },
+              border: { display: false },
+            },
+          },
+        },
+      });
+    }
+
+    async function loadWeeklyData(date) {
+      if (isWeeklyLoading) return;
+      const dateStr = date.toISOString().split('T')[0];
+      setWeeklyLoading(true);
+
+      try {
+        const response = await fetch(`/api/weekly-attention?date=${dateStr}`);
+        if (!response.ok) throw new Error('Failed to fetch weekly data');
+        const data = await response.json();
+
+        const weekStart = new Date(data.week_start);
+        const weekEnd = new Date(data.week_end);
+        dateRangeEl.textContent = formatDateRange(weekStart, weekEnd);
+        updateWeeklyChart(data.weekly_attention);
+
+        saveWeeklyState({
+          week_start: data.week_start,
+          week_end: data.week_end,
+          weekly_attention: data.weekly_attention,
+        });
+
+        currentWeekDate = weekStart;
+
+        const today = new Date();
+        const nextMonday = new Date(today);
+        nextMonday.setDate(today.getDate() + (8 - today.getDay()) % 7);
+        nextBtn.disabled = weekEnd >= nextMonday;
+      } catch (error) {
+        console.error('Error loading weekly data:', error);
+        dateRangeEl.textContent = 'Error loading data';
+      } finally {
+        setWeeklyLoading(false);
+      }
+    }
+
+    window.previousWeek = function previousWeek() {
+      const newDate = new Date(currentWeekDate);
+      newDate.setDate(newDate.getDate() - 7);
+      loadWeeklyData(newDate);
+    };
+
+    window.nextWeek = function nextWeek() {
+      const newDate = new Date(currentWeekDate);
+      newDate.setDate(newDate.getDate() + 7);
+      loadWeeklyData(newDate);
+    };
+
+    const savedState = loadSavedWeeklyState();
+    if (savedState && savedState.week_start && savedState.week_end) {
+      const savedWeekStart = new Date(savedState.week_start);
+      const savedWeekEnd = new Date(savedState.week_end);
+      currentWeekDate = savedWeekStart;
+      dateRangeEl.textContent = formatDateRange(savedWeekStart, savedWeekEnd);
+      updateWeeklyChart(savedState.weekly_attention);
+    }
+
+    // Always refresh from API to keep data up-to-date.
+    loadWeeklyData(savedState?.week_start ? new Date(savedState.week_start) : new Date());
+  })();
 </script>
 {% endblock %}

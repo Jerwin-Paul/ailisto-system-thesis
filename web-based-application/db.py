@@ -10,7 +10,7 @@ import json
 import hashlib
 import secrets
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -430,6 +430,42 @@ def get_sessions(teacher_id: int) -> list[dict]:
         return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
 
 
+def get_sessions_paginated(teacher_id: int, page: int = 1, per_page: int = 25) -> tuple[list[dict], int]:
+    """Get paginated sessions for a teacher.
+    
+    Args:
+        teacher_id: The teacher's user ID
+        page: Page number (1-indexed)
+        per_page: Number of sessions per page
+    
+    Returns:
+        Tuple of (sessions_list, total_count)
+    """
+    offset = (page - 1) * per_page
+    with get_cursor(commit=False) as cur:
+        # Get total count
+        cur.execute("""
+            SELECT COUNT(*) as total
+            FROM sessions s
+            JOIN subjects sub ON s.subject_id = sub.id
+            WHERE sub.teacher_id = %s
+        """, (teacher_id,))
+        total_count = cur.fetchone()["total"]
+        
+        # Get paginated results
+        cur.execute("""
+            SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+            FROM sessions s
+            JOIN subjects sub ON s.subject_id = sub.id
+            WHERE sub.teacher_id = %s
+            ORDER BY s.start_time DESC
+            LIMIT %s OFFSET %s
+        """, (teacher_id, per_page, offset))
+        sessions = [_normalize_session_times(dict(r)) for r in cur.fetchall()]
+    
+    return sessions, total_count
+
+
 def get_subject_for_teacher(subject_id: int, teacher_id: int) -> dict | None:
     with get_cursor(commit=False) as cur:
         cur.execute(
@@ -555,12 +591,66 @@ def get_dashboard_stats(teacher_id: int) -> dict:
             for row in class_rows
         ]
 
-        # Last 7 days trend for chart data.
+        return {
+            "total_sessions": total_sessions,
+            "avg_attention": avg_attention,
+            "recent": recent,
+            "class_attention": class_attention,
+            # Weekly data is now loaded lazily via /api/weekly-attention.
+            "weekly_attention": [],
+        }
+
+
+def get_history_summary_stats(teacher_id: int) -> dict:
+    """Lightweight summary stats for history page cards."""
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT
+                COUNT(s.id) AS total_sessions,
+                AVG(
+                    CASE
+                        WHEN s.summary_stats IS NOT NULL
+                         AND s.summary_stats->>'avgAttention' IS NOT NULL
+                        THEN (s.summary_stats->>'avgAttention')::float
+                        ELSE NULL
+                    END
+                ) AS avg_attention
+            FROM subjects sub
+            LEFT JOIN sessions s ON s.subject_id = sub.id
+            WHERE sub.teacher_id = %s
+            """,
+            (teacher_id,),
+        )
+        row = cur.fetchone() or {}
+        return {
+            "total_sessions": int(row.get("total_sessions") or 0),
+            "avg_attention": round(row.get("avg_attention")) if row.get("avg_attention") is not None else 0,
+        }
+
+
+def get_weekly_attention(teacher_id: int, week_start_date: datetime) -> dict:
+    """Get attention data for a specific week (7 days starting from week_start_date).
+    
+    Args:
+        teacher_id: The teacher's user ID
+        week_start_date: The start date of the week (should be a Monday or any day in the week)
+    
+    Returns:
+        Dictionary with 'dates' and 'week_range' keys
+    """
+    # Normalize to start of week (Monday) and end on Saturday.
+    week_start = week_start_date.date()
+    days_since_monday = week_start.weekday()  # Monday=0 ... Sunday=6
+    week_start = week_start - timedelta(days=days_since_monday)
+    week_end = week_start + timedelta(days=5)
+    
+    with get_cursor(commit=False) as cur:
         cur.execute("""
             WITH days AS (
                 SELECT generate_series(
-                    CURRENT_DATE - INTERVAL '6 day',
-                    CURRENT_DATE,
+                    %s::date,
+                    %s::date,
                     INTERVAL '1 day'
                 )::date AS day
             )
@@ -580,20 +670,20 @@ def get_dashboard_stats(teacher_id: int) -> dict:
             LEFT JOIN subjects sub ON s.subject_id = sub.id AND sub.teacher_id = %s
             GROUP BY d.day
             ORDER BY d.day ASC
-        """, (teacher_id,))
+        """, (week_start, week_end, teacher_id))
+        
         weekly_rows = cur.fetchall()
         weekly_attention = [
             {
                 "label": row["day"].strftime("%a"),
                 "value": round(row["avg_attention"]) if row["avg_attention"] is not None else None,
+                "date": row["day"].isoformat(),
             }
             for row in weekly_rows
         ]
-
+        
         return {
-            "total_sessions": total_sessions,
-            "avg_attention": avg_attention,
-            "recent": recent,
-            "class_attention": class_attention,
             "weekly_attention": weekly_attention,
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
         }

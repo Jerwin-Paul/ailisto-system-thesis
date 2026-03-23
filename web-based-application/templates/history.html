@@ -189,6 +189,17 @@
           {% endfor %}
         </tbody>
       </table>
+      <div id="load-more-container" style="display: none; margin-top: 1.5rem; text-align: center;">
+        <button 
+          type="button" 
+          id="load-more-btn" 
+          class="btn btn-outline"
+          onclick="loadMoreSessions()"
+          style="min-width: 200px;"
+        >
+          Load More Sessions
+        </button>
+      </div>
       {% else %}
       <div class="empty-state">
         <svg
@@ -280,6 +291,100 @@
   if (subjectFilter) {
     updateSectionOptions(subjectFilter.value);
   }
+
+  // Load More Sessions functionality
+  let currentPage = 1;
+  let hasMoreSessions = false;
+  const sessionsTable = document.getElementById('sessions-table');
+  const loadMoreContainer = document.getElementById('load-more-container');
+  const loadMoreBtn = document.getElementById('load-more-btn');
+  
+  async function checkIfMoreSessions() {
+    try {
+      const params = new URLSearchParams({
+        page: 2,
+        per_page: 25
+      });
+      const teacherId = document.getElementById('teacher-filter')?.value;
+      if (teacherId) params.append('teacher_id', teacherId);
+      
+      const response = await fetch(`/api/sessions?${params}`);
+      const data = await response.json();
+      hasMoreSessions = data.pagination.total > 25;
+      
+      if (hasMoreSessions && loadMoreContainer) {
+        loadMoreContainer.style.display = 'block';
+      }
+    } catch (error) {
+      console.error('Error checking for more sessions:', error);
+    }
+  }
+
+  async function loadMoreSessions() {
+    currentPage++;
+    const params = new URLSearchParams({
+      page: currentPage,
+      per_page: 25
+    });
+    const teacherId = document.getElementById('teacher-filter')?.value;
+    if (teacherId) params.append('teacher_id', teacherId);
+    
+    try {
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = 'Loading...';
+      
+      const response = await fetch(`/api/sessions?${params}`);
+      const data = await response.json();
+      
+      if (data.sessions && data.sessions.length > 0 && sessionsTable) {
+        const tbody = sessionsTable.querySelector('tbody');
+        
+        data.sessions.forEach(session => {
+          const tr = document.createElement('tr');
+          tr.dataset.courseCode = session.course_code;
+          tr.dataset.section = session.section;
+          
+          const duration = session.duration_minutes ? 
+            (session.duration_minutes >= 60 ? 
+              `${Math.floor(session.duration_minutes / 60)}h ${session.duration_minutes % 60}m` : 
+              `${session.duration_minutes}m`) : 
+            '—';
+          
+          const attention = session.avg_attention ? 
+            `<span class="font-bold ${session.avg_attention > 75 ? 'text-emerald' : session.avg_attention > 50 ? 'text-amber' : 'text-red'}">${session.avg_attention}%</span>` : 
+            '<span class="text-slate">—</span>';
+          
+          const startTime = session.start_time ? 
+            new Date(session.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 
+            '—';
+          
+          tr.innerHTML = `
+            <td><strong>${session.course_code} - ${session.section}</strong></td>
+            <td>${startTime}</td>
+            <td>${duration}</td>
+            <td>${attention}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        
+        // Check if there are more sessions to load
+        if (data.pagination.page >= data.pagination.total_pages) {
+          loadMoreContainer.style.display = 'none';
+        } else {
+          loadMoreBtn.textContent = 'Load More Sessions';
+          loadMoreBtn.disabled = false;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading more sessions:', error);
+      loadMoreBtn.textContent = 'Load More Sessions';
+      loadMoreBtn.disabled = false;
+    }
+  }
+
+  // Check if there are more sessions on page load
+  document.addEventListener('DOMContentLoaded', checkIfMoreSessions);
+
 </script>
 <script>
   const chartData = {{ chart_data | tojson }};

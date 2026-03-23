@@ -1135,8 +1135,9 @@ def history():
                 selected_teacher = candidate
                 effective_teacher_id = teacher_id_param
 
-    sessions_list = db.get_sessions(effective_teacher_id)
-    stats = db.get_dashboard_stats(effective_teacher_id)
+    # Load only first page (25 sessions) for faster initial load
+    sessions_list, total_sessions_count = db.get_sessions_paginated(effective_teacher_id, page=1, per_page=25)
+    stats = db.get_history_summary_stats(effective_teacher_id)
     subjects = db.get_subjects(effective_teacher_id)
 
     seen_course_codes = set()
@@ -1742,6 +1743,82 @@ def api_preview_report():
         return jsonify({"error": "Failed to generate report"}), 500
     filename = _build_report_filename(start_date, end_date, subject_code, section)
     return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name=filename)
+
+
+@app.route("/api/weekly-attention")
+@login_required
+def api_weekly_attention():
+    """Get weekly attention data for a specific week."""
+    user = current_user()
+    week_date_str = request.args.get("date")
+    if not week_date_str:
+        return jsonify({"error": "date parameter is required"}), 400
+    
+    try:
+        week_date = datetime.fromisoformat(week_date_str)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+    
+    try:
+        data = db.get_weekly_attention(user["id"], week_date)
+        return jsonify(data), 200
+    except Exception as exc:
+        logging.exception("Failed to get weekly attention for user=%s date=%s", user["id"], week_date_str)
+        return jsonify({"error": "Failed to fetch weekly data"}), 500
+
+
+@app.route("/api/sessions")
+@login_required
+def api_get_sessions():
+    """Get paginated sessions for the user."""
+    user = current_user()
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 25, type=int)
+    
+    if page < 1:
+        page = 1
+    if per_page < 1 or per_page > 100:
+        per_page = 25
+    
+    try:
+        # Admin can filter by teacher
+        teacher_id = user["id"]
+        if user.get("role") == "admin":
+            teacher_id_param = request.args.get("teacher_id", type=int)
+            if teacher_id_param:
+                candidate = db.get_user_by_id(teacher_id_param)
+                if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
+                    teacher_id = teacher_id_param
+        
+        sessions_list, total_count = db.get_sessions_paginated(teacher_id, page, per_page)
+        total_pages = (total_count + per_page - 1) // per_page
+        
+        # Format sessions for JSON
+        formatted_sessions = []
+        for s in sessions_list:
+            formatted_sessions.append({
+                "id": s["id"],
+                "course_code": s.get("course_code"),
+                "section": s.get("section"),
+                "subject_name": s.get("subject_name"),
+                "start_time": s.get("start_time").isoformat() if s.get("start_time") else None,
+                "end_time": s.get("end_time").isoformat() if s.get("end_time") else None,
+                "duration_minutes": int(((s.get("end_time") - s.get("start_time")).total_seconds() / 60)) if s.get("start_time") and s.get("end_time") else None,
+                "avg_attention": s.get("summary_stats", {}).get("avgAttention") if s.get("summary_stats") else None,
+            })
+        
+        return jsonify({
+            "sessions": formatted_sessions,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total": total_count,
+                "total_pages": total_pages,
+            }
+        }), 200
+    except Exception as exc:
+        logging.exception("Failed to get paginated sessions for user=%s", user["id"])
+        return jsonify({"error": "Failed to fetch sessions"}), 500
 
 
 # ─── Run ──────────────────────────────────────────────────────────────

@@ -31,6 +31,37 @@
         opacity: 0;
         transform: translateY(4px);
       }
+      /* Page loading overlay */
+      .main-content {
+        position: relative;
+      }
+      #page-loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 0;
+        height: 0;
+        background: rgba(255, 255, 255, 0.95);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+        backdrop-filter: blur(1px);
+      }
+      #page-loading.active {
+        display: flex;
+      }
+      .page-loading-spinner {
+        width: 48px;
+        height: 48px;
+        border: 3px solid rgba(59, 130, 246, 0.2);
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
     </style>
     {% block head %}{% endblock %}
   </head>
@@ -253,6 +284,10 @@
 
       <!-- Main Content -->
       <main class="main-content">
+        <!-- Content-area loading overlay -->
+        <div id="page-loading">
+          <div class="page-loading-spinner"></div>
+        </div>
         <div class="animate-in" id="page-content">
           {% block content %}{% endblock %}
         </div>
@@ -275,7 +310,30 @@
         window.__spaRouterInit = true;
 
         const contentEl = document.getElementById("page-content");
+        const mainContentEl = document.querySelector(".main-content");
+        const pageLoadingEl = document.getElementById("page-loading");
         const cache = {};
+
+        function positionContentLoader() {
+          if (!mainContentEl || !pageLoadingEl) return;
+          const rect = mainContentEl.getBoundingClientRect();
+          const top = Math.max(rect.top, 0);
+          const bottom = Math.min(rect.bottom, window.innerHeight);
+          const visibleHeight = Math.max(bottom - top, 0);
+          pageLoadingEl.style.left = `${rect.left}px`;
+          pageLoadingEl.style.top = `${top}px`;
+          pageLoadingEl.style.width = `${rect.width}px`;
+          pageLoadingEl.style.height = `${visibleHeight || window.innerHeight}px`;
+        }
+
+        function showContentLoader() {
+          positionContentLoader();
+          pageLoadingEl.classList.add("active");
+        }
+
+        function hideContentLoader() {
+          pageLoadingEl.classList.remove("active");
+        }
 
         // Eagerly prefetch ALL sidebar pages on load
         document.querySelectorAll("[data-spa]").forEach((link) => {
@@ -287,11 +345,12 @@
           }
         });
 
-        document.querySelectorAll("[data-spa]").forEach((link) => {
-          if (link.__spaBound) return;
-          link.__spaBound = true;
+        function bindSpaLinks() {
+          document.querySelectorAll("[data-spa]").forEach((link) => {
+            if (link.__spaBound) return;
+            link.__spaBound = true;
 
-          link.addEventListener("click", async (e) => {
+            link.addEventListener("click", async (e) => {
             const href = link.getAttribute("href");
             if (href === window.location.pathname) {
               e.preventDefault();
@@ -299,6 +358,10 @@
             }
             if (href === "/logout") return;
             e.preventDefault();
+
+            // Show loading overlay
+            showContentLoader();
+            await new Promise((resolve) => requestAnimationFrame(resolve));
 
             try {
               // Get content (already prefetched = instant, otherwise fetch now)
@@ -408,6 +471,9 @@
                 old.parentNode.replaceChild(s, old);
               });
 
+              // Ensure newly injected content links with data-spa are wired.
+              bindSpaLinks();
+
               // Load external head scripts if needed
               const loaded = new Set(
                 [...document.querySelectorAll("script[src]")].map((s) => s.src),
@@ -425,15 +491,33 @@
 
               document.querySelector(".main-content").scrollTop = 0;
 
+              // Hide loading overlay
+              hideContentLoader();
+
               // Re-prefetch this page for next visit (fresh data)
               delete cache[href];
               cache[href] = fetch(href)
                 .then((r) => r.text())
                 .catch(() => null);
             } catch (err) {
+              hideContentLoader();
               window.location.href = href;
             }
+            });
           });
+        }
+
+        bindSpaLinks();
+
+        window.addEventListener("resize", () => {
+          if (pageLoadingEl && pageLoadingEl.classList.contains("active")) {
+            positionContentLoader();
+          }
+        });
+        window.addEventListener("scroll", () => {
+          if (pageLoadingEl && pageLoadingEl.classList.contains("active")) {
+            positionContentLoader();
+          }
         });
 
         window.addEventListener("popstate", () => window.location.reload());
