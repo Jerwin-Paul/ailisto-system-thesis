@@ -392,6 +392,14 @@
               const newTitle = doc.querySelector("title");
               if (newTitle) document.title = newTitle.textContent;
 
+              // Reset scroll immediately after content swap, and again in next frame to ensure it sticks
+              mainContentEl.scrollTop = 0;
+              window.scrollTo(0, 0);
+              requestAnimationFrame(() => {
+                mainContentEl.scrollTop = 0;
+                window.scrollTo(0, 0);
+              });
+
               // Update sidebar active states
               document
                 .querySelectorAll(".sidebar-nav a")
@@ -488,8 +496,6 @@
                   });
                 }
               }
-
-              document.querySelector(".main-content").scrollTop = 0;
 
               // Hide loading overlay
               hideContentLoader();
