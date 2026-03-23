@@ -3,6 +3,8 @@ import io
 import json
 import logging
 import re
+import secrets
+import string
 import time
 import requests
 from functools import wraps
@@ -380,6 +382,42 @@ def update_supabase_auth_email(old_email: str, new_email: str) -> tuple[bool, st
     except Exception as exc:
         logging.error("Supabase admin update email request failed: %s", exc)
         return False, "Supabase auth email update request failed."
+
+
+def ensure_supabase_auth_user(email: str) -> tuple[bool, str | None]:
+    """Ensure a Supabase auth.users identity exists for the given email."""
+    target_email = str(email or "").strip().lower()
+    if not target_email:
+        return False, "Email is required."
+
+    if _find_supabase_auth_user_id_by_email(target_email):
+        return True, None
+
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not service_role_key:
+        return False, "SUPABASE_SERVICE_ROLE_KEY is not configured."
+
+    # Temporary bootstrap password; user signs in with local DB credentials.
+    random_core = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24))
+    bootstrap_password = f"Aa1!{random_core}"
+
+    try:
+        resp = requests.post(
+            f"{supabase_url}/auth/v1/admin/users",
+            json={"email": target_email, "password": bootstrap_password, "email_confirm": True},
+            headers=_supabase_admin_headers(service_role_key),
+            timeout=10,
+        )
+        if resp.status_code == 422:
+            return True, None
+        if not resp.ok:
+            logging.error("Supabase admin ensure user error for %s: %s %s", target_email, resp.status_code, resp.text)
+            return False, f"Supabase auth user ensure failed ({resp.status_code})."
+        return True, None
+    except Exception as exc:
+        logging.error("Supabase admin ensure user request failed for %s: %s", target_email, exc)
+        return False, "Supabase auth user ensure request failed."
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -769,9 +807,16 @@ def register():
 
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
+    prefill_email = ""
+    from_profile = request.args.get("from", "").strip().lower() == "profile"
+    if from_profile:
+        user = current_user()
+        if user:
+            prefill_email = str(user.get("email", "")).strip()
+
     if request.method == "POST":
         is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
-        email = request.form.get("email", "").strip()
+        email = request.form.get("email", "").strip().lower()
 
         if not email:
             if is_ajax:
@@ -787,6 +832,13 @@ def forgot_password():
         supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
         app_url = os.environ.get("APP_URL", request.host_url.rstrip("/"))
         redirect_to = f"{app_url}/reset-password"
+
+        # Auto-heal auth identity drift: local user exists but auth.users entry is missing.
+        local_user = db.get_user_by_email(email)
+        if local_user:
+            ensured, ensure_err = ensure_supabase_auth_user(email)
+            if not ensured:
+                logging.warning("Could not ensure Supabase auth user for %s: %s", email, ensure_err)
 
         if supabase_url and supabase_anon_key:
             try:
@@ -807,9 +859,9 @@ def forgot_password():
         # Always return success to avoid revealing which emails are registered
         if is_ajax:
             return jsonify({"success": True})
-        return render_template("forgot-password.html")
+        return render_template("forgot-password.html", prefill_email=prefill_email)
 
-    return render_template("forgot-password.html")
+    return render_template("forgot-password.html", prefill_email=prefill_email)
 
 
 @app.route("/reset-password", methods=["GET", "POST"])
