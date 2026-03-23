@@ -36,6 +36,36 @@ PASSWORD_REQUIRED_SYMBOLS = "!@#$%^&*"
 db.init_db()
 
 
+def _resolve_month_selection(
+    month_value: str | None = None,
+    year_value: str | None = None,
+    month_number_value: str | None = None,
+) -> tuple[int, int, str]:
+    """Resolve month selection from separate year/month or YYYY-MM inputs."""
+    now = datetime.now()
+    fallback_year = now.year
+    fallback_month = now.month
+
+    if year_value is not None or month_number_value is not None:
+        try:
+            year = int((year_value or "").strip())
+            month_num = int((month_number_value or "").strip())
+            if 1 <= month_num <= 12:
+                return year, month_num, f"{year:04d}-{month_num:02d}"
+        except (TypeError, ValueError):
+            pass
+
+    month_str = (month_value or "").strip()
+    if not month_str:
+        return fallback_year, fallback_month, f"{fallback_year:04d}-{fallback_month:02d}"
+
+    try:
+        parsed = datetime.strptime(month_str, "%Y-%m")
+        return parsed.year, parsed.month, month_str
+    except ValueError:
+        return fallback_year, fallback_month, f"{fallback_year:04d}-{fallback_month:02d}"
+
+
 # ─── Auth Helpers ─────────────────────────────────────────────────────
 
 def _password_policy_unmet(password: str) -> list[str]:
@@ -1135,10 +1165,32 @@ def history():
                 selected_teacher = candidate
                 effective_teacher_id = teacher_id_param
 
-    # Load only first page (25 sessions) for faster initial load
-    sessions_list, total_sessions_count = db.get_sessions_paginated(effective_teacher_id, page=1, per_page=25)
+    now = datetime.now()
+    selected_year = now.year
+    selected_month_num = now.month
+    selected_month = f"{selected_year:04d}-{selected_month_num:02d}"
+    sessions_list = db.get_sessions_for_month(effective_teacher_id, selected_year, selected_month_num)
     stats = db.get_history_summary_stats(effective_teacher_id)
     subjects = db.get_subjects(effective_teacher_id)
+    month_values = db.get_session_month_options(effective_teacher_id)
+
+    years = set()
+    for value in month_values:
+        try:
+            years.add(datetime.strptime(value, "%Y-%m").year)
+        except ValueError:
+            continue
+    current_year = datetime.now().year
+    years.add(current_year)
+    years.add(selected_year)
+
+    min_year = min(min(years), current_year - 5)
+    max_year = max(max(years), current_year)
+    year_options = list(range(max_year, min_year - 1, -1))
+    month_name_options = [
+        {"value": i, "label": datetime(2000, i, 1).strftime("%B")}
+        for i in range(1, 13)
+    ]
 
     seen_course_codes = set()
     subject_filters = []
@@ -1161,14 +1213,6 @@ def history():
 
     subject_filters.sort(key=lambda s: s["course_code"])
 
-    chart_data = [
-        {
-            "label": s["start_time"].strftime("%b %d") if s.get("start_time") else "",
-            "value": s["summary_stats"].get("avgAttention"),
-        }
-        for s in sessions_list
-        if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
-    ]
     return render_template(
         "history.html",
         user=user,
@@ -1177,10 +1221,14 @@ def history():
         subjects=subjects,
         subject_filters=subject_filters,
         section_filters=section_filters,
-        chart_data=chart_data,
         teachers=teachers,
         selected_teacher=selected_teacher,
         subject_section_map=subject_section_map,
+        year_options=year_options,
+        month_name_options=month_name_options,
+        selected_year=selected_year,
+        selected_month_num=selected_month_num,
+        selected_month=selected_month,
     )
 
 
@@ -1770,15 +1818,13 @@ def api_weekly_attention():
 @app.route("/api/sessions")
 @login_required
 def api_get_sessions():
-    """Get paginated sessions for the user."""
+    """Get sessions for the selected month."""
     user = current_user()
-    page = request.args.get("page", 1, type=int)
-    per_page = request.args.get("per_page", 25, type=int)
-    
-    if page < 1:
-        page = 1
-    if per_page < 1 or per_page > 100:
-        per_page = 25
+    selected_year, selected_month_num, selected_month = _resolve_month_selection(
+        month_value=request.args.get("month"),
+        year_value=request.args.get("year"),
+        month_number_value=request.args.get("month_num"),
+    )
     
     try:
         # Admin can filter by teacher
@@ -1790,8 +1836,7 @@ def api_get_sessions():
                 if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
                     teacher_id = teacher_id_param
         
-        sessions_list, total_count = db.get_sessions_paginated(teacher_id, page, per_page)
-        total_pages = (total_count + per_page - 1) // per_page
+        sessions_list = db.get_sessions_for_month(teacher_id, selected_year, selected_month_num)
         
         # Format sessions for JSON
         formatted_sessions = []
@@ -1809,12 +1854,7 @@ def api_get_sessions():
         
         return jsonify({
             "sessions": formatted_sessions,
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": total_count,
-                "total_pages": total_pages,
-            }
+            "month": selected_month,
         }), 200
     except Exception as exc:
         logging.exception("Failed to get paginated sessions for user=%s", user["id"])

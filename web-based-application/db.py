@@ -466,6 +466,48 @@ def get_sessions_paginated(teacher_id: int, page: int = 1, per_page: int = 25) -
     return sessions, total_count
 
 
+def get_sessions_for_month(teacher_id: int, year: int, month: int) -> list[dict]:
+    """Get all sessions for a teacher within the given month."""
+    month_start = datetime(year, month, 1)
+    if month == 12:
+        month_end = datetime(year + 1, 1, 1)
+    else:
+        month_end = datetime(year, month + 1, 1)
+
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+            FROM sessions s
+            JOIN subjects sub ON s.subject_id = sub.id
+            WHERE sub.teacher_id = %s
+              AND s.start_time >= %s
+              AND s.start_time < %s
+            ORDER BY s.start_time DESC
+            """,
+            (teacher_id, month_start, month_end),
+        )
+        return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
+
+
+def get_session_month_options(teacher_id: int) -> list[str]:
+    """Return distinct months with sessions for a teacher as YYYY-MM values."""
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT DATE_TRUNC('month', s.start_time) AS month_start
+            FROM sessions s
+            JOIN subjects sub ON s.subject_id = sub.id
+            WHERE sub.teacher_id = %s
+              AND s.start_time IS NOT NULL
+            GROUP BY month_start
+            ORDER BY month_start DESC
+            """,
+            (teacher_id,),
+        )
+        return [row["month_start"].strftime("%Y-%m") for row in cur.fetchall()]
+
+
 def get_subject_for_teacher(subject_id: int, teacher_id: int) -> dict | None:
     with get_cursor(commit=False) as cur:
         cur.execute(
