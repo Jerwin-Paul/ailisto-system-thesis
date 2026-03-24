@@ -1482,8 +1482,30 @@ def api_create_subject():
 @app.route("/api/subjects/<int:subject_id>", methods=["DELETE"])
 @login_required
 def api_delete_subject(subject_id):
+    user = current_user()
+    subject = db.get_subject_for_teacher(subject_id, user["id"])
+    if not subject:
+        return jsonify({"error": "Subject not found for your account."}), 404
     db.delete_subject(subject_id)
     return "", 204
+
+
+@app.route("/api/subject-groups/delete", methods=["POST"])
+@login_required
+def api_delete_subject_group():
+    user = current_user()
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name", "")).strip()
+    course_code = str(data.get("courseCode", "")).strip()
+
+    if not name or not course_code:
+        return jsonify({"error": "Both name and courseCode are required."}), 400
+
+    deleted_count = db.delete_subject_group(user["id"], name, course_code)
+    if deleted_count == 0:
+        return jsonify({"error": "Subject group not found for your account."}), 404
+
+    return jsonify({"deleted": deleted_count}), 200
 
 
 @app.route("/api/subjects/<int:subject_id>/schedules", methods=["PUT"])

@@ -400,6 +400,23 @@ def delete_subject(subject_id: int):
         cur.execute("DELETE FROM subjects WHERE id = %s", (subject_id,))
 
 
+def delete_subject_group(teacher_id: int, name: str, course_code: str) -> int:
+    with get_cursor() as cur:
+        cur.execute(
+            """SELECT id FROM subjects
+               WHERE teacher_id = %s AND name = %s AND course_code = %s""",
+            (teacher_id, name, course_code),
+        )
+        ids = [row["id"] for row in cur.fetchall()]
+        if not ids:
+            return 0
+
+        cur.execute("DELETE FROM schedules WHERE subject_id = ANY(%s)", (ids,))
+        cur.execute("DELETE FROM sessions WHERE subject_id = ANY(%s)", (ids,))
+        cur.execute("DELETE FROM subjects WHERE id = ANY(%s)", (ids,))
+        return len(ids)
+
+
 # ─── Schedule Operations ─────────────────────────────────────────────
 
 def update_subject_schedules(subject_id: int, entries: list[dict]) -> list[dict]:
