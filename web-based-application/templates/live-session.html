@@ -238,6 +238,12 @@
         </div>
       </div>
 
+      <p
+        id="session-meta"
+        class="text-base"
+        style="display: none; color: var(--text-700); font-weight: 700"
+      ></p>
+
       <!-- Session Control Buttons -->
       <div class="session-controls" id="session-controls">
         <button
@@ -259,6 +265,154 @@
           </svg>
           Start Session
         </button>
+      </div>
+
+      <div
+        id="cancel-session-modal"
+        style="
+          display: none;
+          position: fixed;
+          inset: 0;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          box-sizing: border-box;
+          background: rgba(15, 23, 42, 0.55);
+          z-index: 70;
+          align-items: center;
+          justify-content: center;
+          padding: 1rem;
+        "
+      >
+        <div
+          class="card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-modal-title"
+          aria-describedby="cancel-modal-desc"
+          style="
+            width: min(540px, 100%);
+            border-radius: 1rem;
+            box-shadow: 0 30px 60px rgba(2, 6, 23, 0.35);
+            border: 1px solid var(--border-subtle);
+          "
+        >
+          <div class="card-content" style="padding: 1.25rem 1.25rem 1rem 1.25rem">
+            <h3 id="cancel-modal-title" style="margin: 0; font-size: 1.125rem">
+              Cancel this session?
+            </h3>
+            <p
+              id="cancel-modal-desc"
+              style="margin: 0.75rem 0 0 0; color: var(--text-500); line-height: 1.5"
+            >
+              Monitoring will stop immediately and this session will not be saved
+              in your history.
+            </p>
+
+            <div
+              style="
+                display: flex;
+                gap: 0.75rem;
+                justify-content: flex-end;
+                margin-top: 1.25rem;
+                flex-wrap: wrap;
+              "
+            >
+              <button
+                type="button"
+                class="btn btn-outline"
+                id="cancel-modal-keep-btn"
+                style="border-color: #475569; color: #334155"
+                onclick="closeCancelSessionModal()"
+              >
+                Keep Session
+              </button>
+              <button
+                type="button"
+                class="btn btn-destructive"
+                id="cancel-modal-confirm-btn"
+                onclick="confirmCancelSession()"
+              >
+                Yes, Cancel Session
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="end-session-modal"
+        style="
+          display: none;
+          position: fixed;
+          inset: 0;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          box-sizing: border-box;
+          background: rgba(15, 23, 42, 0.55);
+          z-index: 70;
+          align-items: center;
+          justify-content: center;
+          padding: 1rem;
+        "
+      >
+        <div
+          class="card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="end-modal-title"
+          aria-describedby="end-modal-desc"
+          style="
+            width: min(540px, 100%);
+            border-radius: 1rem;
+            box-shadow: 0 30px 60px rgba(2, 6, 23, 0.35);
+            border: 1px solid var(--border-subtle);
+          "
+        >
+          <div class="card-content" style="padding: 1.25rem 1.25rem 1rem 1.25rem">
+            <h3 id="end-modal-title" style="margin: 0; font-size: 1.125rem">
+              End this session?
+            </h3>
+            <p
+              id="end-modal-desc"
+              style="margin: 0.75rem 0 0 0; color: var(--text-500); line-height: 1.5"
+            >
+              Monitoring will stop and this session will be saved in your
+              history.
+            </p>
+
+            <div
+              style="
+                display: flex;
+                gap: 0.75rem;
+                justify-content: flex-end;
+                margin-top: 1.25rem;
+                flex-wrap: wrap;
+              "
+            >
+              <button
+                type="button"
+                class="btn btn-outline"
+                id="end-modal-continue-btn"
+                style="border-color: #475569; color: #334155"
+                onclick="closeEndSessionModal()"
+              >
+                Keep Monitoring
+              </button>
+              <button
+                type="button"
+                class="btn btn-destructive"
+                id="end-modal-confirm-btn"
+                onclick="confirmEndSession()"
+              >
+                Yes, End and Save
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -357,9 +511,12 @@
     var inferenceInFlight = false;
     var inferFailureCount = 0;
     var currentSessionId = null;
+    var elapsedSessionSeconds = 0;
+    var sessionTimerInterval = null;
     var yoloInferUrl = "{{ url_for('yolo_infer') }}";
     var sessionsApiUrl = "{{ url_for('api_start_session') }}";
     var endSessionUrlTemplate = "{{ url_for('api_end_session', session_id=0) }}";
+    var cancelSessionUrlTemplate = "{{ url_for('api_cancel_session', session_id=0) }}";
     var subjectsData = [];
     try {
       var subjectsDataEl = document.getElementById("subjects-data");
@@ -395,6 +552,69 @@
     var yoloSpinner = document.getElementById("yolo-spinner");
     var yoloStatusText = document.getElementById("yolo-status-text");
     var yoloStatusSub = document.getElementById("yolo-status-sub");
+    var sessionMeta = document.getElementById("session-meta");
+    var sessionTimerEl = document.getElementById("session-timer");
+    var cancelSessionModal = document.getElementById("cancel-session-modal");
+    var endSessionModal = document.getElementById("end-session-modal");
+    var cancelModalConfirmBtn = document.getElementById(
+      "cancel-modal-confirm-btn",
+    );
+    var cancelModalKeepBtn = document.getElementById("cancel-modal-keep-btn");
+    var endModalConfirmBtn = document.getElementById("end-modal-confirm-btn");
+    var endModalContinueBtn = document.getElementById("end-modal-continue-btn");
+    var activeSessionLabel = "";
+    var isCancelSubmitting = false;
+    var isEndSubmitting = false;
+    var isStartingSession = false;
+
+    function mountModalToBody(modalEl) {
+      if (!modalEl || modalEl.parentNode === document.body) return;
+      modalEl.dataset.bodyMounted = "true";
+      document.body.appendChild(modalEl);
+    }
+
+    function setConfirmButtonLoading(button, isLoading, idleLabel, loadingLabel) {
+      if (!button) return;
+      if (!button.dataset.idleLabel) {
+        button.dataset.idleLabel = idleLabel;
+      }
+      if (!button.dataset.loadingLabel) {
+        button.dataset.loadingLabel = loadingLabel;
+      }
+
+      if (isLoading) {
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        button.innerHTML =
+          '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.5rem"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>' +
+          button.dataset.loadingLabel;
+        return;
+      }
+
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      button.textContent = button.dataset.idleLabel;
+    }
+
+    function setCancelModalLoading(isLoading) {
+      setConfirmButtonLoading(
+        cancelModalConfirmBtn,
+        isLoading,
+        "Yes, Cancel Session",
+        "Cancelling...",
+      );
+      if (cancelModalKeepBtn) cancelModalKeepBtn.disabled = isLoading;
+    }
+
+    function setEndModalLoading(isLoading) {
+      setConfirmButtonLoading(
+        endModalConfirmBtn,
+        isLoading,
+        "Yes, End and Save",
+        "Ending and saving...",
+      );
+      if (endModalContinueBtn) endModalContinueBtn.disabled = isLoading;
+    }
 
     function sortAlpha(values) {
       return values.sort(function (a, b) {
@@ -492,6 +712,14 @@
       if (yoloStream) yoloStream.src = "";
       var ctx = canvasEl.getContext("2d");
       ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+      stopSessionTimer();
+
+      if (cancelSessionModal && cancelSessionModal.dataset.bodyMounted === "true") {
+        cancelSessionModal.remove();
+      }
+      if (endSessionModal && endSessionModal.dataset.bodyMounted === "true") {
+        endSessionModal.remove();
+      }
     };
 
     // ─── Initialize ───
@@ -524,6 +752,9 @@
     }
 
     (async function init() {
+      mountModalToBody(cancelSessionModal);
+      mountModalToBody(endSessionModal);
+
       updateToggleIcon();
       initTrendChart();
       populateSubjectOptions();
@@ -781,9 +1012,86 @@
       return endSessionUrlTemplate.replace("/0/end", "/" + sessionId + "/end");
     }
 
+    function getCancelSessionUrl(sessionId) {
+      return cancelSessionUrlTemplate.replace(
+        "/0/cancel",
+        "/" + sessionId + "/cancel",
+      );
+    }
+
+    function updateSessionMeta() {
+      if (isSessionActive && activeSessionLabel) {
+        sessionMeta.textContent = "Current session: " + activeSessionLabel;
+        sessionMeta.style.display = "block";
+        return;
+      }
+
+      sessionMeta.textContent = "";
+      sessionMeta.style.display = "none";
+    }
+
+    function formatDuration(totalSeconds) {
+      var safe = Math.max(0, Number(totalSeconds) || 0);
+      var hours = Math.floor(safe / 3600);
+      var minutes = Math.floor((safe % 3600) / 60);
+      var seconds = safe % 60;
+      return [hours, minutes, seconds]
+        .map(function (value) {
+          return String(value).padStart(2, "0");
+        })
+        .join(":");
+    }
+
+    function updateSessionTimerText() {
+      if (!sessionTimerEl || !isSessionActive) {
+        if (sessionTimerEl) {
+          sessionTimerEl.textContent = "";
+          sessionTimerEl.style.display = "none";
+        }
+        return;
+      }
+
+      sessionTimerEl.textContent =
+        "Session duration: " + formatDuration(elapsedSessionSeconds);
+      sessionTimerEl.style.display = "block";
+    }
+
+    function tickSessionTimer() {
+      if (!isSessionActive || isPaused) return;
+      elapsedSessionSeconds += 1;
+      updateSessionTimerText();
+      updateBadge();
+    }
+
+    function startSessionTimer() {
+      elapsedSessionSeconds = 0;
+      updateSessionTimerText();
+
+      if (sessionTimerInterval) {
+        clearInterval(sessionTimerInterval);
+      }
+      sessionTimerInterval = setInterval(tickSessionTimer, 1000);
+    }
+
+    function stopSessionTimer() {
+      if (sessionTimerInterval) {
+        clearInterval(sessionTimerInterval);
+        sessionTimerInterval = null;
+      }
+      elapsedSessionSeconds = 0;
+      updateSessionTimerText();
+    }
+
     async function startSession() {
       var selectedSubjectId = getSelectedSubjectId();
-      if (!isCameraReady || !selectedSubjectId || isSessionActive) return;
+      if (!isCameraReady || !selectedSubjectId || isSessionActive || isStartingSession) return;
+      var selectedSubjectName = subjectSelect.value;
+      var selectedSectionName = sectionSelect.value;
+
+      isStartingSession = true;
+      updateControls();
+      attentionStatus.textContent = "Starting session...";
+      aiInsight.textContent = "Preparing session and connecting to the YOLO server...";
 
       let startedSession = null;
       try {
@@ -811,18 +1119,24 @@
         }
         startedSession = data;
       } catch (err) {
+        isStartingSession = false;
+        updateControls();
         const msg = err && err.message ? err.message : "Could not start session.";
         attentionStatus.textContent = "Session start failed";
         aiInsight.textContent = "Session could not be started: " + msg;
         return;
       }
 
+      isStartingSession = false;
       currentSessionId = startedSession.id;
       isSessionActive = true;
       isPaused = false;
+      activeSessionLabel =
+        selectedSubjectName + " | Section: " + selectedSectionName;
       inferenceInFlight = false;
       inferFailureCount = 0;
       attentionHistory = [];
+      startSessionTimer();
 
       // Keep local camera preview visible and draw detections on top.
       videoEl.style.display = "block";
@@ -836,6 +1150,7 @@
 
       updateBadge();
       updateControls();
+      updateSessionMeta();
       attentionStatus.textContent = "Connecting\u2026";
       aiInsight.textContent = "Connecting to the YOLO inference server\u2026";
 
@@ -856,6 +1171,7 @@
     function pauseSession() {
       isPaused = !isPaused;
       pausedOverlay.style.display = isPaused ? "flex" : "none";
+      updateSessionTimerText();
       updateBadge();
       updateControls();
       attentionStatus.textContent = isPaused
@@ -866,7 +1182,8 @@
         : "Monitoring student attention...";
     }
 
-    async function endSession() {
+    async function endSession(saveSession) {
+      const shouldSaveSession = saveSession !== false;
       const sessionIdToEnd = currentSessionId;
       const summaryStats = getSessionSummaryStats();
 
@@ -875,6 +1192,8 @@
       inferenceInFlight = false;
       attentionHistory = [];
       currentSessionId = null;
+      activeSessionLabel = "";
+      stopSessionTimer();
       if (inferLoopTimeout) {
         clearTimeout(inferLoopTimeout);
         inferLoopTimeout = null;
@@ -894,6 +1213,7 @@
 
       updateBadge();
       updateControls();
+      updateSessionMeta();
       attentionValue.textContent = "--";
       attentionValue.className = "attention-score-value";
       attentionStatus.textContent = "Updated in real-time";
@@ -905,7 +1225,7 @@
         trendChart.update();
       }
 
-      if (sessionIdToEnd) {
+      if (sessionIdToEnd && shouldSaveSession) {
         try {
           const resp = await fetch(getEndSessionUrl(sessionIdToEnd), {
             method: "POST",
@@ -921,6 +1241,84 @@
           console.error("Failed to end session in backend:", err);
         }
       }
+
+      if (sessionIdToEnd && !shouldSaveSession) {
+        try {
+          const resp = await fetch(getCancelSessionUrl(sessionIdToEnd), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+          });
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.error || "Could not cancel session.");
+          }
+        } catch (err) {
+          console.error("Failed to cancel session in backend:", err);
+        }
+      }
+    }
+
+    function openCancelSessionModal() {
+      if (!isSessionActive || !currentSessionId) return;
+      cancelSessionModal.style.display = "flex";
+      cancelModalConfirmBtn.focus();
+    }
+
+    function closeCancelSessionModal() {
+      if (isCancelSubmitting) return;
+      cancelSessionModal.style.display = "none";
+      if (isSessionActive) {
+        var cancelBtn = controls.querySelector(
+          'button[onclick="cancelSession()"]',
+        );
+        if (cancelBtn) cancelBtn.focus();
+      }
+    }
+
+    async function confirmCancelSession() {
+      if (!isSessionActive || !currentSessionId || isCancelSubmitting) return;
+      isCancelSubmitting = true;
+      setCancelModalLoading(true);
+      try {
+        await endSession(false);
+      } finally {
+        isCancelSubmitting = false;
+        setCancelModalLoading(false);
+        closeCancelSessionModal();
+      }
+    }
+
+    function openEndSessionModal() {
+      if (!isSessionActive || !currentSessionId) return;
+      endSessionModal.style.display = "flex";
+      endModalConfirmBtn.focus();
+    }
+
+    function closeEndSessionModal() {
+      if (isEndSubmitting) return;
+      endSessionModal.style.display = "none";
+      if (isSessionActive) {
+        var endBtn = controls.querySelector('button[onclick="openEndSessionModal()"]');
+        if (endBtn) endBtn.focus();
+      }
+    }
+
+    async function confirmEndSession() {
+      if (!isSessionActive || !currentSessionId || isEndSubmitting) return;
+      isEndSubmitting = true;
+      setEndModalLoading(true);
+      try {
+        await endSession(true);
+      } finally {
+        isEndSubmitting = false;
+        setEndModalLoading(false);
+        closeEndSessionModal();
+      }
+    }
+
+    function cancelSession() {
+      openCancelSessionModal();
     }
 
     function scheduleNextInference(delayMs) {
@@ -1189,7 +1587,10 @@
       if (isSessionActive) {
         badgeDot.className =
           "video-badge-dot " + (isPaused ? "paused" : "live");
-        badgeText.textContent = isPaused ? "PAUSED" : "LIVE FEED";
+        var duration = formatDuration(elapsedSessionSeconds);
+        badgeText.textContent = isPaused
+          ? "PAUSED " + duration
+          : "Live " + duration;
       } else {
         badgeDot.className = "video-badge-dot ready";
         badgeText.textContent = "CAMERA PREVIEW";
@@ -1197,26 +1598,34 @@
     }
 
     function updateControls() {
-      startBtn.disabled = !isCameraReady || !getSelectedSubjectId();
+      startBtn.disabled = !isCameraReady || !getSelectedSubjectId() || isStartingSession;
 
       if (isSessionActive) {
         controls.innerHTML = `
-        <button class="btn ${isPaused ? "btn-outline-emerald" : "btn-outline-amber"} btn-lg" onclick="pauseSession()">
+        <button class="btn ${isPaused ? "btn-outline-emerald" : "btn-outline-amber"} btn-lg" style="width: 180px; justify-content: center" onclick="pauseSession()">
           ${
             isPaused
               ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume'
               : '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause'
           }
         </button>
-        <button class="btn btn-destructive btn-lg" onclick="endSession()">
+        <button class="btn btn-destructive btn-lg" style="width: 180px; justify-content: center" onclick="openEndSessionModal()">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
           End Session
+        </button>
+        <button class="btn btn-outline btn-lg" style="border-color: #475569; color: #334155; width: 180px; justify-content: center" onclick="cancelSession()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          Cancel Session
         </button>`;
       } else {
         controls.innerHTML = `
-        <button id="start-btn" class="btn btn-emerald btn-lg" ${!isCameraReady || !getSelectedSubjectId() ? "disabled" : ""} onclick="startSession()">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Start Session
+        <button id="start-btn" class="btn btn-emerald btn-lg" ${!isCameraReady || !getSelectedSubjectId() || isStartingSession ? "disabled" : ""} ${isStartingSession ? 'aria-busy="true"' : ""} onclick="startSession()">
+          ${
+            isStartingSession
+              ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>'
+              : '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
+          }
+          ${isStartingSession ? "Starting Session..." : "Start Session"}
         </button>`;
       }
     }
@@ -1296,12 +1705,44 @@
     });
     sectionSelect.addEventListener("change", updateControls);
 
+    cancelSessionModal.addEventListener("click", function (event) {
+      if (isCancelSubmitting) return;
+      if (event.target === cancelSessionModal) {
+        closeCancelSessionModal();
+      }
+    });
+
+    endSessionModal.addEventListener("click", function (event) {
+      if (isEndSubmitting) return;
+      if (event.target === endSessionModal) {
+        closeEndSessionModal();
+      }
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+
+      if (cancelSessionModal.style.display === "flex") {
+        closeCancelSessionModal();
+      }
+      if (endSessionModal.style.display === "flex") {
+        closeEndSessionModal();
+      }
+    });
+
     // ─── Expose functions for onclick attributes (needed inside IIFE) ───
     window.toggleCamera = toggleCamera;
     window.handleCameraChange = handleCameraChange;
     window.startSession = startSession;
     window.pauseSession = pauseSession;
     window.endSession = endSession;
+    window.cancelSession = cancelSession;
+    window.openCancelSessionModal = openCancelSessionModal;
+    window.closeCancelSessionModal = closeCancelSessionModal;
+    window.confirmCancelSession = confirmCancelSession;
+    window.openEndSessionModal = openEndSessionModal;
+    window.closeEndSessionModal = closeEndSessionModal;
+    window.confirmEndSession = confirmEndSession;
   })();
 </script>
 {% endblock %}

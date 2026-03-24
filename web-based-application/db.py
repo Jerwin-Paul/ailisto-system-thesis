@@ -538,6 +538,16 @@ def end_session(session_id: int, summary_stats: dict) -> dict:
         return _normalize_session_times(dict(cur.fetchone()))
 
 
+def cancel_session(session_id: int) -> dict | None:
+    with get_cursor() as cur:
+        cur.execute(
+            "DELETE FROM sessions WHERE id = %s RETURNING id",
+            (session_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
 def get_sessions_by_date_range(
     teacher_id: int,
     start_date: str,

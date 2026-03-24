@@ -1539,6 +1539,31 @@ def api_end_session(session_id):
     return jsonify(s)
 
 
+@app.route("/api/sessions/<int:session_id>/cancel", methods=["POST"])
+@login_required
+def api_cancel_session(session_id):
+    user = current_user()
+
+    # Ensure this session belongs to the signed-in teacher.
+    sessions_list = db.get_sessions(user["id"])
+    target_session = next((s for s in sessions_list if s["id"] == session_id), None)
+    if not target_session:
+        return jsonify({"error": "Session not found for your account."}), 404
+
+    if target_session.get("status") != "active":
+        return jsonify({"error": "Only active sessions can be cancelled."}), 400
+
+    try:
+        cancelled = db.cancel_session(session_id)
+        if not cancelled:
+            return jsonify({"error": "Session could not be cancelled."}), 404
+    except Exception as exc:
+        logging.exception("Failed to cancel session %s for user %s", session_id, user["id"])
+        return jsonify({"error": f"Could not cancel session: {exc}"}), 500
+
+    return jsonify({"success": True, "id": session_id})
+
+
 def _build_report_pdf(
     user: dict,
     start_date: str,
