@@ -147,6 +147,46 @@
       </div>
     </div>
   </div>
+
+  <div
+    id="avatar-remove-confirm-overlay"
+    style="
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 1100;
+      background: rgba(15, 23, 42, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    "
+  >
+    <div
+      id="avatar-remove-confirm-card"
+      class="card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="avatar-remove-confirm-title"
+      aria-describedby="avatar-remove-confirm-desc"
+      style="width: min(420px, 100%); border: 1px solid var(--border); box-shadow: var(--shadow-xl);"
+    >
+      <div class="card-content" style="padding: 1.25rem 1.25rem 1rem 1.25rem;">
+        <h3 id="avatar-remove-confirm-title" style="font-size: 1.05rem; margin-bottom: 0.5rem;">
+          Remove profile photo?
+        </h3>
+        <p id="avatar-remove-confirm-desc" class="text-sm" style="color: var(--text-600); margin-bottom: 1rem;">
+          Your avatar will be removed and replaced with your initials.
+        </p>
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
+          <button id="avatar-remove-confirm-cancel" type="button" class="btn btn-outline">Cancel</button>
+          <button id="avatar-remove-confirm-continue" type="button" class="btn btn-primary">Remove</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -165,6 +205,9 @@
     const avatarImg = document.getElementById("profile-avatar-img");
     const avatarInitials = document.getElementById("profile-avatar-initials");
     const avatarWrap = document.getElementById("profile-avatar-wrap");
+    const avatarRemoveConfirmOverlay = document.getElementById("avatar-remove-confirm-overlay");
+    const avatarRemoveConfirmCancelBtn = document.getElementById("avatar-remove-confirm-cancel");
+    const avatarRemoveConfirmContinueBtn = document.getElementById("avatar-remove-confirm-continue");
     const sidebarAvatarImg = document.getElementById("sidebar-avatar-img");
     const sidebarAvatarInitials = document.getElementById("sidebar-avatar-initials");
     const sidebarUserName = document.getElementById("sidebar-user-name");
@@ -173,6 +216,11 @@
     const avatarRemoveDefaultText = avatarRemoveBtn.textContent;
     let hasAvatar = false;
     let messageHideTimer = null;
+
+    // Mount modal overlay at body level so fixed positioning always covers the viewport.
+    if (avatarRemoveConfirmOverlay && avatarRemoveConfirmOverlay.parentNode !== document.body) {
+      document.body.appendChild(avatarRemoveConfirmOverlay);
+    }
 
     function getInitials(firstName, lastName) {
       const a = (firstName || "").trim().charAt(0);
@@ -205,15 +253,67 @@
       }
     }
 
-    function setAvatarBusy(isBusy, removeBusy) {
-      avatarUploadBtn.disabled = isBusy;
-      avatarRemoveBtn.disabled = isBusy || removeBusy || !hasAvatar;
-      avatarUploadBtn.textContent = isBusy
+    function setAvatarBusy(uploadBusy, removeBusy) {
+      avatarUploadBtn.disabled = uploadBusy || removeBusy;
+      avatarRemoveBtn.disabled = uploadBusy || removeBusy || !hasAvatar;
+      avatarUploadBtn.textContent = uploadBusy
         ? "Uploading..."
         : avatarUploadDefaultText;
       avatarRemoveBtn.textContent = removeBusy
         ? "Removing..."
         : avatarRemoveDefaultText;
+    }
+
+    function confirmAvatarRemoval() {
+      return new Promise(function (resolve) {
+        let settled = false;
+
+        function cleanup() {
+          avatarRemoveConfirmOverlay.style.display = "none";
+          avatarRemoveConfirmContinueBtn.disabled = false;
+          avatarRemoveConfirmCancelBtn.disabled = false;
+          avatarRemoveConfirmOverlay.removeEventListener("click", onOverlayClick);
+          avatarRemoveConfirmContinueBtn.removeEventListener("click", onConfirm);
+          avatarRemoveConfirmCancelBtn.removeEventListener("click", onCancel);
+          document.removeEventListener("keydown", onKeyDown);
+        }
+
+        function finish(result) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(result);
+        }
+
+        function onConfirm() {
+          finish(true);
+        }
+
+        function onCancel() {
+          finish(false);
+        }
+
+        function onOverlayClick(event) {
+          if (event.target === avatarRemoveConfirmOverlay) {
+            finish(false);
+          }
+        }
+
+        function onKeyDown(event) {
+          if (event.key === "Escape") {
+            finish(false);
+          }
+        }
+
+        avatarRemoveConfirmOverlay.style.display = "flex";
+        avatarRemoveConfirmContinueBtn.disabled = false;
+        avatarRemoveConfirmCancelBtn.disabled = false;
+        avatarRemoveConfirmOverlay.addEventListener("click", onOverlayClick);
+        avatarRemoveConfirmContinueBtn.addEventListener("click", onConfirm);
+        avatarRemoveConfirmCancelBtn.addEventListener("click", onCancel);
+        document.addEventListener("keydown", onKeyDown);
+        avatarRemoveConfirmContinueBtn.focus();
+      });
     }
 
     function syncSidebarIdentity(firstName, lastName) {
@@ -394,7 +494,10 @@
 
     avatarRemoveBtn.addEventListener("click", async function () {
       if (avatarRemoveBtn.disabled) return;
-      setAvatarBusy(true, true);
+      const shouldRemove = await confirmAvatarRemoval();
+      if (!shouldRemove) return;
+
+      setAvatarBusy(false, true);
 
       try {
         const resp = await fetch("/api/profile/avatar", {
