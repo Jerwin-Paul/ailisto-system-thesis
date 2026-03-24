@@ -66,6 +66,20 @@ def _resolve_month_selection(
         return fallback_year, fallback_month, f"{fallback_year:04d}-{fallback_month:02d}"
 
 
+def _duration_minutes_ignore_seconds(start_time: datetime | None, end_time: datetime | None) -> int | None:
+    """Return duration in minutes using only HH:MM, ignoring seconds and microseconds."""
+    if not start_time or not end_time:
+        return None
+
+    start_minute = start_time.replace(second=0, microsecond=0)
+    end_minute = end_time.replace(second=0, microsecond=0)
+    delta_seconds = (end_minute - start_minute).total_seconds()
+    if delta_seconds < 0:
+        # Guard against negative display values from clock/date edge cases.
+        return 0
+    return int(delta_seconds // 60)
+
+
 # ─── Auth Helpers ─────────────────────────────────────────────────────
 
 def _password_policy_unmet(password: str) -> list[str]:
@@ -1848,7 +1862,7 @@ def api_get_sessions():
                 "subject_name": s.get("subject_name"),
                 "start_time": s.get("start_time").isoformat() if s.get("start_time") else None,
                 "end_time": s.get("end_time").isoformat() if s.get("end_time") else None,
-                "duration_minutes": int(((s.get("end_time") - s.get("start_time")).total_seconds() / 60)) if s.get("start_time") and s.get("end_time") else None,
+                "duration_minutes": _duration_minutes_ignore_seconds(s.get("start_time"), s.get("end_time")),
                 "avg_attention": s.get("summary_stats", {}).get("avgAttention") if s.get("summary_stats") else None,
             })
         

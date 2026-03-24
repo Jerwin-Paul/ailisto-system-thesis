@@ -173,10 +173,7 @@
             <td>{{ s.start_time.strftime('%I:%M %p') if s.start_time else '—' }}</td>
             <td>{{ s.end_time.strftime('%I:%M %p') if s.end_time else '—' }}</td>
             <td>
-              {% if s.start_time and s.end_time %} {% set secs = ((s.end_time -
-              s.start_time).total_seconds()) | int %} {% set hrs = (secs //
-              3600) | int %} {% set mins = ((secs % 3600) // 60) | int %} {% if
-              hrs > 0 %}{{ hrs }}h {% endif %}{{ mins }}m {% else %}—{% endif %}
+              {% if s.start_time and s.end_time %} {% set start_total = (s.start_time.hour * 60) + s.start_time.minute %} {% set end_total = (s.end_time.hour * 60) + s.end_time.minute %} {% set total_mins = end_total - start_total %} {% if total_mins < 0 %}{% set total_mins = 0 %}{% endif %} {% set hrs = (total_mins // 60) | int %} {% set mins = (total_mins % 60) | int %} {% if hrs > 0 %}{{ hrs }}h {% endif %}{{ mins }}m {% else %}—{% endif %}
             </td>
             <td>
               {% if s.summary_stats and s.summary_stats.avgAttention is defined
@@ -739,7 +736,6 @@
       restoreInitialCurrentMonthRows();
     }
 
-    const hasRows = !!(sessionsTbody && sessionsTbody.querySelector('tr'));
     const selectedMonth = monthFilter ? monthFilter.value : '';
     const selectedYear = yearFilter ? yearFilter.value : '';
 
@@ -748,13 +744,7 @@
       sessionsTbody.dataset.loadedYear = selectedYear;
     }
 
-    const alreadyLoadedSelectedMonth = !!(
-      sessionsTbody &&
-      sessionsTbody.dataset.loadedMonth === selectedMonth &&
-      sessionsTbody.dataset.loadedYear === selectedYear
-    );
-
-    if (monthFilter && monthFilter.value && forceReload && !alreadyLoadedSelectedMonth) {
+    if (monthFilter && monthFilter.value && forceReload) {
       loadSessionsForMonth(monthFilter.value);
     }
 
@@ -763,9 +753,9 @@
   }
 
   captureInitialCurrentMonthRows();
-  initialiseHistoryPage();
+  initialiseHistoryPage(true);
   window.addEventListener('load', function () {
-    initialiseHistoryPage(false);
+    initialiseHistoryPage(true);
   });
 
   window.addEventListener('pagehide', function () {
@@ -774,17 +764,23 @@
   });
 
   window.addEventListener('pageshow', function () {
-    initialiseHistoryPage(false);
+    initialiseHistoryPage(true);
   });
 
   window.addEventListener('spa:content-ready', function () {
-    initialiseHistoryPage(false);
+    initialiseHistoryPage(true);
   });
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
-      applySessionFilters();
-      scheduleChartRefresh();
+      // Reload sessions for current month to show latest data
+      const { monthFilter } = getElements();
+      if (monthFilter && monthFilter.value) {
+        loadSessionsForMonth(monthFilter.value);
+      } else {
+        applySessionFilters();
+        scheduleChartRefresh();
+      }
     }
   });
 
