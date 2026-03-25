@@ -153,6 +153,149 @@
         display: flex;
         justify-content: flex-end;
       }
+      .terms-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 260;
+        padding: 1rem;
+      }
+      .terms-overlay.open {
+        display: flex;
+      }
+      .terms-modal {
+        width: 100%;
+        max-width: 700px;
+        background: var(--bg-white);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-2xl);
+        box-shadow: var(--shadow-xl);
+        overflow: hidden;
+      }
+      .terms-header {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border-light);
+      }
+      .terms-title {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 700;
+        color: var(--text-900);
+        text-align: center;
+        width: 100%;
+      }
+      .terms-close {
+        border: none;
+        background: transparent;
+        color: var(--text-500);
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 0.5rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        right: 1.25rem;
+        top: 50%;
+        transform: translateY(-50%);
+      }
+      .terms-close:hover {
+        color: var(--text-900);
+        background: var(--bg);
+      }
+      .terms-close svg {
+        width: 20px;
+        height: 20px;
+      }
+      .terms-body {
+        max-height: min(55vh, 460px);
+        overflow-y: auto;
+        padding: 1rem 1.25rem;
+        color: var(--text-700);
+        font-size: 0.92rem;
+        line-height: 1.55;
+      }
+      .terms-body h3 {
+        margin: 0.75rem 0 0.4rem;
+        font-size: 0.98rem;
+        color: var(--text-900);
+      }
+      .terms-body h3:not(:first-child) {
+        margin-top: 1rem;
+        padding-top: 0.95rem;
+        border-top: 1px solid rgba(15, 23, 42, 0.12);
+      }
+      .terms-body p,
+      .terms-body ul {
+        margin: 0 0 0.65rem;
+      }
+      .terms-body ul {
+        padding-left: 1.15rem;
+      }
+      .terms-footer {
+        border-top: 1px solid var(--border-light);
+        padding: 1rem 1.25rem 1.25rem;
+      }
+      .terms-agreement {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.55rem;
+        color: var(--text-700);
+        font-size: 0.89rem;
+        margin-bottom: 0.9rem;
+        position: relative;
+      }
+      .terms-agreement.locked {
+        cursor: not-allowed;
+      }
+      .terms-agreement.locked span {
+        opacity: 0.72;
+      }
+      .terms-agreement.active,
+      .terms-agreement.active span,
+      .terms-agreement.active input {
+        cursor: pointer;
+      }
+      .terms-agreement input {
+        margin-top: 0.2rem;
+      }
+      .terms-lock-overlay {
+        display: none;
+      }
+      .terms-agreement.locked .terms-lock-overlay {
+        display: block;
+        position: absolute;
+        inset: 0;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        cursor: not-allowed;
+      }
+      .terms-create-btn {
+        width: 100%;
+      }
+      .terms-create-wrap {
+        position: relative;
+      }
+      .terms-create-lock-overlay {
+        display: none;
+      }
+      .terms-create-wrap.locked .terms-create-lock-overlay {
+        display: block;
+        position: absolute;
+        inset: 0;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
@@ -204,6 +347,168 @@
           <button type="button" class="btn btn-primary" id="approval-notice-ok">
             Okay
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="terms-overlay"
+      id="terms-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="terms-title"
+      aria-hidden="true"
+    >
+      <div class="terms-modal">
+        <div class="terms-header">
+          <h2 class="terms-title" id="terms-title">
+            Terms of Service and Privacy Policy
+          </h2>
+          <button
+            type="button"
+            class="terms-close"
+            id="terms-close-btn"
+            aria-label="Close terms modal"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="terms-body" id="terms-content">
+          <h3>1. Acceptance of Terms</h3>
+          <p>
+            By creating an account and using the Ai-Listo system
+            ("Platform"), you agree to comply with and be bound by these
+            Terms of Service and Privacy Policy. If you do not agree, you
+            should not use the Platform.
+          </p>
+
+          <h3>2. Description of the Service</h3>
+          <p>
+            Ai-Listo is a classroom-based system that uses real-time computer
+            vision to analyze and provide insights into student attention levels
+            during live class sessions. The system is intended solely for
+            educational and instructional support.
+          </p>
+
+          <h3>3. Nature of Data Collected</h3>
+          <p>The Platform collects and stores only non-personal, session-based data, including:</p>
+          <ul>
+            <li>Attention scores or classifications</li>
+            <li>Session date</li>
+            <li>Start and end times</li>
+            <li>Session duration</li>
+          </ul>
+          <p>The system does not collect or store:</p>
+          <ul>
+            <li>Student names or personal identifiers</li>
+            <li>Audio recordings</li>
+            <li>Video or image recordings</li>
+          </ul>
+
+          <h3>4. Local Processing and No Video Storage</h3>
+          <p>All video input used by the system is:</p>
+          <ul>
+            <li>Processed locally in real time</li>
+            <li>Not recorded, stored, or uploaded</li>
+            <li>Not accessible for playback, viewing, or monitoring</li>
+          </ul>
+          <p>No live classroom footage is transmitted or made available online.</p>
+
+          <h3>5. Privacy and Data Protection</h3>
+          <p>Ai-Listo is designed to prioritize privacy:</p>
+          <ul>
+            <li>No personally identifiable student data is collected</li>
+            <li>Stored data is limited to aggregated session metrics</li>
+            <li>Data is handled in accordance with applicable data privacy standards</li>
+          </ul>
+
+          <h3>6. Use of Data</h3>
+          <p>Collected data may be used for:</p>
+          <ul>
+            <li>Monitoring classroom engagement trends</li>
+            <li>Supporting instructional decisions</li>
+          </ul>
+
+          <h3>7. User Responsibilities</h3>
+          <p>As a Teacher using the Platform, you agree to:</p>
+          <ul>
+            <li>Inform students that the system is being used in the classroom</li>
+            <li>Ensure that a separate student consent/waiver has been obtained</li>
+            <li>Use the system only for legitimate educational purposes</li>
+            <li>Avoid misuse for surveillance or non-academic monitoring</li>
+          </ul>
+
+          <h3>8. Limitations of the System</h3>
+          <p>You acknowledge that:</p>
+          <ul>
+            <li>Attention detection results are estimates based on observable cues</li>
+            <li>The system does not guarantee absolute accuracy</li>
+            <li>Results should be used as supporting insights, not sole basis for decisions</li>
+          </ul>
+
+          <h3>9. Account Responsibility</h3>
+          <p>You are responsible for:</p>
+          <ul>
+            <li>Maintaining the confidentiality of your account</li>
+            <li>All activities conducted under your account</li>
+          </ul>
+
+          <h3>10. Modifications to the Service or Policy</h3>
+          <p>The developers of Ai-Listo reserve the right to:</p>
+          <ul>
+            <li>Modify or update the system and these terms at any time</li>
+            <li>Notify users of significant changes when applicable</li>
+          </ul>
+
+          <h3>11. Consent</h3>
+          <p>By creating an account and using Ai-Listo, you:</p>
+          <ul>
+            <li>Confirm that you have read and understood these Terms and Privacy Policy</li>
+            <li>Agree to the collection and use of data as described</li>
+            <li>Accept responsibility for complying with all applicable policies</li>
+          </ul>
+        </div>
+
+        <div class="terms-footer">
+          <label class="terms-agreement locked" id="terms-agreement-label" for="terms-agree-checkbox">
+            <input type="checkbox" id="terms-agree-checkbox" disabled />
+            <span>I agree to the Terms of Service and Privacy Policy</span>
+            <button
+              type="button"
+              id="terms-lock-overlay"
+              class="terms-lock-overlay"
+              aria-label="Scroll to the end of the terms first"
+            ></button>
+          </label>
+          <div class="terms-create-wrap locked" id="terms-create-wrap">
+            <button
+              type="button"
+              class="btn btn-primary btn-lg terms-create-btn"
+              id="terms-create-btn"
+              disabled
+            >
+              <span class="btn-spinner"></span>
+              Create Account
+            </button>
+            <button
+              type="button"
+              id="terms-create-lock-overlay"
+              class="terms-create-lock-overlay"
+              aria-label="Check the agreement first"
+            ></button>
+          </div>
         </div>
       </div>
     </div>
@@ -485,10 +790,11 @@
             type="submit"
             class="btn btn-primary btn-lg w-full"
             id="submit-btn"
+            disabled
             style="margin-top: 0.5rem"
           >
             <span class="btn-spinner"></span>
-            Create Account
+            Continue
           </button>
         </form>
 
@@ -664,94 +970,247 @@
         });
       }
 
-      // ─── Form submission (AJAX) ───
-      document
-        .getElementById("register-form")
-        .addEventListener("submit", async (e) => {
-          e.preventDefault();
-          clearErrors();
+      const registerForm = document.getElementById("register-form");
+      const continueBtn = document.getElementById("submit-btn");
+      const termsOverlay = document.getElementById("terms-overlay");
+      const termsContent = document.getElementById("terms-content");
+      const termsCreateBtn = document.getElementById("terms-create-btn");
+      const termsCreateWrap = document.getElementById("terms-create-wrap");
+      const termsCreateLockOverlay = document.getElementById(
+        "terms-create-lock-overlay",
+      );
+      const termsAgreeCheckbox = document.getElementById("terms-agree-checkbox");
+      const termsAgreementLabel = document.getElementById("terms-agreement-label");
+      const termsLockOverlay = document.getElementById("terms-lock-overlay");
+      const termsCloseBtn = document.getElementById("terms-close-btn");
+      let hasReachedTermsEnd = false;
 
-          const firstName = document.getElementById("firstName").value.trim();
-          const lastName = document.getElementById("lastName").value.trim();
-          const email = document.getElementById("email").value.trim();
-          const password = document.getElementById("password").value;
-          const confirm = document.getElementById("confirmPassword").value;
-          let hasErr = false;
+      function showScrollPrompt() {
+        showToast(
+          "Please read the full Terms of Service and Privacy Policy before proceeding.",
+          "error",
+        );
+      }
 
-          // Client-side validation
-          if (!firstName) {
-            showFieldError("firstName", "First name is required.");
+      function isValidEmailFormat(email) {
+        const emailPattern =
+          /^[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*@[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)+$/;
+        return emailPattern.test(email);
+      }
+
+      function getRequiredFieldValues() {
+        return {
+          firstName: document.getElementById("firstName").value.trim(),
+          lastName: document.getElementById("lastName").value.trim(),
+          email: document.getElementById("email").value.trim(),
+          password: document.getElementById("password").value,
+          confirm: document.getElementById("confirmPassword").value,
+        };
+      }
+
+      function updateContinueButtonState() {
+        const { firstName, lastName, email, password, confirm } =
+          getRequiredFieldValues();
+        const allFilled =
+          firstName && lastName && email && password && confirm;
+        continueBtn.disabled = !allFilled;
+      }
+
+      function openTermsModal() {
+        termsOverlay.classList.add("open");
+        termsOverlay.setAttribute("aria-hidden", "false");
+        hasReachedTermsEnd = false;
+        termsContent.scrollTop = 0;
+        termsAgreeCheckbox.checked = false;
+        termsAgreeCheckbox.disabled = true;
+        termsCreateBtn.disabled = true;
+        termsCreateWrap.classList.add("locked");
+        termsAgreementLabel.classList.add("locked");
+        termsAgreementLabel.classList.remove("active");
+        termsCreateBtn.classList.remove("btn-loading");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeTermsModal() {
+        termsOverlay.classList.remove("open");
+        termsOverlay.setAttribute("aria-hidden", "true");
+        termsCreateBtn.classList.remove("btn-loading");
+        document.body.style.overflow = "";
+      }
+
+      function unlockTermsAgreement() {
+        if (hasReachedTermsEnd) {
+          return;
+        }
+        hasReachedTermsEnd = true;
+        termsAgreeCheckbox.disabled = false;
+        termsAgreementLabel.classList.remove("locked");
+        termsAgreementLabel.classList.add("active");
+        showToast("You can now check the agreement box.", "success");
+      }
+
+      function validateFormFields() {
+        clearErrors();
+        const { firstName, lastName, email, password, confirm } =
+          getRequiredFieldValues();
+        let hasErr = false;
+
+        if (!firstName) {
+          showFieldError("firstName", "First name is required.");
+          hasErr = true;
+        }
+        if (!lastName) {
+          showFieldError("lastName", "Last name is required.");
+          hasErr = true;
+        }
+        if (!email) {
+          showFieldError("email", "Email is required.");
+          hasErr = true;
+        } else if (!isValidEmailFormat(email)) {
+          showFieldError(
+            "email",
+            "Please enter a valid email (letters, numbers, dots, one @, and a valid domain like name@gmail.com).",
+          );
+          hasErr = true;
+        }
+        if (!password) {
+          showFieldError("password", "Password is required.");
+          hasErr = true;
+        } else {
+          const unmet = getPasswordPolicyUnmet(password);
+          if (unmet.length) {
+            showFieldError("password", formatPasswordPolicyMessage(unmet));
             hasErr = true;
           }
-          if (!lastName) {
-            showFieldError("lastName", "Last name is required.");
-            hasErr = true;
+        }
+        if (password && password !== confirm) {
+          showFieldError("confirmPassword", "Passwords do not match.");
+          hasErr = true;
+        } else if (!confirm) {
+          showFieldError("confirmPassword", "Please confirm your password.");
+          hasErr = true;
+        }
+
+        return !hasErr;
+      }
+
+      async function submitRegistration() {
+        termsCreateBtn.classList.add("btn-loading");
+
+        try {
+          const formData = new FormData(registerForm);
+          const res = await fetch("/register", {
+            method: "POST",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+            body: formData,
+          });
+          const data = await res.json();
+
+          if (data.success) {
+            closeTermsModal();
+            await showApprovalNotice(
+              data.message || "Wait for Admin approval before signing in.",
+            );
+            window.location.href = data.redirect;
+            return;
           }
-          if (!email) {
-            showFieldError("email", "Email is required.");
-            hasErr = true;
-          } else if (!email.includes("@")) {
-            showFieldError("email", "Please enter a valid email.");
-            hasErr = true;
-          }
-          if (!password) {
-            showFieldError("password", "Password is required.");
-            hasErr = true;
-          } else {
-            const unmet = getPasswordPolicyUnmet(password);
-            if (unmet.length) {
-              showFieldError("password", formatPasswordPolicyMessage(unmet));
-              hasErr = true;
+
+          closeTermsModal();
+
+          if (data.errors) {
+            for (const [field, msg] of Object.entries(data.errors)) {
+              showFieldError(field, msg);
             }
+            const firstMsg = Object.values(data.errors)[0];
+            showToast(firstMsg, "error");
           }
-          if (password && password !== confirm) {
-            showFieldError("confirmPassword", "Passwords do not match.");
-            hasErr = true;
-          } else if (!confirm) {
-            showFieldError("confirmPassword", "Please confirm your password.");
-            hasErr = true;
-          }
+        } catch (err) {
+          showToast("Something went wrong. Please try again.", "error");
+        } finally {
+          termsCreateBtn.classList.remove("btn-loading");
+        }
+      }
 
-          if (hasErr) {
+      termsAgreeCheckbox.addEventListener("change", () => {
+        termsCreateBtn.disabled = !termsAgreeCheckbox.checked;
+        termsCreateWrap.classList.toggle("locked", termsCreateBtn.disabled);
+      });
+
+      termsAgreementLabel.addEventListener("click", (event) => {
+        if (termsAgreeCheckbox.disabled) {
+          event.preventDefault();
+          showScrollPrompt();
+        }
+      });
+
+      termsLockOverlay.addEventListener("click", (event) => {
+        event.preventDefault();
+        showScrollPrompt();
+      });
+
+      termsCreateLockOverlay.addEventListener("click", (event) => {
+        event.preventDefault();
+        showToast(
+          "Please check the checkbox first and agree to the Terms of Service and Privacy Policy.",
+          "error",
+        );
+      });
+
+      termsContent.addEventListener("scroll", () => {
+        const threshold = 6;
+        const reachedEnd =
+          termsContent.scrollTop + termsContent.clientHeight >=
+          termsContent.scrollHeight - threshold;
+
+        if (reachedEnd) {
+          unlockTermsAgreement();
+        }
+      });
+
+      termsCloseBtn.addEventListener("click", closeTermsModal);
+      termsOverlay.addEventListener("click", (event) => {
+        if (event.target === termsOverlay) {
+          closeTermsModal();
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && termsOverlay.classList.contains("open")) {
+          closeTermsModal();
+        }
+      });
+
+      document.querySelectorAll(".form-input").forEach((input) => {
+        input.addEventListener("input", updateContinueButtonState);
+      });
+      updateContinueButtonState();
+
+      // ─── Form submission (AJAX) ───
+      registerForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          if (!validateFormFields()) {
             showToast("Please fix the errors below.", "error");
             return;
           }
 
-          const btn = document.getElementById("submit-btn");
-          btn.classList.add("btn-loading");
+          openTermsModal();
+          termsCreateBtn.focus();
+      });
 
-          try {
-            const formData = new FormData(e.target);
-            const res = await fetch("/register", {
-              method: "POST",
-              headers: { "X-Requested-With": "XMLHttpRequest" },
-              body: formData,
-            });
-            const data = await res.json();
+      termsCreateBtn.addEventListener("click", async () => {
+        if (!termsAgreeCheckbox.checked) {
+          return;
+        }
 
-            if (data.success) {
-              await showApprovalNotice(
-                data.message || "Wait for Admin approval before signing in.",
-              );
-              window.location.href = data.redirect;
-              return;
-            }
+        if (!validateFormFields()) {
+          closeTermsModal();
+          showToast("Please fix the errors below.", "error");
+          return;
+        }
 
-            // Server errors (per-field)
-            if (data.errors) {
-              for (const [field, msg] of Object.entries(data.errors)) {
-                showFieldError(field, msg);
-              }
-              // Show first error as toast
-              const firstMsg = Object.values(data.errors)[0];
-              showToast(firstMsg, "error");
-            }
-          } catch (err) {
-            showToast("Something went wrong. Please try again.", "error");
-          } finally {
-            btn.classList.remove("btn-loading");
-          }
-        });
+        await submitRegistration();
+      });
     </script>
   </body>
 </html>
