@@ -149,13 +149,17 @@
       </button>
     </div>
     <div
-      class="card-content"
+      class="card-content report-preview-frame"
       style="
         padding: 0;
         overflow: hidden;
         border-radius: 0 0 var(--radius-xl) var(--radius-xl);
       "
     >
+      <div id="previewLoading" class="report-preview-loading" aria-live="polite">
+        <div class="report-preview-spinner" aria-hidden="true"></div>
+        <div class="report-preview-loading-text">Loading PDF preview...</div>
+      </div>
       <iframe
         id="pdfPreview"
         style="width: 100%; height: 720px; border: none; display: block"
@@ -164,21 +168,151 @@
   </div>
 </div>
 
+<style>
+  .report-preview-frame {
+    position: relative;
+    min-height: 420px;
+    background: #f8fafc;
+  }
+
+  .report-preview-loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: linear-gradient(135deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.96));
+    z-index: 1;
+  }
+
+  .report-preview-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(59, 130, 246, 0.2);
+    border-top-color: #3b82f6;
+    animation: reportPreviewSpin 0.8s linear infinite;
+  }
+
+  .report-preview-loading-text {
+    font-size: 0.85rem;
+    color: #64748b;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  @keyframes reportPreviewSpin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>
+
 <script>
-  // Pre-fill dates to current month
-  (function seedDates() {
+  (function () {
+  const reportLoginMarker = {{ report_login_marker|tojson }};
+  const reportPreviewStorageKey = `ailisto_report_preview_${reportLoginMarker}`;
+
+  let currentStartDate = "";
+  let currentEndDate = "";
+  let currentSubjectCode = "";
+  let currentSection = "";
+
+  function seedDates() {
     const today = new Date();
     const y = today.getFullYear();
     const m = String(today.getMonth() + 1).padStart(2, "0");
     const d = String(today.getDate()).padStart(2, "0");
     document.getElementById("reportStartDate").value = `${y}-${m}-01`;
     document.getElementById("reportEndDate").value = `${y}-${m}-${d}`;
-  })();
+  }
 
-  let currentStartDate = "";
-  let currentEndDate = "";
-  let currentSubjectCode = "";
-  let currentSection = "";
+  function getSelectedText(selectId, fallbackText) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl || !selectEl.selectedOptions || !selectEl.selectedOptions.length) {
+      return fallbackText || "";
+    }
+    return selectEl.selectedOptions[0].text;
+  }
+
+  function clearStoredPreview() {
+    localStorage.removeItem(reportPreviewStorageKey);
+  }
+
+  function setPreviewLoading(isLoading) {
+    const loadingEl = document.getElementById("previewLoading");
+    const iframe = document.getElementById("pdfPreview");
+    if (!loadingEl || !iframe) return;
+    loadingEl.style.display = isLoading ? "flex" : "none";
+    iframe.style.visibility = isLoading ? "hidden" : "visible";
+  }
+
+  function storePreviewState(data) {
+    localStorage.setItem(reportPreviewStorageKey, JSON.stringify(data));
+  }
+
+  function restorePreviewState() {
+    const raw = localStorage.getItem(reportPreviewStorageKey);
+    if (!raw) return false;
+
+    let state;
+    try {
+      state = JSON.parse(raw);
+    } catch {
+      clearStoredPreview();
+      return false;
+    }
+
+    if (!state || !state.startDate || !state.endDate || !state.previewUrl) {
+      clearStoredPreview();
+      return false;
+    }
+
+    document.getElementById("reportStartDate").value = state.startDate;
+    document.getElementById("reportEndDate").value = state.endDate;
+    document.getElementById("reportSubject").value = state.subjectCode || "";
+    document.getElementById("reportSection").value = state.section || "";
+
+    currentStartDate = state.startDate;
+    currentEndDate = state.endDate;
+    currentSubjectCode = state.subjectCode || "";
+    currentSection = state.section || "";
+
+    const subjectText = getSelectedText("reportSubject", state.subjectText || "All Subjects");
+    const sectionText = getSelectedText("reportSection", state.sectionText || "All Sections");
+
+    document.getElementById("previewDateLabel").textContent =
+      `${state.startDate}  →  ${state.endDate} | ${subjectText} | ${sectionText}`;
+    document.getElementById("previewSection").style.display = "block";
+    const iframe = document.getElementById("pdfPreview");
+    setPreviewLoading(true);
+    iframe.onload = () => {
+      setPreviewLoading(false);
+    };
+    iframe.onerror = () => {
+      setPreviewLoading(false);
+    };
+    iframe.src = state.previewUrl;
+    return true;
+  }
+
+  (function initReportPageState() {
+    const navEntries = performance.getEntriesByType("navigation");
+    const navType = navEntries && navEntries[0] ? navEntries[0].type : "";
+
+    // Clear preview once on actual browser reload, not on every SPA revisit.
+    if (navType === "reload" && !window.__reportsReloadHandled) {
+      clearStoredPreview();
+      window.__reportsReloadHandled = true;
+    }
+
+    const restored = restorePreviewState();
+    if (!restored) {
+      seedDates();
+    }
+  })();
 
   function generatePreview() {
     const startDate = document.getElementById("reportStartDate").value;
@@ -225,9 +359,28 @@
       `${startDate}  →  ${endDate} | ${subjectText} | ${sectionText}`;
     const section = document.getElementById("previewSection");
     section.style.display = "block";
+    setPreviewLoading(true);
+
+    storePreviewState({
+      startDate,
+      endDate,
+      subjectCode,
+      section: sectionValue,
+      subjectText,
+      sectionText,
+      previewUrl,
+    });
 
     iframe.onload = () => {
+      setPreviewLoading(false);
       section.scrollIntoView({ behavior: "smooth", block: "start" });
+      btn.disabled = false;
+      btn.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>Generate Report';
+    };
+
+    iframe.onerror = () => {
+      setPreviewLoading(false);
       btn.disabled = false;
       btn.innerHTML =
         '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>Generate Report';
@@ -276,5 +429,10 @@
         '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download PDF';
     }
   }
+
+  // Expose handlers for inline onclick attributes.
+  window.generatePreview = generatePreview;
+  window.downloadReport = downloadReport;
+  })();
 </script>
 {% endblock %}

@@ -770,6 +770,7 @@ def login():
             if not LOGIN_OTP_ENABLED:
                 session.pop("pending_login", None)
                 session["user_id"] = user["id"]
+                session["login_marker"] = f"{user['id']}-{int(time.time())}"
                 if is_ajax:
                     return jsonify({"success": True, "redirect": url_for("home")})
                 return redirect(url_for("home"))
@@ -937,6 +938,7 @@ def verify_login_otp():
 
     session.pop("pending_login", None)
     session["user_id"] = user["id"]
+    session["login_marker"] = f"{user['id']}-{int(time.time())}"
     if is_ajax:
         return jsonify({"success": True, "redirect": url_for("home")})
     return redirect(url_for("home"))
@@ -1544,6 +1546,10 @@ def history():
 def reports():
     user = current_user()
     subjects = db.get_subjects(user["id"])
+    login_marker = session.get("login_marker")
+    if not login_marker:
+        login_marker = f"{user['id']}-{int(time.time())}"
+        session["login_marker"] = login_marker
 
     # Keep subject filter unique by course code so one choice can span sections.
     seen_course_codes = set()
@@ -1565,6 +1571,7 @@ def reports():
         user=user,
         subject_filters=subject_filters,
         section_filters=section_filters,
+        report_login_marker=login_marker,
     )
 
 
@@ -1919,6 +1926,9 @@ def _build_report_pdf(
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.graphics.charts.linecharts import HorizontalLineChart
+    from reportlab.graphics.widgets.markers import makeMarker
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
     )
@@ -2002,7 +2012,6 @@ def _build_report_pdf(
     story.append(Spacer(1, 0.5 * cm))
 
     total = len(sessions_list)
-    completed = sum(1 for s in sessions_list if s.get("status") == "completed")
     attentions = [
         s["summary_stats"].get("avgAttention")
         for s in sessions_list
@@ -2010,12 +2019,15 @@ def _build_report_pdf(
     ]
     avg_att = round(sum(attentions) / len(attentions)) if attentions else 0
 
+    # Keep report table widths consistent across sections.
+    report_table_total_width = 16.5 * cm
+
     story.append(Paragraph("Summary", section_style))
     summary_data = [
-        ["Total Sessions", "Completed Sessions", "Avg. Attention"],
-        [str(total), str(completed), f"{avg_att}%"],
+        ["Total Sessions", "Avg. Attention"],
+        [str(total), f"{avg_att}%"],
     ]
-    summary_table = Table(summary_data, colWidths=[5.5 * cm, 5.5 * cm, 5.5 * cm])
+    summary_table = Table(summary_data, colWidths=[report_table_total_width / 2, report_table_total_width / 2])
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -2030,27 +2042,81 @@ def _build_report_pdf(
     ]))
     story.append(summary_table)
 
+    # Build daily average-attention trend points from the selected date range sessions.
+    daily_attention_totals = {}
+    daily_attention_counts = {}
+    for s in sessions_list:
+        if not s.get("start_time"):
+            continue
+        if not s.get("summary_stats") or s["summary_stats"].get("avgAttention") is None:
+            continue
+        day_key = s["start_time"].date()
+        daily_attention_totals[day_key] = daily_attention_totals.get(day_key, 0.0) + float(s["summary_stats"]["avgAttention"])
+        daily_attention_counts[day_key] = daily_attention_counts.get(day_key, 0) + 1
+
+    if daily_attention_totals:
+        trend_days = sorted(daily_attention_totals.keys())
+        trend_labels = [d.strftime("%b %d") for d in trend_days]
+        trend_values = [round(daily_attention_totals[d] / daily_attention_counts[d], 2) for d in trend_days]
+
+        story.append(Paragraph("Avg. Attention Trend", section_style))
+        try:
+            chart_drawing = Drawing(report_table_total_width, 6.2 * cm)
+            chart = HorizontalLineChart()
+            chart.x = 1.0 * cm
+            chart.y = 0.9 * cm
+            chart.width = report_table_total_width - (1.5 * cm)
+            chart.height = 4.8 * cm
+            chart.data = [trend_values]
+            chart.joinedLines = 1
+            chart.lines[0].strokeColor = brand_blue
+            chart.lines[0].strokeWidth = 2
+            chart.lines[0].symbol = makeMarker("FilledCircle")
+
+            chart.categoryAxis.categoryNames = trend_labels
+            chart.categoryAxis.labels.boxAnchor = "n"
+            chart.categoryAxis.labels.fontName = "Helvetica"
+            chart.categoryAxis.labels.fontSize = 7
+            chart.categoryAxis.labels.angle = 30
+            chart.categoryAxis.labels.dy = -8
+
+            chart.valueAxis.valueMin = 0
+            chart.valueAxis.valueMax = 100
+            chart.valueAxis.valueStep = 10
+            chart.valueAxis.labels.fontName = "Helvetica"
+            chart.valueAxis.labels.fontSize = 7
+
+            chart_drawing.add(chart)
+            story.append(chart_drawing)
+        except Exception:
+            logging.exception("Failed to render avg attention trend chart")
+            story.append(Paragraph("Trend chart could not be rendered for this report.", normal_style))
+    else:
+        story.append(Paragraph("Avg. Attention Trend", section_style))
+        story.append(Paragraph("No attention data available for trend chart in the selected date range.", normal_style))
+
     story.append(Paragraph("Session Details", section_style))
     if sessions_list:
-        table_data = [["Class", "Date", "Duration", "Status", "Avg. Attention"]]
+        table_data = [["Class", "Date", "Start Time", "End Time", "Duration", "Avg. Attention"]]
         for s in sessions_list:
             course = f"{s.get('course_code', '')} - {s.get('section', '')}"
-            start = s["start_time"].strftime("%b %d, %Y %I:%M %p") if s.get("start_time") else "—"
+            date_display = s["start_time"].strftime("%b %d, %Y") if s.get("start_time") else "—"
+            start_time_display = s["start_time"].strftime("%I:%M %p") if s.get("start_time") else "—"
+            end_time_display = s["end_time"].strftime("%I:%M %p") if s.get("end_time") else "—"
             if s.get("start_time") and s.get("end_time"):
-                delta = s["end_time"] - s["start_time"]
-                mins = int(delta.total_seconds() // 60)
-                duration = f"{mins} min"
+                mins = _duration_minutes_ignore_seconds(s.get("start_time"), s.get("end_time")) or 0
+                hours, rem_mins = divmod(mins, 60)
+                duration = f"{hours} hr {rem_mins} min"
             else:
                 duration = "—"
-            status = s.get("status", "active").capitalize()
             att = (
                 f"{s['summary_stats']['avgAttention']}%"
                 if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
                 else "—"
             )
-            table_data.append([course, start, duration, status, att])
+            table_data.append([course, date_display, start_time_display, end_time_display, duration, att])
 
-        col_widths = [4.5 * cm, 4.5 * cm, 2.5 * cm, 2.5 * cm, 3 * cm]
+        col_widths = [3.5 * cm, 2.8 * cm, 2.4 * cm, 2.4 * cm, 2.7 * cm, 2.7 * cm]
         detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
         detail_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
