@@ -31,6 +31,119 @@ LOGIN_OTP_RESEND_COOLDOWN_SECONDS = int(os.environ.get("LOGIN_OTP_RESEND_COOLDOW
 LOGIN_OTP_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_OTP_LOCKOUT_SECONDS", "300"))
 LOGIN_OTP_ENABLED = os.environ.get("LOGIN_OTP_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 PASSWORD_REQUIRED_SYMBOLS = "!@#$%^&*"
+TERMS_VERSION = "v1.0"
+
+TERMS_POLICY_SECTIONS = [
+    {
+        "heading": "1. Acceptance of Terms",
+        "paragraphs": [
+            "By creating an account and using the Ai-Listo system (\"Platform\"), you agree to comply with and be bound by these Terms of Service and Privacy Policy. If you do not agree, you should not use the Platform.",
+        ],
+    },
+    {
+        "heading": "2. Description of the Service",
+        "paragraphs": [
+            "Ai-Listo is a classroom-based system that uses real-time computer vision to analyze and provide insights into student attention levels during live class sessions. The system is intended solely for educational and instructional support.",
+        ],
+    },
+    {
+        "heading": "3. Nature of Data Collected",
+        "paragraphs": [
+            "The Platform collects and stores only non-personal, session-based data, including:",
+        ],
+        "bullets": [
+            "Attention scores or classifications",
+            "Session date",
+            "Start and end times",
+            "Session duration",
+        ],
+        "paragraphs_after": [
+            "The system does not collect or store:",
+        ],
+        "bullets_after": [
+            "Student names or personal identifiers",
+            "Audio recordings",
+            "Video or image recordings",
+        ],
+    },
+    {
+        "heading": "4. Local Processing and No Video Storage",
+        "paragraphs": [
+            "All video input used by the system is:",
+        ],
+        "bullets": [
+            "Processed locally in real time",
+            "Not recorded, stored, or uploaded",
+            "Not accessible for playback, viewing, or monitoring",
+        ],
+        "paragraphs_after": [
+            "No live classroom footage is transmitted or made available online.",
+        ],
+    },
+    {
+        "heading": "5. Privacy and Data Protection",
+        "paragraphs": [
+            "Ai-Listo is designed to prioritize privacy:",
+        ],
+        "bullets": [
+            "No personally identifiable student data is collected",
+            "Stored data is limited to aggregated session metrics",
+            "Data is handled in accordance with applicable data privacy standards",
+        ],
+    },
+    {
+        "heading": "6. Use of Data",
+        "paragraphs": ["Collected data may be used for:"],
+        "bullets": [
+            "Monitoring classroom engagement trends",
+            "Supporting instructional decisions",
+        ],
+    },
+    {
+        "heading": "7. User Responsibilities",
+        "paragraphs": ["As a Teacher using the Platform, you agree to:"],
+        "bullets": [
+            "Inform students that the system is being used in the classroom",
+            "Ensure that a separate student consent/waiver has been obtained",
+            "Use the system only for legitimate educational purposes",
+            "Avoid misuse for surveillance or non-academic monitoring",
+        ],
+    },
+    {
+        "heading": "8. Limitations of the System",
+        "paragraphs": ["You acknowledge that:"],
+        "bullets": [
+            "Attention detection results are estimates based on observable cues",
+            "The system does not guarantee absolute accuracy",
+            "Results should be used as supporting insights, not sole basis for decisions",
+        ],
+    },
+    {
+        "heading": "9. Account Responsibility",
+        "paragraphs": ["You are responsible for:"],
+        "bullets": [
+            "Maintaining the confidentiality of your account",
+            "All activities conducted under your account",
+        ],
+    },
+    {
+        "heading": "10. Modifications to the Service or Policy",
+        "paragraphs": ["The developers of Ai-Listo reserve the right to:"],
+        "bullets": [
+            "Modify or update the system and these terms at any time",
+            "Notify users of significant changes when applicable",
+        ],
+    },
+    {
+        "heading": "11. Consent",
+        "paragraphs": ["By creating an account and using Ai-Listo, you:"],
+        "bullets": [
+            "Confirm that you have read and understood these Terms and Privacy Policy",
+            "Agree to the collection and use of data as described",
+            "Accept responsibility for complying with all applicable policies",
+        ],
+    },
+]
 
 # Bootstrap tables on startup
 db.init_db()
@@ -117,6 +230,122 @@ def _password_policy_message(unmet: list[str]) -> str:
     if len(parts) == 1:
         return f"Password must include {parts[0]}."
     return f"Password must include {parts[0]} and {parts[1]}."
+
+
+def _safe_filename_part(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", (value or "").strip().lower())
+    return cleaned.strip("_") or "user"
+
+
+def _build_terms_pdf_filename(full_name: str, agreed_at: datetime) -> str:
+    stamp = agreed_at.strftime("%Y%m%d-%H%M%S")
+    return f"ai-listo-terms-agreement-{_safe_filename_part(full_name)}-{stamp}.pdf"
+
+
+def _build_terms_policy_pdf(
+    full_name: str,
+    agreed_at: datetime,
+    include_signature_meta: bool = True,
+) -> io.BytesIO:
+    """Build a PDF copy of Terms and Privacy Policy with signer metadata."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=2 * cm,
+        rightMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+        title="Ai-Listo Terms of Service and Privacy Policy",
+        author="Ai-Listo",
+        subject="Terms Agreement",
+        creator="Ai-Listo",
+    )
+
+    styles = getSampleStyleSheet()
+    dark = colors.HexColor("#1e293b")
+    muted = colors.HexColor("#64748b")
+    brand = colors.HexColor("#3b82f6")
+
+    title_style = ParagraphStyle(
+        "TermsTitle",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=17,
+        textColor=dark,
+        spaceAfter=4,
+    )
+    subtitle_style = ParagraphStyle(
+        "TermsSubtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9,
+        textColor=muted,
+        spaceAfter=2,
+    )
+    heading_style = ParagraphStyle(
+        "TermsHeading",
+        parent=styles["Heading3"],
+        fontName="Helvetica-Bold",
+        fontSize=11,
+        textColor=dark,
+        spaceBefore=9,
+        spaceAfter=3,
+    )
+    body_style = ParagraphStyle(
+        "TermsBody",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9,
+        textColor=dark,
+        leading=13,
+        spaceAfter=3,
+    )
+    bullet_style = ParagraphStyle(
+        "TermsBullet",
+        parent=body_style,
+        leftIndent=12,
+        bulletIndent=2,
+        spaceAfter=2,
+    )
+
+    story = []
+    story.append(Paragraph("Ai-Listo", title_style))
+    story.append(Paragraph("Terms of Service and Privacy Policy", subtitle_style))
+    story.append(Paragraph(f"Version: {TERMS_VERSION}", subtitle_style))
+    if include_signature_meta:
+        story.append(
+            Paragraph(
+                f"Generated: {agreed_at.strftime('%B %d, %Y at %I:%M %p')}",
+                subtitle_style,
+            )
+        )
+        if full_name:
+            story.append(Paragraph(f"Agreed by: {full_name}", subtitle_style))
+    story.append(Spacer(1, 0.2 * cm))
+    story.append(HRFlowable(width="100%", thickness=1.2, color=brand))
+    story.append(Spacer(1, 0.2 * cm))
+
+    for section in TERMS_POLICY_SECTIONS:
+        story.append(Paragraph(section["heading"], heading_style))
+        for text in section.get("paragraphs", []):
+            story.append(Paragraph(text, body_style))
+        for item in section.get("bullets", []):
+            story.append(Paragraph(item, bullet_style, bulletText="-"))
+        for text in section.get("paragraphs_after", []):
+            story.append(Paragraph(text, body_style))
+        for item in section.get("bullets_after", []):
+            story.append(Paragraph(item, bullet_style, bulletText="-"))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf
 
 def login_required(f):
     """Redirect to /login if no user session."""
@@ -832,13 +1061,42 @@ def register():
             flash("An account with this email already exists.", "error")
             return render_template("register.html")
 
-        db.create_user(
-            email,
-            password,
-            first_name,
-            last_name,
-            approval_status="pending",
-        )
+        created_user = None
+        try:
+            created_user = db.create_user(
+                email,
+                password,
+                first_name,
+                last_name,
+                approval_status="pending",
+            )
+
+            agreed_at = datetime.now()
+            full_name = f"{first_name} {last_name}".strip()
+            terms_filename = _build_terms_pdf_filename(full_name, agreed_at)
+            terms_pdf = _build_terms_policy_pdf(full_name, agreed_at)
+
+            db.create_user_terms_agreement_proof(
+                user_id=created_user["id"],
+                full_name=full_name,
+                agreed_at=agreed_at,
+                file_name=terms_filename,
+                pdf_data=terms_pdf.getvalue(),
+                terms_version=TERMS_VERSION,
+            )
+        except Exception as exc:
+            logging.exception("Failed to store terms agreement proof for %s", email)
+            if created_user and created_user.get("id"):
+                try:
+                    db.delete_user_by_id(created_user["id"])
+                except Exception:
+                    logging.exception("Failed to rollback user %s after proof-save error", created_user["id"])
+
+            if is_ajax:
+                return jsonify({"errors": {"email": "Could not complete registration. Please try again."}}), 500
+            flash("Could not complete registration. Please try again.", "error")
+            return render_template("register.html")
+
         create_supabase_auth_user(email, password)
         pending_msg = "Account created. Wait for Admin approval before signing in."
         if is_ajax:
@@ -847,6 +1105,24 @@ def register():
         return redirect(url_for("login"))
 
     return render_template("register.html")
+
+
+@app.route("/terms/download-pdf", methods=["GET"])
+def download_terms_pdf():
+    full_name = request.args.get("name", "Prospective User").strip() or "Prospective User"
+    generated_at = datetime.now()
+    filename = _build_terms_pdf_filename(full_name, generated_at)
+    buf = _build_terms_policy_pdf(
+        full_name,
+        generated_at,
+        include_signature_meta=False,
+    )
+    return send_file(
+        buf,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
@@ -1303,6 +1579,33 @@ def user_management():
     users = db.list_users()
     pending_users = db.get_pending_users()
     return render_template("user-management.html", user=user, users=users, pending_users=pending_users)
+
+
+@app.route("/user-agreements")
+@admin_required
+def user_agreements():
+    user = current_user()
+    agreements = db.list_user_terms_agreements()
+    return render_template("user-agreements.html", user=user, agreements=agreements)
+
+
+@app.route("/admin/user-agreements/<int:proof_id>/download")
+@admin_required
+def admin_download_user_agreement(proof_id: int):
+    proof = db.get_user_terms_agreement_proof(proof_id)
+    if not proof:
+        return jsonify({"error": "Agreement proof not found."}), 404
+
+    pdf_data = proof.get("pdf_data")
+    if not pdf_data:
+        return jsonify({"error": "Agreement proof has no PDF data."}), 404
+
+    return send_file(
+        io.BytesIO(bytes(pdf_data)),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=proof.get("file_name") or f"terms-agreement-{proof_id}.pdf",
+    )
 
 
 # ─── API Endpoints ───────────────────────────────────────────────────

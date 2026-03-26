@@ -178,6 +178,32 @@ def init_db():
             ALTER TABLE sessions
             ADD COLUMN IF NOT EXISTS summary_stats JSONB;
         """)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_terms_agreements (
+                id            SERIAL PRIMARY KEY,
+                user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                full_name     TEXT NOT NULL,
+                agreed_at     TIMESTAMP NOT NULL,
+                terms_version TEXT NOT NULL DEFAULT 'v1.0',
+                file_name     TEXT NOT NULL,
+                pdf_data      BYTEA NOT NULL,
+                created_at    TIMESTAMP DEFAULT NOW()
+            );
+            """,
+        )
+        cur.execute(
+            """
+            ALTER TABLE user_terms_agreements
+            ADD COLUMN IF NOT EXISTS terms_version TEXT NOT NULL DEFAULT 'v1.0';
+            """,
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_user_terms_agreements_user_id
+            ON user_terms_agreements(user_id);
+            """,
+        )
 
 
 # ─── Password Hashing ────────────────────────────────────────────────
@@ -284,6 +310,37 @@ def create_user(
         return _normalize_user_row(dict(cur.fetchone()))
 
 
+def delete_user_by_id(user_id: int):
+    with get_cursor() as cur:
+        cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+
+def create_user_terms_agreement_proof(
+    user_id: int,
+    full_name: str,
+    agreed_at: datetime,
+    file_name: str,
+    pdf_data: bytes,
+    terms_version: str = "v1.0",
+) -> dict:
+    with get_cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_terms_agreements
+               (user_id, full_name, agreed_at, terms_version, file_name, pdf_data)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               RETURNING id, user_id, full_name, agreed_at, terms_version, file_name, created_at""",
+            (
+                user_id,
+                full_name,
+                agreed_at,
+                terms_version,
+                file_name,
+                psycopg2.Binary(pdf_data),
+            ),
+        )
+        return dict(cur.fetchone())
+
+
 def list_users() -> list[dict]:
     with get_cursor(commit=False) as cur:
         cur.execute("""
@@ -298,6 +355,51 @@ def list_users() -> list[dict]:
             ORDER BY u.created_at DESC, u.id DESC
         """)
         return [dict(r) for r in cur.fetchall()]
+
+
+def list_user_terms_agreements() -> list[dict]:
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT
+                uta.id,
+                uta.user_id,
+                uta.full_name,
+                uta.agreed_at,
+                uta.terms_version,
+                uta.file_name,
+                uta.created_at,
+                u.email
+            FROM user_terms_agreements uta
+            JOIN users u ON u.id = uta.user_id
+            ORDER BY uta.agreed_at DESC, uta.id DESC
+            """,
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_user_terms_agreement_proof(proof_id: int) -> dict | None:
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT
+                uta.id,
+                uta.user_id,
+                uta.full_name,
+                uta.agreed_at,
+                uta.terms_version,
+                uta.file_name,
+                uta.pdf_data,
+                uta.created_at,
+                u.email
+            FROM user_terms_agreements uta
+            JOIN users u ON u.id = uta.user_id
+            WHERE uta.id = %s
+            """,
+            (proof_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 def get_pending_users() -> list[dict]:

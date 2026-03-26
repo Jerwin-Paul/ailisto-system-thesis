@@ -1,0 +1,65 @@
+{% extends "_layout.html" %}
+{% block title %}User Agreements - Ai-Listo{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div>
+    <h2 class="page-title">User Agreements</h2>
+    <p class="page-subtitle">
+      Review Terms of Service and Privacy Policy agreement proofs and download signed PDF copies.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-header" style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+      <h3 class="card-title">Agreement Records</h3>
+      <span class="badge" style="background: var(--blue-100); color: var(--blue-600);">
+        {{ agreements|length }} Records
+      </span>
+    </div>
+
+    <div class="card-content">
+      {% if agreements %}
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="agreements-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Email</th>
+              <th>Agreed Timestamp</th>
+              <th>Terms Version</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for record in agreements %}
+            <tr>
+              <td><strong>{{ record.full_name }}</strong></td>
+              <td>{{ record.email }}</td>
+              <td>
+                {{ record.agreed_at.strftime('%b %d, %Y • %I:%M %p') if record.agreed_at else '—' }}
+              </td>
+              <td>{{ record.terms_version or 'v1.0' }}</td>
+              <td>
+                <a
+                  class="btn btn-sm btn-outline"
+                  href="/admin/user-agreements/{{ record.id }}/download"
+                >
+                  Download PDF
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding: 2rem;">
+        <p style="font-weight: 600">No agreement records yet</p>
+        <p class="text-sm">New user agreement proofs will appear here after registration.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

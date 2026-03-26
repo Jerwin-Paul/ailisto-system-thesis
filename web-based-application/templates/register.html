@@ -214,6 +214,56 @@
         width: 20px;
         height: 20px;
       }
+      .terms-download-btn {
+        position: absolute;
+        left: 1.25rem;
+        top: 50%;
+        transform: translateY(-50%);
+        border: 1px solid var(--border);
+        background: var(--bg-white);
+        color: var(--text-700);
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 0.35rem 0.6rem;
+        border-radius: 0.55rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .terms-download-btn:hover {
+        border-color: var(--blue-100);
+        color: var(--blue-600);
+        background: var(--blue-50);
+      }
+      .terms-download-btn svg {
+        width: 15px;
+        height: 15px;
+      }
+      @media (max-width: 640px) {
+        .terms-header {
+          min-height: 84px;
+          align-items: flex-start;
+          padding: 0.75rem;
+        }
+        .terms-title {
+          font-size: 1rem;
+          line-height: 1.35;
+          padding: 0 2.3rem;
+        }
+        .terms-download-btn {
+          left: 0.75rem;
+          top: 0.75rem;
+          transform: none;
+          font-size: 0.72rem;
+          padding: 0.25rem 0.45rem;
+          gap: 0.25rem;
+        }
+        .terms-close {
+          right: 0.75rem;
+          top: 0.75rem;
+          transform: none;
+        }
+      }
       .terms-body {
         max-height: min(55vh, 460px);
         overflow-y: auto;
@@ -361,6 +411,27 @@
     >
       <div class="terms-modal">
         <div class="terms-header">
+          <a
+            class="terms-download-btn"
+            id="terms-download-btn"
+            href="/terms/download-pdf"
+            download
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>Download PDF</span>
+          </a>
           <h2 class="terms-title" id="terms-title">
             Terms of Service and Privacy Policy
           </h2>
@@ -974,6 +1045,7 @@
       const continueBtn = document.getElementById("submit-btn");
       const termsOverlay = document.getElementById("terms-overlay");
       const termsContent = document.getElementById("terms-content");
+      const termsDownloadBtn = document.getElementById("terms-download-btn");
       const termsCreateBtn = document.getElementById("terms-create-btn");
       const termsCreateWrap = document.getElementById("terms-create-wrap");
       const termsCreateLockOverlay = document.getElementById(
@@ -1016,7 +1088,19 @@
         continueBtn.disabled = !allFilled;
       }
 
+      function updateTermsDownloadUrl() {
+        const firstName = document.getElementById("firstName").value.trim();
+        const lastName = document.getElementById("lastName").value.trim();
+        const fullName = [firstName, lastName].filter(Boolean).join(" ");
+        const params = new URLSearchParams();
+        if (fullName) {
+          params.set("name", fullName);
+        }
+        termsDownloadBtn.href = `/terms/download-pdf${params.toString() ? `?${params.toString()}` : ""}`;
+      }
+
       function openTermsModal() {
+        updateTermsDownloadUrl();
         termsOverlay.classList.add("open");
         termsOverlay.setAttribute("aria-hidden", "false");
         hasReachedTermsEnd = false;
