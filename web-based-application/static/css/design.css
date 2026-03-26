@@ -258,6 +258,22 @@ img {
     flex-shrink: 0;
 }
 
+.sidebar-nav-notif {
+    margin-left: auto;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+    background: var(--primary);
+    color: #fff;
+}
+
 .sidebar-nav a:hover {
     background: var(--bg-white);
     color: var(--text-900);
@@ -272,6 +288,11 @@ img {
 
 .sidebar-nav a.active svg {
     color: #fff;
+}
+
+.sidebar-nav a.active .sidebar-nav-notif {
+    background: #fff;
+    color: var(--primary);
 }
 
 .sidebar-footer {

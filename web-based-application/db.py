@@ -46,6 +46,9 @@ def _normalize_user_row(row: dict | None) -> dict | None:
     if not row:
         return None
 
+    row["created_at"] = _to_app_timezone(row.get("created_at"))
+    row["approved_at"] = _to_app_timezone(row.get("approved_at"))
+
     avatar_bytes = row.pop("avatar_image", None)
     row.pop("avatar_mime_type", None)
     row["avatar_url"] = f"/api/users/{row['id']}/avatar" if avatar_bytes else None
@@ -354,7 +357,7 @@ def list_users() -> list[dict]:
             LEFT JOIN users reviewer ON reviewer.id = u.approved_by
             ORDER BY u.created_at DESC, u.id DESC
         """)
-        return [dict(r) for r in cur.fetchall()]
+        return [_normalize_user_row(dict(r)) for r in cur.fetchall()]
 
 
 def list_user_terms_agreements() -> list[dict]:
@@ -416,7 +419,14 @@ def get_pending_users() -> list[dict]:
             WHERE u.approval_status = 'pending'
             ORDER BY u.created_at ASC, u.id ASC
         """)
-        return [dict(r) for r in cur.fetchall()]
+        return [_normalize_user_row(dict(r)) for r in cur.fetchall()]
+
+
+def count_pending_users() -> int:
+    with get_cursor(commit=False) as cur:
+        cur.execute("SELECT COUNT(*) AS count FROM users WHERE approval_status = 'pending'")
+        row = cur.fetchone()
+        return int((row or {}).get("count", 0) or 0)
 
 
 def get_approved_teachers() -> list[dict]:
@@ -440,7 +450,7 @@ def update_user_role(user_id: int, role: str) -> dict | None:
             (role, user_id),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_user_row(dict(row) if row else None)
 
 
 def update_user_approval_status(user_id: int, approval_status: str, reviewed_by_user_id: int | None = None) -> dict | None:
@@ -455,7 +465,7 @@ def update_user_approval_status(user_id: int, approval_status: str, reviewed_by_
             (approval_status, reviewed_by_user_id, user_id),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_user_row(dict(row) if row else None)
 
 
 # ─── Subject Operations ──────────────────────────────────────────────

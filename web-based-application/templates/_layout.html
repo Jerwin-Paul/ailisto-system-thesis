@@ -171,7 +171,10 @@
               <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
-            User Management
+            <span>User Management</span>
+            {% if admin_pending_request_count > 0 %}
+            <span class="sidebar-nav-notif" id="sidebar-pending-count">{{ admin_pending_request_count }}</span>
+            {% endif %}
           </a>
           <a
             href="/user-agreements"

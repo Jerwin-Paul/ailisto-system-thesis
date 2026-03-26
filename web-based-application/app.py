@@ -408,6 +408,23 @@ def current_user() -> dict | None:
     return db.get_user_by_id(uid)
 
 
+@app.context_processor
+def inject_admin_pending_request_count():
+    pending_request_count = 0
+    uid = session.get("user_id")
+    if not uid:
+        return {"admin_pending_request_count": pending_request_count}
+
+    user = db.get_user_by_id(uid)
+    if not user:
+        return {"admin_pending_request_count": pending_request_count}
+
+    if user.get("role") == "admin" and user.get("approval_status") == "approved":
+        pending_request_count = db.count_pending_users()
+
+    return {"admin_pending_request_count": pending_request_count}
+
+
 def _safe_user_profile_payload(user_obj: dict) -> dict:
     return {
         "id": user_obj.get("id"),

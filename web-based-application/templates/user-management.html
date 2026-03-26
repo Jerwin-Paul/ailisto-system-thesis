@@ -28,15 +28,9 @@ endblock %} {% block content %}
     </div>
     <div class="card-content">
       <div
-        class="empty-state"
+        class="empty-state {% if pending_users %}is-hidden{% endif %}"
         id="pending-empty"
         style="padding: 2rem"
-        {%
-        if
-        pending_users
-        %}hidden{%
-        endif
-        %}
       >
         <p style="font-weight: 600">No pending account requests</p>
         <p class="text-sm">New registrations will appear here for approval.</p>
@@ -116,7 +110,7 @@ endblock %} {% block content %}
         id="status-filter"
         style="height: 40px; width: 160px"
       >
-        <option value="all">All Statuses</option>
+        <option value="all">All Status</option>
         <option value="pending">Pending</option>
         <option value="approved">Approved</option>
         <option value="rejected">Rejected</option>
@@ -163,12 +157,7 @@ endblock %} {% block content %}
               <div class="role-field">
                 <span
                   id="all-user-role-badge-{{ u.id }}"
-                  class="badge role-pill"
-                  style="
-                    background: var(--blue-100);
-                    color: var(--blue-600);
-                    text-transform: capitalize;
-                  "
+                  class="badge role-pill {% if u.role == 'admin' %}role-admin{% else %}role-teacher{% endif %}"
                   >{{ u.role }}</span
                 >
                 {% if u.id != user.id %}
@@ -264,6 +253,17 @@ endblock %} {% block content %}
       {% endif %}
     </div>
   </div>
+
+  <div class="user-change-modal is-hidden" id="user-change-modal" aria-hidden="true">
+    <div class="user-change-modal-card" role="dialog" aria-modal="true" aria-labelledby="user-change-modal-title">
+      <h4 id="user-change-modal-title" class="user-change-modal-title">Confirm change</h4>
+      <p id="user-change-modal-message" class="user-change-modal-message"></p>
+      <div class="user-change-modal-actions">
+        <button type="button" class="btn btn-outline" id="user-change-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="user-change-confirm-btn">Confirm</button>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %} {% block scripts %}
 <style>
@@ -320,6 +320,9 @@ endblock %} {% block content %}
     width: 100%;
     justify-content: center;
   }
+  .role-pill {
+    text-transform: capitalize;
+  }
   .inline-editor-select {
     width: 100%;
     height: 34px;
@@ -333,9 +336,17 @@ endblock %} {% block content %}
     background-position: right 0.7rem center;
     background-size: 1rem;
   }
-  .role-select {
+  .role-select.role-teacher,
+  .role-pill.role-teacher {
     background-color: var(--blue-100);
     color: var(--blue-600);
+  }
+  .role-select.role-admin,
+  .role-pill.role-admin {
+    background-color: #ccfbf1;
+    color: #0f766e;
+    border-color: #5eead4;
+    font-weight: 700;
   }
   .status-select.status-approved {
     background-color: var(--emerald-50);
@@ -348,6 +359,45 @@ endblock %} {% block content %}
   .status-select.status-pending {
     background-color: var(--amber-50);
     color: var(--amber-500);
+  }
+  .user-change-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    z-index: 1200;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .user-change-modal-card {
+    width: min(460px, 100%);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    padding: 1rem;
+  }
+  .user-change-modal-title {
+    font-size: 1.1rem;
+    margin-bottom: 0.4rem;
+  }
+  .user-change-modal-message {
+    color: var(--text-600);
+    font-size: 0.92rem;
+    margin-bottom: 1rem;
+    white-space: pre-line;
+  }
+  .user-change-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+  }
+  .is-hidden {
+    display: none !important;
   }
   @media (max-width: 900px) {
     .all-users-header {
@@ -369,6 +419,78 @@ endblock %} {% block content %}
   // ── State ──────────────────────────────────────────────────────────────────
   let selectedUserId = null;
   let editingUserId = null;
+  let changeConfirmResolver = null;
+
+  function ensureChangeModalInBody() {
+    const modal = document.getElementById("user-change-modal");
+    if (!modal) return;
+    if (modal.parentElement !== document.body) {
+      document.body.appendChild(modal);
+    }
+  }
+
+  function closeChangeConfirmModal(confirmed) {
+    const modal = document.getElementById("user-change-modal");
+    if (!modal) return;
+    modal.classList.add("is-hidden");
+    modal.setAttribute("aria-hidden", "true");
+    const resolver = changeConfirmResolver;
+    changeConfirmResolver = null;
+    if (resolver) resolver(Boolean(confirmed));
+  }
+
+  function requestChangeConfirmation({ title, message, confirmText, tone }) {
+    ensureChangeModalInBody();
+    const modal = document.getElementById("user-change-modal");
+    const titleEl = document.getElementById("user-change-modal-title");
+    const msgEl = document.getElementById("user-change-modal-message");
+    const confirmBtn = document.getElementById("user-change-confirm-btn");
+    if (!modal || !titleEl || !msgEl || !confirmBtn) {
+      return Promise.resolve(false);
+    }
+
+    titleEl.textContent = title || "Confirm change";
+    msgEl.textContent = message || "Are you sure you want to continue?";
+    confirmBtn.textContent = confirmText || "Confirm";
+
+    confirmBtn.classList.remove("btn-primary", "btn-outline-amber");
+    if (tone === "danger") {
+      confirmBtn.classList.add("btn-outline-amber");
+    } else {
+      confirmBtn.classList.add("btn-primary");
+    }
+
+    modal.classList.remove("is-hidden");
+    modal.setAttribute("aria-hidden", "false");
+
+    return new Promise((resolve) => {
+      changeConfirmResolver = resolve;
+    });
+  }
+
+  function bindChangeConfirmModal() {
+    ensureChangeModalInBody();
+    const modal = document.getElementById("user-change-modal");
+    const cancelBtn = document.getElementById("user-change-cancel-btn");
+    const confirmBtn = document.getElementById("user-change-confirm-btn");
+    if (!modal || modal.dataset.bound === "1") return;
+
+    cancelBtn?.addEventListener("click", () => closeChangeConfirmModal(false));
+    confirmBtn?.addEventListener("click", () => closeChangeConfirmModal(true));
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeChangeConfirmModal(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        const currentModal = document.getElementById("user-change-modal");
+        if (currentModal && !currentModal.classList.contains("is-hidden")) {
+          closeChangeConfirmModal(false);
+        }
+      }
+    });
+
+    modal.dataset.bound = "1";
+  }
 
   // ── Badge renderers ────────────────────────────────────────────────────────
   function renderStatusBadge(status) {
@@ -390,6 +512,20 @@ endblock %} {% block content %}
     );
     const value = selectEl.value || "pending";
     selectEl.classList.add(`status-${value}`);
+  }
+
+  function setRoleSelectTone(selectEl) {
+    if (!selectEl) return;
+    selectEl.classList.remove("role-teacher", "role-admin");
+    const value = selectEl.value === "admin" ? "admin" : "teacher";
+    selectEl.classList.add(`role-${value}`);
+  }
+
+  function setRoleBadgeTone(badgeEl, role) {
+    if (!badgeEl) return;
+    badgeEl.classList.remove("role-teacher", "role-admin");
+    const value = role === "admin" ? "admin" : "teacher";
+    badgeEl.classList.add(`role-${value}`);
   }
 
   function formatNow() {
@@ -421,8 +557,22 @@ endblock %} {% block content %}
     const table = document.getElementById("pending-users-table");
     const empty = document.getElementById("pending-empty");
     const countBadge = document.getElementById("pending-count");
+    const sidebarCountBadge = document.getElementById("sidebar-pending-count");
     const count = document.querySelectorAll("tr[id^='pending-user-']").length;
-    if (countBadge) countBadge.textContent = `${count} Pending`;
+    if (countBadge) {
+      countBadge.textContent = `${count} Pending`;
+      countBadge.style.display = count === 0 ? "none" : "";
+    }
+
+    if (sidebarCountBadge) {
+      if (count > 0) {
+        sidebarCountBadge.textContent = String(count);
+        sidebarCountBadge.style.display = "inline-flex";
+      } else {
+        sidebarCountBadge.style.display = "none";
+      }
+    }
+
     if (count === 0) {
       if (table) table.style.display = "none";
       if (empty) empty.style.display = "flex";
@@ -521,6 +671,7 @@ endblock %} {% block content %}
     if (roleSelect) {
       roleSelect.value = currentRole;
       roleSelect.style.display = "";
+      setRoleSelectTone(roleSelect);
     }
 
     // Status cell: hide badge wrapper, show select
@@ -560,6 +711,7 @@ endblock %} {% block content %}
     );
     if (roleBadge) {
       roleBadge.textContent = newRole;
+      setRoleBadgeTone(roleBadge, newRole);
       roleBadge.style.display = "";
     }
     if (roleSelect) roleSelect.style.display = "none";
@@ -603,8 +755,20 @@ endblock %} {% block content %}
     const currentRole = row?.dataset.userRole;
     const currentStatus = row?.dataset.userStatus;
 
-    if (newStatus === "rejected" && newStatus !== currentStatus) {
-      if (!window.confirm("Set this user status to Rejected?")) return;
+    const roleChanged = newRole !== currentRole;
+    const statusChanged = newStatus !== currentStatus;
+    if (roleChanged || statusChanged) {
+      const changes = [];
+      if (roleChanged) changes.push(`Role: ${currentRole} -> ${newRole}`);
+      if (statusChanged) changes.push(`Status: ${currentStatus} -> ${newStatus}`);
+
+      const confirmed = await requestChangeConfirmation({
+        title: "Confirm account update",
+        message: `Apply these changes?\n${changes.join("\n")}`,
+        confirmText: "Apply",
+        tone: newStatus === "rejected" ? "danger" : "primary",
+      });
+      if (!confirmed) return;
     }
 
     btn.disabled = true;
@@ -634,11 +798,14 @@ endblock %} {% block content %}
 
   // ── Approve / Reject from pending section ──────────────────────────────────
   async function approvePending(userId, status, btn) {
-    if (
-      status === "rejected" &&
-      !window.confirm("Reject this account request?")
-    )
-      return;
+    const action = status === "approved" ? "Approve" : "Reject";
+    const confirmed = await requestChangeConfirmation({
+      title: `Confirm ${action.toLowerCase()} request`,
+      message: `${action} this account request?`,
+      confirmText: action,
+      tone: status === "rejected" ? "danger" : "primary",
+    });
+    if (!confirmed) return;
 
     const pendingRow = document.getElementById(`pending-user-${userId}`);
     const pendingActions = pendingRow?.querySelector("td:last-child");
@@ -692,10 +859,12 @@ endblock %} {% block content %}
     }
 
     replaceWithClone('.js-pending-approval-btn');
-    replaceWithClone('#all-users-table .all-user-row');
+    replaceWithClone('#all-users-table');
     replaceWithClone('.js-status-select');
     replaceWithClone('#user-search');
     replaceWithClone('#status-filter');
+
+    bindChangeConfirmModal();
 
     // Pending approval buttons
     document.querySelectorAll(".js-pending-approval-btn").forEach((btn) => {
@@ -704,16 +873,34 @@ endblock %} {% block content %}
       });
     });
 
-    // Row click → select row (enables Edit button)
-    document.querySelectorAll("#all-users-table .all-user-row").forEach((row) => {
-      row.addEventListener("click", (e) => {
-        const userId = Number(row.dataset.userId);
-        if (!userId) return;
-        // Keep selection stable while one row is actively in edit mode.
-        if (editingUserId !== null && editingUserId !== userId) return;
-        if (editingUserId === userId) return;
-        selectRow(userId);
-      });
+    // Table click delegation keeps row selection and Edit/Save stable even if rows update dynamically.
+    const allUsersTable = document.getElementById("all-users-table");
+    allUsersTable?.addEventListener("click", (e) => {
+      const btn = e.target.closest(".js-edit-save-btn");
+      if (btn) {
+        e.stopPropagation();
+        const userId = Number(btn.dataset.userId);
+        if (btn.dataset.mode === "edit") {
+          enterEditMode(userId, btn);
+        } else {
+          saveUser(userId, btn);
+        }
+        return;
+      }
+
+      if (e.target.closest(".inline-editor-select")) return;
+
+      const row = e.target.closest("tr.all-user-row");
+      if (!row || !allUsersTable.contains(row)) return;
+
+      const userId = Number(row.dataset.userId);
+      if (!userId) return;
+
+      // Keep selection stable while one row is actively in edit mode.
+      if (editingUserId !== null && editingUserId !== userId) return;
+      if (editingUserId === userId) return;
+
+      selectRow(userId);
     });
 
     document.querySelectorAll(".js-status-select").forEach((selectEl) => {
@@ -721,17 +908,9 @@ endblock %} {% block content %}
       selectEl.addEventListener("change", () => setStatusSelectTone(selectEl));
     });
 
-    // Edit / Save button click (use event delegation to handle dynamic state)
-    document.getElementById("all-users-table")?.addEventListener("click", (e) => {
-      const btn = e.target.closest(".js-edit-save-btn");
-      if (!btn) return;
-      e.stopPropagation();
-      const userId = Number(btn.dataset.userId);
-      if (btn.dataset.mode === "edit") {
-        enterEditMode(userId, btn);
-      } else {
-        saveUser(userId, btn);
-      }
+    document.querySelectorAll(".js-role-select").forEach((selectEl) => {
+      setRoleSelectTone(selectEl);
+      selectEl.addEventListener("change", () => setRoleSelectTone(selectEl));
     });
 
     // Search / filter
@@ -741,6 +920,9 @@ endblock %} {% block content %}
     document
       .getElementById("status-filter")
       ?.addEventListener("change", applyUserFilters);
+
+    // Reconcile pending UI at startup to prevent stale empty-state visibility.
+    refreshPendingUi();
   }
 
   // Call on page load and after SPA dynamic injection.
@@ -748,6 +930,18 @@ endblock %} {% block content %}
     document.addEventListener("DOMContentLoaded", initUserManagementPage);
   } else {
     initUserManagementPage();
+  }
+
+  if (!window.__userManagementSpaInitBound) {
+    window.__userManagementSpaInitBound = true;
+    window.addEventListener("spa:content-ready", () => {
+      if (
+        document.getElementById("pending-users-table") ||
+        document.getElementById("all-users-table")
+      ) {
+        initUserManagementPage();
+      }
+    });
   }
 </script>
 {% endblock %}
