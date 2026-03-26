@@ -1638,6 +1638,12 @@ def history():
 @login_required
 def reports():
     user = current_user()
+    
+    # For admins, allow selecting a teacher
+    teachers = []
+    if user.get("role") == "admin":
+        teachers = db.get_approved_teachers()
+    
     subjects = db.get_subjects(user["id"])
     login_marker = session.get("login_marker")
     if not login_marker:
@@ -1665,6 +1671,7 @@ def reports():
         subject_filters=subject_filters,
         section_filters=section_filters,
         report_login_marker=login_marker,
+        teachers=teachers,
     )
 
 
@@ -2259,19 +2266,37 @@ def api_generate_report():
     end_date = data.get("endDate", "")
     subject_code = str(data.get("subjectCode", "")).strip()
     section = str(data.get("section", "")).strip()
+    teacher_id = data.get("teacherId")
+    
     if not start_date or not end_date:
         return jsonify({"error": "startDate and endDate are required"}), 400
+    
     user = current_user()
+    
+    # If teacher_id is specified, verify the user is an admin
+    if teacher_id:
+        if user.get("role") != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
+        target_user_id = teacher_id
+    else:
+        target_user_id = user["id"]
+    
     try:
         sessions_list = db.get_sessions_by_date_range(
-            user["id"],
+            target_user_id,
             start_date,
             end_date,
             subject_code=subject_code,
             section=section,
         )
+        # Fetch the target user's info if generating report for a teacher
+        if teacher_id:
+            target_user = db.get_user_by_id(teacher_id)
+        else:
+            target_user = user
+        
         buf = _build_report_pdf(
-            user,
+            target_user,
             start_date,
             end_date,
             sessions_list,
@@ -2281,7 +2306,7 @@ def api_generate_report():
     except Exception as exc:
         logging.exception(
             "Report generation failed for user=%s start=%s end=%s subject=%s section=%s",
-            user["id"],
+            target_user_id,
             start_date,
             end_date,
             subject_code,
@@ -2300,19 +2325,37 @@ def api_preview_report():
     end_date = request.args.get("endDate", "")
     subject_code = request.args.get("subjectCode", "").strip()
     section = request.args.get("section", "").strip()
+    teacher_id = request.args.get("teacherId")
+    
     if not start_date or not end_date:
         return jsonify({"error": "startDate and endDate are required"}), 400
+    
     user = current_user()
+    
+    # If teacher_id is specified, verify the user is an admin
+    if teacher_id:
+        if user.get("role") != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
+        target_user_id = teacher_id
+    else:
+        target_user_id = user["id"]
+    
     try:
         sessions_list = db.get_sessions_by_date_range(
-            user["id"],
+            target_user_id,
             start_date,
             end_date,
             subject_code=subject_code,
             section=section,
         )
+        # Fetch the target user's info if generating report for a teacher
+        if teacher_id:
+            target_user = db.get_user_by_id(teacher_id)
+        else:
+            target_user = user
+        
         buf = _build_report_pdf(
-            user,
+            target_user,
             start_date,
             end_date,
             sessions_list,
@@ -2322,7 +2365,7 @@ def api_preview_report():
     except Exception as exc:
         logging.exception(
             "Report preview failed for user=%s start=%s end=%s subject=%s section=%s",
-            user["id"],
+            target_user_id,
             start_date,
             end_date,
             subject_code,

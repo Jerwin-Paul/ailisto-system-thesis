@@ -29,6 +29,20 @@
       <div
         style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap"
       >
+        {% if user.role == 'admin' and teachers %}
+        <div
+          class="form-group"
+          style="flex: 1; min-width: 180px; margin-bottom: 0"
+        >
+          <label class="form-label" for="reportTeacher">Teacher</label>
+          <select id="reportTeacher" class="form-select">
+            <option value="">All Teachers</option>
+            {% for t in teachers %}
+            <option value="{{ t.id }}">{{ t.first_name }} {{ t.last_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
         <div
           class="form-group"
           style="flex: 1; min-width: 180px; margin-bottom: 0"
@@ -219,6 +233,7 @@
   let currentEndDate = "";
   let currentSubjectCode = "";
   let currentSection = "";
+  let currentTeacherId = "";
 
   function seedDates() {
     const today = new Date();
@@ -274,11 +289,16 @@
     document.getElementById("reportEndDate").value = state.endDate;
     document.getElementById("reportSubject").value = state.subjectCode || "";
     document.getElementById("reportSection").value = state.section || "";
+    const reportTeacher = document.getElementById("reportTeacher");
+    if (reportTeacher) {
+      reportTeacher.value = state.teacherId || "";
+    }
 
     currentStartDate = state.startDate;
     currentEndDate = state.endDate;
     currentSubjectCode = state.subjectCode || "";
     currentSection = state.section || "";
+    currentTeacherId = state.teacherId || "";
 
     const subjectText = getSelectedText("reportSubject", state.subjectText || "All Subjects");
     const sectionText = getSelectedText("reportSection", state.sectionText || "All Sections");
@@ -319,6 +339,8 @@
     const endDate = document.getElementById("reportEndDate").value;
     const subjectCode = document.getElementById("reportSubject").value;
     const sectionValue = document.getElementById("reportSection").value;
+    const reportTeacher = document.getElementById("reportTeacher");
+    const teacherId = reportTeacher ? reportTeacher.value : "";
     const subjectText = document.getElementById("reportSubject").selectedOptions[0].text;
     const sectionText = document.getElementById("reportSection").selectedOptions[0].text;
     const errEl = document.getElementById("reportError");
@@ -342,6 +364,7 @@
     currentEndDate = endDate;
     currentSubjectCode = subjectCode;
     currentSection = sectionValue;
+    currentTeacherId = teacherId;
 
     btn.disabled = true;
     btn.innerHTML = "Generating…";
@@ -352,6 +375,7 @@
       subjectCode,
       section: sectionValue,
     });
+    if (teacherId) params.append("teacherId", teacherId);
     const previewUrl = `/api/preview-report?${params.toString()}`;
     const iframe = document.getElementById("pdfPreview");
 
@@ -366,6 +390,7 @@
       endDate,
       subjectCode,
       section: sectionValue,
+      teacherId,
       subjectText,
       sectionText,
       previewUrl,
@@ -397,15 +422,20 @@
     btn.innerHTML = "Downloading…";
 
     try {
+      const body = {
+        startDate: currentStartDate,
+        endDate: currentEndDate,
+        subjectCode: currentSubjectCode,
+        section: currentSection,
+      };
+      if (currentTeacherId) {
+        body.teacherId = currentTeacherId;
+      }
+
       const resp = await fetch("/api/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          startDate: currentStartDate,
-          endDate: currentEndDate,
-          subjectCode: currentSubjectCode,
-          section: currentSection,
-        }),
+        body: JSON.stringify(body),
       });
       if (!resp.ok) {
         const info = await resp.json().catch(() => ({}));
