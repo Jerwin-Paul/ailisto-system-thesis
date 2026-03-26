@@ -597,6 +597,12 @@ img {
     gap: 1.25rem;
 }
 
+.grid-1 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+}
+
 .grid-1-2 {
     display: grid;
     grid-template-columns: 1fr 2fr;

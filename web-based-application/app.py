@@ -1292,7 +1292,10 @@ def logout():
 @login_required
 def home():
     user = current_user()
-    stats = db.get_dashboard_stats(user["id"])
+    if user.get("role") == "admin":
+        stats = db.get_dashboard_stats_admin()
+    else:
+        stats = db.get_dashboard_stats(user["id"])
     subjects = db.get_subjects(user["id"])
     return render_template("index.html", user=user, stats=stats, subjects=subjects)
 
@@ -2255,7 +2258,10 @@ def api_weekly_attention():
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
     
     try:
-        data = db.get_weekly_attention(user["id"], week_date)
+        if user.get("role") == "admin":
+            data = db.get_weekly_attention_admin(week_date)
+        else:
+            data = db.get_weekly_attention(user["id"], week_date)
         return jsonify(data), 200
     except Exception as exc:
         logging.exception("Failed to get weekly attention for user=%s date=%s", user["id"], week_date_str)

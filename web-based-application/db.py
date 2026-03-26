@@ -782,6 +782,125 @@ def get_dashboard_stats(teacher_id: int) -> dict:
         }
 
 
+def get_dashboard_stats_admin() -> dict:
+    """Get overall dashboard stats for admin (across all teachers)."""
+    with get_cursor(commit=False) as cur:
+        # Total sessions across all teachers
+        cur.execute("""
+            SELECT COUNT(*) AS total
+            FROM sessions s JOIN subjects sub ON s.subject_id = sub.id
+            JOIN users u ON sub.teacher_id = u.id
+            WHERE u.role = 'teacher' AND u.approval_status = 'approved'
+        """)
+        total_sessions = cur.fetchone()["total"]
+
+        # Overall average attention across all teachers
+        cur.execute("""
+            SELECT AVG((summary_stats->>'avgAttention')::float) AS avg_att
+            FROM sessions s JOIN subjects sub ON s.subject_id = sub.id
+            JOIN users u ON sub.teacher_id = u.id
+            WHERE u.role = 'teacher' AND u.approval_status = 'approved'
+              AND summary_stats IS NOT NULL
+              AND summary_stats->>'avgAttention' IS NOT NULL
+        """)
+        row = cur.fetchone()
+        avg_attention = round(row["avg_att"]) if row["avg_att"] else 0
+
+        # Attention by teacher (instead of by class)
+        cur.execute("""
+            SELECT
+                u.id,
+                u.first_name,
+                u.last_name,
+                COUNT(s.id) AS total_sessions,
+                AVG(
+                    CASE
+                        WHEN s.summary_stats IS NOT NULL
+                         AND s.summary_stats->>'avgAttention' IS NOT NULL
+                        THEN (s.summary_stats->>'avgAttention')::float
+                        ELSE NULL
+                    END
+                ) AS avg_attention
+            FROM users u
+            LEFT JOIN subjects sub ON u.id = sub.teacher_id
+            LEFT JOIN sessions s ON s.subject_id = sub.id
+            WHERE u.role = 'teacher' AND u.approval_status = 'approved'
+            GROUP BY u.id, u.first_name, u.last_name
+            ORDER BY u.first_name ASC, u.last_name ASC
+        """)
+        teacher_rows = cur.fetchall()
+        teacher_attention = [
+            {
+                "id": row["id"],
+                "name": f"{row['first_name']} {row['last_name']}",
+                "total_sessions": row["total_sessions"],
+                "avg_attention": round(row["avg_attention"]) if row["avg_attention"] is not None else None,
+            }
+            for row in teacher_rows
+        ]
+
+        return {
+            "total_sessions": total_sessions,
+            "avg_attention": avg_attention,
+            "recent": [],  # No recent sessions for admin
+            "class_attention": teacher_attention,  # This is actually teacher_attention for admin
+            "weekly_attention": [],
+        }
+
+
+def get_weekly_attention_admin(week_start_date: datetime) -> dict:
+    """Get overall weekly attention data for admin (across all teachers)."""
+    # Normalize to start of week (Monday) and end on Saturday.
+    week_start = week_start_date.date()
+    days_since_monday = week_start.weekday()  # Monday=0 ... Sunday=6
+    week_start = week_start - timedelta(days=days_since_monday)
+    week_end = week_start + timedelta(days=5)
+    
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            WITH days AS (
+                SELECT generate_series(
+                    %s::date,
+                    %s::date,
+                    INTERVAL '1 day'
+                )::date AS day
+            )
+            SELECT
+                d.day,
+                AVG(
+                    CASE
+                        WHEN sub.id IS NOT NULL
+                         AND s.summary_stats IS NOT NULL
+                         AND s.summary_stats->>'avgAttention' IS NOT NULL
+                        THEN (s.summary_stats->>'avgAttention')::float
+                        ELSE NULL
+                    END
+                ) AS avg_attention
+            FROM days d
+            LEFT JOIN sessions s ON s.start_time::date = d.day
+            LEFT JOIN subjects sub ON s.subject_id = sub.id
+            LEFT JOIN users u ON sub.teacher_id = u.id AND u.role = 'teacher' AND u.approval_status = 'approved'
+            GROUP BY d.day
+            ORDER BY d.day ASC
+        """, (week_start, week_end))
+        
+        weekly_rows = cur.fetchall()
+        weekly_attention = [
+            {
+                "label": row["day"].strftime("%a"),
+                "value": round(row["avg_attention"]) if row["avg_attention"] is not None else None,
+                "date": row["day"].isoformat(),
+            }
+            for row in weekly_rows
+        ]
+        
+        return {
+            "weekly_attention": weekly_attention,
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
+        }
+
+
 def get_history_summary_stats(teacher_id: int) -> dict:
     """Lightweight summary stats for history page cards."""
     with get_cursor(commit=False) as cur:
