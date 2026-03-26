@@ -688,7 +688,11 @@
       } else {
         url.searchParams.delete('teacher_id');
       }
-      window.location.href = url.toString();
+      // Show loading animation before redirect
+      showLoading();
+      window.setTimeout(() => {
+        window.location.href = url.toString();
+      }, 100);
       return;
     }
 
