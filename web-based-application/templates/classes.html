@@ -29,31 +29,7 @@
             Schedule
           </h3>
         </div>
-        <div class="card-content space-y-4">
-          {% if today_schedule_groups %}
-            {% for entry in today_schedule_groups %}
-              {% if entry.schedules %}
-              <div class="activity-item" style="align-items:flex-start;">
-                <div class="activity-icon" style="background:var(--blue-50); color:var(--blue-600); margin-top:0.15rem;">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                </div>
-                <div class="activity-info" style="display:flex; flex-direction:column; gap:0.4rem;">
-                  <p class="activity-name">{{ entry.course_code }} – {{ entry.section }}</p>
-                  <div style="display:flex; flex-direction:column; gap:0.2rem;">
-                    {% for sched in entry.schedules %}
-                    <p class="activity-date">
-                      {{ sched.day }} • {{ sched.start_time }} – {{ sched.end_time }}{% if sched.room %} • {{ sched.room }}{% endif %}
-                    </p>
-                    {% endfor %}
-                  </div>
-                </div>
-              </div>
-              {% endif %}
-            {% endfor %}
-          {% else %}
-            <p class="text-sm" style="color:var(--text-500);">No schedules added for your classes yet.</p>
-          {% endif %}
-        </div>
+        <div class="card-content space-y-4" id="schedule-panel-content"></div>
       </div>
     </div>
 
@@ -161,7 +137,7 @@
         </div>
         <div class="form-group">
           <label class="form-label" for="sect-room">Room Number</label>
-          <input class="form-input" type="text" id="sect-room" placeholder="e.g. Q321" />
+          <input class="form-input" type="text" id="sect-room" placeholder="e.g. Room 1" />
         </div>
       </div>
       <div class="form-group">
@@ -172,11 +148,23 @@
               <select class="form-select" style="height:40px;">
                 <option value="">Day</option>
                 <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
-                <option>Thursday</option><option>Friday</option><option>Saturday</option>
+                <option>Thursday</option><option>Friday</option>
               </select>
             </div>
-            <div><input class="form-input" type="time" style="height:40px;" /></div>
-            <div><input class="form-input" type="time" style="height:40px;" /></div>
+            <div>
+              <div class="time-wheel-picker" data-time-picker="true" data-value="" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.35rem;">
+                <select class="form-select" data-time-hour="true" style="height:40px; padding:0 0.55rem;"></select>
+                <select class="form-select" data-time-minute="true" style="height:40px; padding:0 0.55rem;"></select>
+                <select class="form-select" data-time-period="true" style="height:40px; padding:0 0.55rem;"></select>
+              </div>
+            </div>
+            <div>
+              <div class="time-wheel-picker" data-time-picker="true" data-value="" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.35rem;">
+                <select class="form-select" data-time-hour="true" style="height:40px; padding:0 0.55rem;"></select>
+                <select class="form-select" data-time-minute="true" style="height:40px; padding:0 0.55rem;"></select>
+                <select class="form-select" data-time-period="true" style="height:40px; padding:0 0.55rem;"></select>
+              </div>
+            </div>
             <div>
               <button type="button" onclick="removeScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Remove row">&#x2715;</button>
             </div>
@@ -207,7 +195,7 @@
     </div>
     <div class="form-group" style="margin-bottom:0.75rem;">
       <label class="form-label" for="section-editor-room">Room Number</label>
-      <input class="form-input" type="text" id="section-editor-room" placeholder="e.g. Q321" />
+      <input class="form-input" type="text" id="section-editor-room" placeholder="e.g. Room 1" />
     </div>
     <div id="section-schedule-list" class="space-y-2"></div>
     <button type="button" class="btn btn-outline w-full" style="margin-top:0.75rem; border-style:dashed;" onclick="addEditorScheduleRow()">
@@ -269,6 +257,279 @@
     });
   });
 
+  function snapTimeValueToFiveMinutes(value) {
+    if (!value) return value;
+    const match = String(value).trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!match) return value;
+    const hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return value;
+    const totalMinutesInDay = 24 * 60;
+    let totalMinutes = hours * 60 + minutes;
+    totalMinutes = Math.round(totalMinutes / 5) * 5;
+    totalMinutes = ((totalMinutes % totalMinutesInDay) + totalMinutesInDay) % totalMinutesInDay;
+    const snappedHours = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+    const snappedMinutes = String(totalMinutes % 60).padStart(2, '0');
+    return snappedHours + ':' + snappedMinutes;
+  }
+
+  function formatTime12Hour(timeValue) {
+    if (!timeValue) return '';
+    const raw = String(timeValue).trim();
+    const match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!match) return raw;
+    const hour24 = parseInt(match[1], 10);
+    const minute = match[2];
+    const period = hour24 >= 12 ? 'PM' : 'AM';
+    let hour12 = hour24 % 12;
+    if (hour12 === 0) hour12 = 12;
+    return hour12 + ':' + minute + ' ' + period;
+  }
+
+  function formatTimeRange12Hour(startValue, endValue) {
+    const start = formatTime12Hour(startValue);
+    const end = formatTime12Hour(endValue);
+    if (start && end) return start + ' - ' + end;
+    return start || end || '';
+  }
+
+  const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function parseTimeToMinutes(timeValue) {
+    if (!timeValue) return Number.POSITIVE_INFINITY;
+    const raw = String(timeValue).trim();
+    const match24 = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (match24) {
+      const h = parseInt(match24[1], 10);
+      const m = parseInt(match24[2], 10);
+      if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+    }
+    const match12 = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match12) {
+      const h12 = parseInt(match12[1], 10);
+      const m = parseInt(match12[2], 10);
+      const period = match12[3].toUpperCase();
+      if (h12 >= 1 && h12 <= 12 && m >= 0 && m <= 59) {
+        let h24 = h12 % 12;
+        if (period === 'PM') h24 += 12;
+        return h24 * 60 + m;
+      }
+    }
+    return Number.POSITIVE_INFINITY;
+  }
+
+  function getSectionRoom(section) {
+    const roomSchedule = (section.schedules || []).find(function(sch) {
+      return sch && sch.room && String(sch.room).trim();
+    });
+    return roomSchedule ? String(roomSchedule.room).trim() : '';
+  }
+
+  function collectSchedulesByDay() {
+    const items = [];
+    subjectGroupsData.forEach(function(group) {
+      (group.sections || []).forEach(function(section) {
+        const sharedRoom = getSectionRoom(section);
+        (section.schedules || []).forEach(function(schedule) {
+          const day = String(schedule.day || '').trim();
+          const startRaw = schedule.start_time || schedule.startTime;
+          const endRaw = schedule.end_time || schedule.endTime;
+          const startTime = normalizeTimeText(startRaw);
+          const endTime = normalizeTimeText(endRaw);
+          if (!day || !startTime || !endTime) return;
+          items.push({
+            day: day,
+            dayIndex: DAY_ORDER.indexOf(day),
+            startTime: startTime,
+            endTime: endTime,
+            startMinutes: parseTimeToMinutes(startTime),
+            courseCode: group.course_code || '',
+            section: section.section || '',
+            room: String(schedule.room || '').trim() || sharedRoom
+          });
+        });
+      });
+    });
+
+    items.sort(function(a, b) {
+      const aDay = a.dayIndex === -1 ? Number.POSITIVE_INFINITY : a.dayIndex;
+      const bDay = b.dayIndex === -1 ? Number.POSITIVE_INFINITY : b.dayIndex;
+      if (aDay !== bDay) return aDay - bDay;
+      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+      if (a.courseCode !== b.courseCode) return a.courseCode.localeCompare(b.courseCode);
+      return a.section.localeCompare(b.section);
+    });
+
+    return items;
+  }
+
+  function renderSchedulePanelByDay() {
+    const panel = document.getElementById('schedule-panel-content');
+    if (!panel) return;
+
+    const items = collectSchedulesByDay();
+    if (!items.length) {
+      panel.innerHTML = '<p class="text-sm" style="color:var(--text-500);">No schedules added for your classes yet.</p>';
+      return;
+    }
+
+    const groups = {};
+    items.forEach(function(item) {
+      if (!groups[item.day]) groups[item.day] = [];
+      groups[item.day].push(item);
+    });
+
+    const daySequence = DAY_ORDER.filter(function(day) { return Array.isArray(groups[day]); });
+    Object.keys(groups).forEach(function(day) {
+      if (!daySequence.includes(day)) daySequence.push(day);
+    });
+
+    let html = '';
+    daySequence.forEach(function(day) {
+      html += '<div style="display:flex; flex-direction:column; gap:0.55rem; margin-bottom:0.2rem;">';
+      html += '<p style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-500); font-weight:700;">' + escapeHtml(day) + '</p>';
+      groups[day].forEach(function(item) {
+        const title = item.courseCode && item.section
+          ? item.courseCode + ' - ' + item.section
+          : (item.courseCode || item.section || 'Schedule');
+        const timeRange = formatTimeRange12Hour(item.startTime, item.endTime);
+        const meta = item.room
+          ? timeRange + ' • ' + item.room
+          : timeRange;
+        html += '<div class="activity-item" style="align-items:flex-start;">'
+          + '<div class="activity-icon" style="background:var(--blue-50); color:var(--blue-600); margin-top:0.15rem;">'
+          + '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
+          + '</div>'
+          + '<div class="activity-info" style="display:flex; flex-direction:column; gap:0.25rem;">'
+          + '<p class="activity-name">' + escapeHtml(title) + '</p>'
+          + '<p class="activity-date">' + escapeHtml(meta) + '</p>'
+          + '</div>'
+          + '</div>';
+      });
+      html += '</div>';
+    });
+
+    panel.innerHTML = html;
+  }
+
+  function parseTimeParts(value) {
+    if (!value) {
+      return { hour: '', minute: '', period: '' };
+    }
+    const snapped = snapTimeValueToFiveMinutes(normalizeTimeText(value));
+    const match = snapped.match(/^(\d{2}):(\d{2})$/);
+    if (!match) {
+      return { hour: '', minute: '', period: '' };
+    }
+    const hour24 = parseInt(match[1], 10);
+    const minute = match[2];
+    const period = hour24 >= 12 ? 'PM' : 'AM';
+    let hour12 = hour24 % 12;
+    if (hour12 === 0) hour12 = 12;
+    return {
+      hour: String(hour12).padStart(2, '0'),
+      minute: minute,
+      period: period
+    };
+  }
+
+  function buildHourOptions(selectedHour) {
+    let html = '<option value="">HH</option>';
+    for (let hour = 1; hour <= 12; hour += 1) {
+      const hourText = String(hour).padStart(2, '0');
+      const selectedAttr = hourText === selectedHour ? ' selected' : '';
+      html += '<option value="' + hourText + '"' + selectedAttr + '>' + hourText + '</option>';
+    }
+    return html;
+  }
+
+  function buildMinuteOptions(selectedMinute) {
+    let html = '<option value="">MM</option>';
+    for (let minute = 0; minute < 60; minute += 5) {
+      const minuteText = String(minute).padStart(2, '0');
+      const selectedAttr = minuteText === selectedMinute ? ' selected' : '';
+      html += '<option value="' + minuteText + '"' + selectedAttr + '>' + minuteText + '</option>';
+    }
+    return html;
+  }
+
+  function buildPeriodOptions(selectedPeriod) {
+    const amSelected = selectedPeriod === 'AM' ? ' selected' : '';
+    const pmSelected = selectedPeriod === 'PM' ? ' selected' : '';
+    return '<option value="">AM/PM</option><option value="AM"' + amSelected + '>AM</option><option value="PM"' + pmSelected + '>PM</option>';
+  }
+
+  function renderTimePicker(picker, value) {
+    if (!picker) return;
+    const parts = parseTimeParts(value || picker.dataset.value || '');
+    const hourSelect = picker.querySelector('select[data-time-hour="true"]');
+    const minuteSelect = picker.querySelector('select[data-time-minute="true"]');
+    const periodSelect = picker.querySelector('select[data-time-period="true"]');
+    if (hourSelect) hourSelect.innerHTML = buildHourOptions(parts.hour);
+    if (minuteSelect) minuteSelect.innerHTML = buildMinuteOptions(parts.minute);
+    if (periodSelect) periodSelect.innerHTML = buildPeriodOptions(parts.period);
+    picker.dataset.value = parts.hour && parts.minute && parts.period ? composeTimeFromParts(parts.hour, parts.minute, parts.period) : '';
+  }
+
+  function initializeTimeWheelPickers(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-time-picker="true"]').forEach(function(picker) {
+      renderTimePicker(picker, picker.dataset.value || '');
+    });
+  }
+
+  function composeTimeFromParts(hourText, minuteText, periodText) {
+    if (!hourText || !minuteText || !periodText) return '';
+    const hourValue = parseInt(hourText, 10);
+    const minuteValue = parseInt(minuteText, 10);
+    if (Number.isNaN(hourValue) || hourValue < 1 || hourValue > 12) return '';
+    if (Number.isNaN(minuteValue) || minuteValue < 0 || minuteValue > 59) return '';
+    let hour24 = hourValue % 12;
+    if (periodText === 'PM') hour24 += 12;
+    const snapped = snapTimeValueToFiveMinutes(String(hour24).padStart(2, '0') + ':' + String(minuteValue).padStart(2, '0'));
+    return snapped;
+  }
+
+  function getTimeValueFromPicker(picker) {
+    if (!picker) return '';
+    const hourSelect = picker.querySelector('select[data-time-hour="true"]');
+    const minuteSelect = picker.querySelector('select[data-time-minute="true"]');
+    const periodSelect = picker.querySelector('select[data-time-period="true"]');
+    const value = composeTimeFromParts(
+      hourSelect ? hourSelect.value : '',
+      minuteSelect ? minuteSelect.value : '',
+      periodSelect ? periodSelect.value : ''
+    );
+    picker.dataset.value = value;
+    return value;
+  }
+
+  function clearTimePicker(picker) {
+    if (!picker) return;
+    picker.dataset.value = '';
+    renderTimePicker(picker, '');
+  }
+
+  function buildTimePickerHtml(selectedValue) {
+    const value = selectedValue ? snapTimeValueToFiveMinutes(normalizeTimeText(selectedValue)) : '';
+    return '<div class="time-wheel-picker" data-time-picker="true" data-value="' + value + '" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.35rem;">'
+      + '<select class="form-select" data-time-hour="true" style="height:40px; padding:0 0.55rem;"></select>'
+      + '<select class="form-select" data-time-minute="true" style="height:40px; padding:0 0.55rem;"></select>'
+      + '<select class="form-select" data-time-period="true" style="height:40px; padding:0 0.55rem;"></select>'
+      + '</div>';
+  }
+
+  initializeTimeWheelPickers(document);
+
   /* ── Subject detail modal ── */
   function showSubjectDetail(index) {
     selectedSubjectIndex = index;
@@ -286,28 +547,37 @@
         el.onmouseenter = function() { this.style.borderColor = 'var(--blue-100)'; this.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.08)'; };
         el.onmouseleave = function() { this.style.borderColor = 'var(--border-light)'; this.style.boxShadow = 'none'; };
         el.onclick = function() { openSectionScheduleEditor(sect.id); };
+        const roomSchedule = (sect.schedules || []).find(function(sch) {
+          return sch && sch.room && String(sch.room).trim();
+        });
+        const sectionRoom = roomSchedule ? roomSchedule.room : 'Not set';
         let schedHtml = '';
         if (sect.schedules && sect.schedules.length > 0) {
           sect.schedules.forEach(function(sch) {
+            const timeRange = formatTimeRange12Hour(sch.start_time, sch.end_time);
             schedHtml +=
-              '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:0.5rem; margin-top:0.625rem; padding:0.7rem 0.8rem; border-radius:0.75rem; background:#fff; border:1px solid var(--border-light);">'
+              '<div style="display:grid; grid-template-columns:repeat(2,minmax(140px,1fr)); gap:0.5rem; margin-top:0.625rem; padding:0.7rem 0.8rem; border-radius:0.75rem; background:#fff; border:1px solid var(--border-light);">'
               + '<div style="font-size:0.78rem; color:var(--text-500);"><div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400); margin-bottom:0.2rem;">Day</div><div style="font-weight:600; color:var(--text-700);">' + sch.day + '</div></div>'
-              + '<div style="font-size:0.78rem; color:var(--text-500);"><div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400); margin-bottom:0.2rem;">Time</div><div style="font-weight:600; color:var(--text-700);">' + sch.start_time + ' \u2013 ' + sch.end_time + '</div></div>'
-              + '<div style="font-size:0.78rem; color:var(--text-500);"><div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400); margin-bottom:0.2rem;">Room</div><div style="font-weight:600; color:var(--text-700);">' + (sch.room || 'Not set') + '</div></div>'
+              + '<div style="font-size:0.78rem; color:var(--text-500);"><div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-400); margin-bottom:0.2rem;">Time</div><div style="font-weight:600; color:var(--text-700);">' + timeRange + '</div></div>'
               + '</div>';
           });
         } else {
           schedHtml = '<p style="font-size:0.8rem; color:var(--text-400); margin-top:0.375rem;">No schedule added.</p>';
         }
-        el.innerHTML = '<div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">'
+        el.innerHTML = '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">'
           + '<div style="font-weight:600; font-size:0.9rem;">Section ' + sect.section + '</div>'
+          + '<div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.15rem;">'
+          + '<div style="font-size:0.82rem; font-weight:600; color:var(--text-700);">' + sectionRoom + '</div>'
           + '<div style="font-size:0.75rem; color:var(--blue-600);">Manage schedules</div>'
+          + '</div>'
           + '</div>' + schedHtml;
         container.appendChild(el);
       });
     }
     openModal('subject-detail-modal');
   }
+
+  renderSchedulePanelByDay();
 
   function openAddSectionForCurrentSubject() {
     if (selectedSubjectIndex === null) return;
@@ -368,12 +638,13 @@
       '<div><select class="form-select" style="height:40px;">'
       + '<option value="">Day</option>'
       + '<option>Monday</option><option>Tuesday</option><option>Wednesday</option>'
-      + '<option>Thursday</option><option>Friday</option><option>Saturday</option>'
+      + '<option>Thursday</option><option>Friday</option>'
       + '</select></div>'
-      + '<div><input class="form-input" type="time" style="height:40px;" /></div>'
-      + '<div><input class="form-input" type="time" style="height:40px;" /></div>'
+      + '<div>' + buildTimePickerHtml('') + '</div>'
+      + '<div>' + buildTimePickerHtml('') + '</div>'
       + '<div><button type="button" onclick="removeScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Remove">&#x2715;</button></div>';
     container.appendChild(row);
+    initializeTimeWheelPickers(row);
   }
 
   function removeScheduleRow(btn) {
@@ -439,11 +710,11 @@
       + '<option' + ((schedule.day || '') === 'Wednesday' ? ' selected' : '') + '>Wednesday</option>'
       + '<option' + ((schedule.day || '') === 'Thursday' ? ' selected' : '') + '>Thursday</option>'
       + '<option' + ((schedule.day || '') === 'Friday' ? ' selected' : '') + '>Friday</option>'
-      + '<option' + ((schedule.day || '') === 'Saturday' ? ' selected' : '') + '>Saturday</option>'
       + '</select></div>'
-      + '<div><input class="form-input" type="time" style="height:40px;" value="' + (schedule.start_time || '') + '" /></div>'
-      + '<div><input class="form-input" type="time" style="height:40px;" value="' + (schedule.end_time || '') + '" /></div>'
+      + '<div>' + buildTimePickerHtml(schedule.start_time || '') + '</div>'
+      + '<div>' + buildTimePickerHtml(schedule.end_time || '') + '</div>'
       + '<div><button type="button" onclick="removeEditorScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Delete schedule">&#x2715;</button></div>';
+    initializeTimeWheelPickers(row);
     return row;
   }
 
@@ -483,8 +754,9 @@
     } else {
       const row = rows[0];
       row.querySelector('select').value = '';
-      row.querySelectorAll('input')[0].value = '';
-      row.querySelectorAll('input')[1].value = '';
+      const timePickers = row.querySelectorAll('[data-time-picker="true"]');
+      if (timePickers[0]) clearTimePicker(timePickers[0]);
+      if (timePickers[1]) clearTimePicker(timePickers[1]);
       row.dataset.existing = 'false';
     }
   }
@@ -493,15 +765,32 @@
     if (!selectedSectionId) return;
     const sharedRoom = document.getElementById('section-editor-room').value.trim();
     const schedules = [];
+    let hasIncompleteRow = false;
     document.querySelectorAll('#section-schedule-list .editor-schedule-row').forEach(function(row) {
       const day = row.querySelector('select').value;
-      const inputs = row.querySelectorAll('input');
-      const startTime = inputs[0] ? inputs[0].value : '';
-      const endTime = inputs[1] ? inputs[1].value : '';
-      if (day && startTime && endTime) {
+      const timePickers = row.querySelectorAll('[data-time-picker="true"]');
+      const startTime = timePickers[0] ? getTimeValueFromPicker(timePickers[0]) : '';
+      const endTime = timePickers[1] ? getTimeValueFromPicker(timePickers[1]) : '';
+      const hasAnyValue = Boolean(day || startTime || endTime);
+      const isComplete = Boolean(day && startTime && endTime);
+      if (hasAnyValue && !isComplete) {
+        hasIncompleteRow = true;
+      }
+      if (isComplete) {
         schedules.push({ day: day, startTime: startTime, endTime: endTime, room: sharedRoom });
       }
     });
+
+    if (hasIncompleteRow) {
+      alert('Please complete or remove incomplete schedule rows before saving changes.');
+      return;
+    }
+
+    if (schedules.length === 0) {
+      alert('Please add at least one complete schedule before saving changes.');
+      return;
+    }
+
     const btn = document.getElementById('save-section-schedules-btn');
     const originalContent = btn.innerHTML;
     btn.disabled = true;
@@ -520,6 +809,7 @@
         }
         closeModal('section-schedule-modal');
         rerenderSelectedSubjectDetail();
+        renderSchedulePanelByDay();
       } else {
         alert('Failed to save schedules. Please try again.');
       }
@@ -548,6 +838,7 @@
         closeModal('section-schedule-modal');
         selectedSectionId = null;
         rerenderSelectedSubjectDetail();
+        renderSchedulePanelByDay();
       } else {
         alert('Failed to delete section. Please try again.');
       }
@@ -606,9 +897,9 @@
     const scheduleEntries = [];
     document.querySelectorAll('#sect-schedule-entries .schedule-row').forEach(function(row) {
       const day = row.querySelector('select').value;
-      const timeInputs = row.querySelectorAll('input[type="time"]');
-      const startTime = timeInputs[0] ? timeInputs[0].value : '';
-      const endTime = timeInputs[1] ? timeInputs[1].value : '';
+      const timePickers = row.querySelectorAll('[data-time-picker="true"]');
+      const startTime = timePickers[0] ? getTimeValueFromPicker(timePickers[0]) : '';
+      const endTime = timePickers[1] ? getTimeValueFromPicker(timePickers[1]) : '';
       if (day && startTime && endTime) {
         scheduleEntries.push({ day: day, startTime: startTime, endTime: endTime, room: defaultRoom });
       }
@@ -636,6 +927,7 @@
         }
         closeModal('add-section-modal');
         rerenderSelectedSubjectDetail();
+        renderSchedulePanelByDay();
       } else {
         alert('Failed to add section. Please try again.');
       }
