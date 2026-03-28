@@ -32,6 +32,10 @@ LOGIN_OTP_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_OTP_LOCKOUT_SECONDS", "300
 LOGIN_OTP_ENABLED = os.environ.get("LOGIN_OTP_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 PASSWORD_REQUIRED_SYMBOLS = "!@#$%^&*"
 TERMS_VERSION = "v1.0"
+ADMIN_VIEW_MODE_SESSION_KEY = "admin_view_mode"
+ADMIN_VIEW_MODE_ADMIN = "admin"
+ADMIN_VIEW_MODE_TEACHER = "teacher"
+ADMIN_VIEW_MODE_ALLOWED = {ADMIN_VIEW_MODE_ADMIN, ADMIN_VIEW_MODE_TEACHER}
 
 TERMS_POLICY_SECTIONS = [
     {
@@ -401,28 +405,81 @@ def admin_required(f):
     return wrapped
 
 
+def _normalize_admin_view_mode(mode: str | None) -> str:
+    cleaned = str(mode or "").strip().lower()
+    if cleaned in ADMIN_VIEW_MODE_ALLOWED:
+        return cleaned
+    return ADMIN_VIEW_MODE_ADMIN
+
+
 def current_user() -> dict | None:
     uid = session.get("user_id")
     if uid is None:
         return None
-    return db.get_user_by_id(uid)
+    user = db.get_user_by_id(uid)
+    if not user:
+        return None
+
+    role = user.get("role")
+    effective_user = dict(user)
+    effective_user["actual_role"] = role
+    effective_user["admin_view_mode"] = ADMIN_VIEW_MODE_ADMIN
+    effective_user["is_admin_teacher_mode"] = False
+    effective_user["role_label"] = role
+
+    if role == "admin":
+        mode = _normalize_admin_view_mode(session.get(ADMIN_VIEW_MODE_SESSION_KEY))
+        session[ADMIN_VIEW_MODE_SESSION_KEY] = mode
+        effective_user["admin_view_mode"] = mode
+
+        if mode == ADMIN_VIEW_MODE_TEACHER:
+            effective_user["role"] = "teacher"
+            effective_user["is_admin_teacher_mode"] = True
+            effective_user["role_label"] = "teacher (admin view)"
+        else:
+            effective_user["role"] = "admin"
+            effective_user["role_label"] = "admin"
+    else:
+        # Ensure mode flags from a prior admin login do not leak across users.
+        session.pop(ADMIN_VIEW_MODE_SESSION_KEY, None)
+
+    return effective_user
 
 
 @app.context_processor
 def inject_admin_pending_request_count():
     pending_request_count = 0
+    admin_view_mode = ADMIN_VIEW_MODE_ADMIN
+    is_admin_teacher_mode = False
     uid = session.get("user_id")
     if not uid:
-        return {"admin_pending_request_count": pending_request_count}
+        return {
+            "admin_pending_request_count": pending_request_count,
+            "admin_view_mode": admin_view_mode,
+            "is_admin_teacher_mode": is_admin_teacher_mode,
+        }
 
     user = db.get_user_by_id(uid)
     if not user:
-        return {"admin_pending_request_count": pending_request_count}
+        return {
+            "admin_pending_request_count": pending_request_count,
+            "admin_view_mode": admin_view_mode,
+            "is_admin_teacher_mode": is_admin_teacher_mode,
+        }
 
     if user.get("role") == "admin" and user.get("approval_status") == "approved":
-        pending_request_count = db.count_pending_users()
+        admin_view_mode = _normalize_admin_view_mode(session.get(ADMIN_VIEW_MODE_SESSION_KEY))
+        is_admin_teacher_mode = admin_view_mode == ADMIN_VIEW_MODE_TEACHER
+        if not is_admin_teacher_mode:
+            pending_request_count = db.count_pending_users()
+    else:
+        session.pop(ADMIN_VIEW_MODE_SESSION_KEY, None)
 
-    return {"admin_pending_request_count": pending_request_count}
+    return {
+        "admin_pending_request_count": pending_request_count,
+        "admin_view_mode": admin_view_mode,
+        "is_admin_teacher_mode": is_admin_teacher_mode,
+    }
 
 
 def _safe_user_profile_payload(user_obj: dict) -> dict:
@@ -771,6 +828,10 @@ def login():
                 session.pop("pending_login", None)
                 session["user_id"] = user["id"]
                 session["login_marker"] = f"{user['id']}-{int(time.time())}"
+                if user.get("role") == "admin":
+                    session[ADMIN_VIEW_MODE_SESSION_KEY] = ADMIN_VIEW_MODE_ADMIN
+                else:
+                    session.pop(ADMIN_VIEW_MODE_SESSION_KEY, None)
                 if is_ajax:
                     return jsonify({"success": True, "redirect": url_for("home")})
                 return redirect(url_for("home"))
@@ -939,6 +1000,10 @@ def verify_login_otp():
     session.pop("pending_login", None)
     session["user_id"] = user["id"]
     session["login_marker"] = f"{user['id']}-{int(time.time())}"
+    if user.get("role") == "admin":
+        session[ADMIN_VIEW_MODE_SESSION_KEY] = ADMIN_VIEW_MODE_ADMIN
+    else:
+        session.pop(ADMIN_VIEW_MODE_SESSION_KEY, None)
     if is_ajax:
         return jsonify({"success": True, "redirect": url_for("home")})
     return redirect(url_for("home"))
@@ -1357,20 +1422,25 @@ def yolo_infer():
     """Forward browser camera frames to YOLO server and return detections."""
     payload = request.get_json(silent=True) or {}
     frame = payload.get("frame")
+    session_id = payload.get("session_id")
     logging.info(
-        "YOLO infer request received: user_id=%s has_frame=%s frame_len=%s",
+        "YOLO infer request received: user_id=%s has_frame=%s frame_len=%s session_id=%s",
         session.get("user_id"),
         bool(frame),
         len(frame) if isinstance(frame, str) else 0,
+        session_id,
     )
     if not frame:
         logging.warning("YOLO infer rejected: missing frame payload")
         return jsonify({"error": "Missing frame payload"}), 400
 
     try:
+        request_payload = {"frame": frame}
+        if session_id:
+            request_payload["session_id"] = session_id
         r = requests.post(
             f"{_YOLO_SERVER}/infer",
-            json={"frame": frame},
+            json=request_payload,
             timeout=(3, 8),
         )
     except requests.exceptions.RequestException as exc:
@@ -1680,6 +1750,58 @@ def reports():
 def profile():
     user = current_user()
     return render_template("profile.html", user=user)
+
+
+@app.route("/profile/view-mode", methods=["POST"])
+@login_required
+def profile_view_mode():
+    uid = session.get("user_id")
+    actual_user = db.get_user_by_id(uid) if uid else None
+    is_ajax = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or request.is_json
+    )
+
+    if not actual_user or actual_user.get("role") != "admin":
+        if is_ajax:
+            return jsonify({"error": "Only admins can change view mode."}), 403
+        flash("Only admins can change view mode.", "error")
+        return redirect(url_for("profile"))
+
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        requested_mode = data.get("mode")
+        next_path = str(data.get("next") or "").strip()
+    else:
+        requested_mode = request.form.get("mode")
+        next_path = str(request.form.get("next") or "").strip()
+
+    requested_mode_clean = str(requested_mode or "").strip().lower()
+    if requested_mode_clean not in ADMIN_VIEW_MODE_ALLOWED:
+        if is_ajax:
+            return jsonify({"error": "Invalid view mode."}), 400
+        flash("Invalid view mode selected.", "error")
+        return redirect(url_for("profile"))
+
+    session[ADMIN_VIEW_MODE_SESSION_KEY] = requested_mode_clean
+
+    if not next_path.startswith("/"):
+        next_path = url_for("profile")
+
+    if is_ajax:
+        return jsonify(
+            {
+                "success": True,
+                "mode": requested_mode_clean,
+                "redirect": next_path,
+            }
+        )
+
+    if requested_mode_clean == ADMIN_VIEW_MODE_TEACHER:
+        flash("Switched to Teacher View. You can now use teacher pages.", "success")
+    else:
+        flash("Switched back to Admin View.", "success")
+    return redirect(next_path)
 
 
 @app.route("/settings")

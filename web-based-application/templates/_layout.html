@@ -285,7 +285,17 @@
               <p id="sidebar-user-name" class="sidebar-user-name">
                 {{ user.first_name }} {{ user.last_name }}
               </p>
-              <p class="sidebar-user-role">{{ user.role }}</p>
+              <p class="sidebar-user-role">
+                {% if user.actual_role == 'admin' %}
+                  {% if user.admin_view_mode == 'teacher' %}
+                    Teacher View
+                  {% else %}
+                    Admin
+                  {% endif %}
+                {% else %}
+                  {{ user.role|capitalize }}
+                {% endif %}
+              </p>
             </div>
           </a>
           <a href="/logout" class="btn btn-signout">
