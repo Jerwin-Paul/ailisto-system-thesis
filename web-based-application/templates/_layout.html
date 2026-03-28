@@ -11,11 +11,11 @@
     <link
       rel="icon"
       type="image/png"
-      href="{{ url_for('static', filename='images/logo.png') }}"
+      href="{{ url_for('static', filename='images/logo_no_bg2.png') }}"
     />
     <link
       rel="apple-touch-icon"
-      href="{{ url_for('static', filename='images/logo.png') }}"
+      href="{{ url_for('static', filename='images/logo_no_bg2.png') }}"
     />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -81,13 +81,11 @@
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="sidebar-brand">
-            <div class="sidebar-brand-icon">
-              <img
-                src="{{ url_for('static', filename='images/logo.png') }}"
-                alt="Ai-Listo logo"
-              />
-            </div>
-            <h1>Ai-Listo</h1>
+            <img
+              class="sidebar-brand-full-logo"
+              src="{{ url_for('static', filename='images/full_logo_blue.png') }}"
+              alt="Ai-Listo logo"
+            />
           </div>
           <p class="sidebar-subtitle">SSS Vilage Elementary School</p>
         </div>
