@@ -678,7 +678,7 @@ def cancel_session(session_id: int) -> dict | None:
 
 
 def get_sessions_by_date_range(
-    teacher_id: int,
+    teacher_id: int | None,
     start_date: str,
     end_date: str,
     subject_code: str = "",
@@ -690,13 +690,17 @@ def get_sessions_by_date_range(
             SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
             FROM sessions s
             JOIN subjects sub ON s.subject_id = sub.id
-            WHERE sub.teacher_id = %s
+                        JOIN users u ON sub.teacher_id = u.id
+                        WHERE (%s IS NULL OR sub.teacher_id = %s)
+                            AND u.role = 'teacher'
+                            AND u.approval_status = 'approved'
               AND s.start_time >= %s::date
               AND s.start_time < (%s::date + INTERVAL '1 day')
               AND (%s = '' OR sub.course_code = %s)
               AND (%s = '' OR sub.section = %s)
             ORDER BY s.start_time ASC
         """, (
+                        teacher_id,
             teacher_id,
             start_date,
             end_date,

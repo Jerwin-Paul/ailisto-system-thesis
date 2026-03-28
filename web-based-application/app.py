@@ -2171,6 +2171,7 @@ def _build_report_pdf(
     sessions_list: list,
     subject_filter: str = "",
     section_filter: str = "",
+    teacher_label: str | None = None,
 ) -> io.BytesIO:
     """Build the report PDF and return a seeked BytesIO buffer."""
     from reportlab.lib.pagesizes import A4
@@ -2253,7 +2254,7 @@ def _build_report_pdf(
     story.append(HRFlowable(width="100%", thickness=1.5, color=brand_blue))
     story.append(Spacer(1, 0.3 * cm))
 
-    teacher_name = f"{user['first_name']} {user['last_name']}"
+    teacher_name = teacher_label or f"{user['first_name']} {user['last_name']}"
     generated_at = datetime.now().strftime("%B %d, %Y at %I:%M %p")
     story.append(Paragraph(f"<b>Report Period:</b> {start_display} to {end_display}", normal_style))
     story.append(Paragraph(f"<b>Teacher:</b> {teacher_name}", normal_style))
@@ -2408,6 +2409,34 @@ def _build_report_filename(start_date: str, end_date: str, subject_code: str = "
     return f"{filename}.pdf"
 
 
+def _resolve_report_target_scope(user: dict, teacher_id_raw) -> tuple[int | None, dict, str]:
+    """Resolve report scope and label from an optional teacherId filter."""
+    is_admin = user.get("role") == "admin"
+    teacher_token = str(teacher_id_raw).strip() if teacher_id_raw is not None else ""
+
+    if teacher_token:
+        if not is_admin:
+            raise PermissionError("Only admins can request a different teacher report scope")
+
+        try:
+            teacher_id = int(teacher_token)
+        except (TypeError, ValueError):
+            raise ValueError("Invalid teacherId") from None
+
+        target_user = db.get_user_by_id(teacher_id)
+        if not target_user or target_user.get("role") != "teacher" or target_user.get("approval_status") != "approved":
+            raise LookupError("Teacher not found")
+
+        teacher_label = f"{target_user['first_name']} {target_user['last_name']}"
+        return teacher_id, target_user, teacher_label
+
+    if is_admin:
+        return None, user, "All Teachers"
+
+    teacher_label = f"{user['first_name']} {user['last_name']}"
+    return user["id"], user, teacher_label
+
+
 @app.route("/api/generate-report", methods=["POST"])
 @login_required
 def api_generate_report():
@@ -2417,20 +2446,21 @@ def api_generate_report():
     end_date = data.get("endDate", "")
     subject_code = str(data.get("subjectCode", "")).strip()
     section = str(data.get("section", "")).strip()
-    teacher_id = data.get("teacherId")
+    teacher_id_raw = data.get("teacherId")
     
     if not start_date or not end_date:
         return jsonify({"error": "startDate and endDate are required"}), 400
     
     user = current_user()
     
-    # If teacher_id is specified, verify the user is an admin
-    if teacher_id:
-        if user.get("role") != "admin":
-            return jsonify({"error": "Unauthorized"}), 403
-        target_user_id = teacher_id
-    else:
-        target_user_id = user["id"]
+    try:
+        target_user_id, target_user, teacher_label = _resolve_report_target_scope(user, teacher_id_raw)
+    except PermissionError:
+        return jsonify({"error": "Unauthorized"}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid teacherId"}), 400
+    except LookupError:
+        return jsonify({"error": "Teacher not found"}), 404
     
     try:
         sessions_list = db.get_sessions_by_date_range(
@@ -2440,12 +2470,6 @@ def api_generate_report():
             subject_code=subject_code,
             section=section,
         )
-        # Fetch the target user's info if generating report for a teacher
-        if teacher_id:
-            target_user = db.get_user_by_id(teacher_id)
-        else:
-            target_user = user
-        
         buf = _build_report_pdf(
             target_user,
             start_date,
@@ -2453,6 +2477,7 @@ def api_generate_report():
             sessions_list,
             subject_filter=subject_code,
             section_filter=section,
+            teacher_label=teacher_label,
         )
     except Exception as exc:
         logging.exception(
@@ -2476,20 +2501,21 @@ def api_preview_report():
     end_date = request.args.get("endDate", "")
     subject_code = request.args.get("subjectCode", "").strip()
     section = request.args.get("section", "").strip()
-    teacher_id = request.args.get("teacherId")
+    teacher_id_raw = request.args.get("teacherId")
     
     if not start_date or not end_date:
         return jsonify({"error": "startDate and endDate are required"}), 400
     
     user = current_user()
     
-    # If teacher_id is specified, verify the user is an admin
-    if teacher_id:
-        if user.get("role") != "admin":
-            return jsonify({"error": "Unauthorized"}), 403
-        target_user_id = teacher_id
-    else:
-        target_user_id = user["id"]
+    try:
+        target_user_id, target_user, teacher_label = _resolve_report_target_scope(user, teacher_id_raw)
+    except PermissionError:
+        return jsonify({"error": "Unauthorized"}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid teacherId"}), 400
+    except LookupError:
+        return jsonify({"error": "Teacher not found"}), 404
     
     try:
         sessions_list = db.get_sessions_by_date_range(
@@ -2499,12 +2525,6 @@ def api_preview_report():
             subject_code=subject_code,
             section=section,
         )
-        # Fetch the target user's info if generating report for a teacher
-        if teacher_id:
-            target_user = db.get_user_by_id(teacher_id)
-        else:
-            target_user = user
-        
         buf = _build_report_pdf(
             target_user,
             start_date,
@@ -2512,6 +2532,7 @@ def api_preview_report():
             sessions_list,
             subject_filter=subject_code,
             section_filter=section,
+            teacher_label=teacher_label,
         )
     except Exception as exc:
         logging.exception(
