@@ -36,6 +36,7 @@ ADMIN_VIEW_MODE_SESSION_KEY = "admin_view_mode"
 ADMIN_VIEW_MODE_ADMIN = "admin"
 ADMIN_VIEW_MODE_TEACHER = "teacher"
 ADMIN_VIEW_MODE_ALLOWED = {ADMIN_VIEW_MODE_ADMIN, ADMIN_VIEW_MODE_TEACHER}
+ADMIN_HISTORY_TEACHER_SESSION_KEY = "admin_history_teacher_id"
 
 TERMS_POLICY_SECTIONS = [
     {
@@ -1630,12 +1631,40 @@ def history():
 
     if user.get("role") == "admin":
         teachers = db.get_approved_teachers()
-        teacher_id_param = request.args.get("teacher_id", type=int)
-        if teacher_id_param:
-            candidate = db.get_user_by_id(teacher_id_param)
+        teacher_arg_present = "teacher_id" in request.args
+        if teacher_arg_present:
+            # Accept explicit teacher selection/clear from query, then redirect to a clean URL.
+            raw_teacher_value = (request.args.get("teacher_id") or "").strip()
+            if not raw_teacher_value:
+                session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
+            else:
+                teacher_id_param = request.args.get("teacher_id", type=int)
+                if teacher_id_param:
+                    candidate = db.get_user_by_id(teacher_id_param)
+                    if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
+                        session[ADMIN_HISTORY_TEACHER_SESSION_KEY] = teacher_id_param
+                    else:
+                        session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
+                else:
+                    session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
+
+            clean_query = {}
+            year_param = request.args.get("year")
+            month_num_param = request.args.get("month_num")
+            if year_param:
+                clean_query["year"] = year_param
+            if month_num_param:
+                clean_query["month_num"] = month_num_param
+            return redirect(url_for("history", **clean_query))
+
+        selected_teacher_id = session.get(ADMIN_HISTORY_TEACHER_SESSION_KEY)
+        if selected_teacher_id:
+            candidate = db.get_user_by_id(selected_teacher_id)
             if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
                 selected_teacher = candidate
-                effective_teacher_id = teacher_id_param
+                effective_teacher_id = selected_teacher_id
+            else:
+                session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
 
     now = datetime.now()
     selected_year = now.year
@@ -2538,11 +2567,29 @@ def api_get_sessions():
         # Admin can filter by teacher
         teacher_id = user["id"]
         if user.get("role") == "admin":
-            teacher_id_param = request.args.get("teacher_id", type=int)
-            if teacher_id_param:
-                candidate = db.get_user_by_id(teacher_id_param)
+            teacher_arg_present = "teacher_id" in request.args
+            if teacher_arg_present:
+                raw_teacher_value = (request.args.get("teacher_id") or "").strip()
+                if not raw_teacher_value:
+                    session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
+                else:
+                    teacher_id_param = request.args.get("teacher_id", type=int)
+                    if teacher_id_param:
+                        candidate = db.get_user_by_id(teacher_id_param)
+                        if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
+                            session[ADMIN_HISTORY_TEACHER_SESSION_KEY] = teacher_id_param
+                        else:
+                            session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
+                    else:
+                        session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
+
+            selected_teacher_id = session.get(ADMIN_HISTORY_TEACHER_SESSION_KEY)
+            if selected_teacher_id:
+                candidate = db.get_user_by_id(selected_teacher_id)
                 if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
-                    teacher_id = teacher_id_param
+                    teacher_id = selected_teacher_id
+                else:
+                    session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
         
         sessions_list = db.get_sessions_for_month(teacher_id, selected_year, selected_month_num)
         

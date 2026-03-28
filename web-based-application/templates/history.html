@@ -388,6 +388,7 @@
     if (Number.isNaN(selectedMonth) || Number.isNaN(selectedYear)) return;
 
     const url = new URL(window.location.href);
+    url.searchParams.delete('teacher_id');
     url.searchParams.set('year', String(selectedYear));
     url.searchParams.set('month_num', String(selectedMonth));
     window.history.replaceState({}, '', url.toString());
@@ -683,11 +684,17 @@
     if (target.id === 'teacher-filter') {
       const teacherId = target.value;
       const url = new URL(window.location.href);
-      if (teacherId) {
-        url.searchParams.set('teacher_id', teacherId);
-      } else {
-        url.searchParams.delete('teacher_id');
-      }
+      const { monthFilter, yearFilter } = getElements();
+      const selectedMonth = monthFilter ? monthFilter.value : '';
+      const selectedYear = yearFilter ? yearFilter.value : '';
+
+      if (selectedYear) url.searchParams.set('year', String(selectedYear));
+      if (selectedMonth) url.searchParams.set('month_num', String(selectedMonth));
+
+      // Use teacher_id only for this navigation request; backend persists selection then redirects to clean URL.
+      if (teacherId) url.searchParams.set('teacher_id', teacherId);
+      else url.searchParams.set('teacher_id', '');
+
       // Show loading animation before redirect
       showLoading();
       window.setTimeout(() => {
@@ -718,6 +725,7 @@
       if (Number.isNaN(selectedMonth) || Number.isNaN(selectedYear)) return;
 
       const url = new URL(window.location.href);
+      url.searchParams.delete('teacher_id');
       url.searchParams.set('year', String(selectedYear));
       url.searchParams.set('month_num', String(selectedMonth));
       window.history.replaceState({}, '', url.toString());

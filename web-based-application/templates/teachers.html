@@ -3,6 +3,13 @@
 {% block title %}Teachers - Ai-Listo{% endblock %}
 
 {% block content %}
+<style>
+  .teacher-list-item-selected {
+    background: var(--blue-50) !important;
+    border-left: 3px solid var(--blue-500) !important;
+  }
+</style>
+
 <div class="space-y-6">
 
   <!-- Header -->
@@ -34,11 +41,10 @@
         {% if all_teachers %}
           {% for teacher in all_teachers %}
           <a 
-            href="?teacher_id={{ teacher.id }}" 
-            data-spa
-            class="teacher-list-item"
+            href="/teachers?teacher_id={{ teacher.id }}"
+            class="teacher-list-item {% if selected_teacher and selected_teacher.id == teacher.id %}teacher-list-item-selected{% endif %}"
             data-teacher-search="{{ teacher.first_name|lower }} {{ teacher.last_name|lower }} {{ teacher.email|lower }}"
-            style="display: block; padding: 0.75rem; border-radius: 0.5rem; text-decoration: none; color: inherit; transition: background-color 0.2s; cursor: pointer; {% if selected_teacher and selected_teacher.id == teacher.id %}background: var(--blue-50); border-left: 3px solid var(--blue-500);{% else %}background: transparent;{% endif %}"
+            style="display: block; padding: 0.75rem; border-radius: 0.5rem; text-decoration: none; color: inherit; transition: background-color 0.2s; cursor: pointer; background: transparent; border-left: 3px solid transparent;"
           >
             <div style="display: flex; align-items: center; gap: 0.75rem;">
               <div style="width: 2.5rem; height: 2.5rem; border-radius: 50%; background: var(--blue-100); color: var(--blue-600); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.875rem;">
@@ -190,97 +196,63 @@
 <script>
   (() => {
     const teacherListItems = document.querySelectorAll('.teacher-list-item');
-    const loadingOverlay = document.getElementById('teacher-details-loading');
     const contentContainer = document.getElementById('teacher-content');
 
     if (!teacherListItems.length) return;
 
-    teacherListItems.forEach(item => {
+    function getLoadingOverlay() {
+      return document.getElementById('teacher-details-loading');
+    }
+
+    function setSelectedTeacher(selectedItem) {
+      teacherListItems.forEach((item) => {
+        item.classList.toggle('teacher-list-item-selected', item === selectedItem);
+      });
+    }
+
+    teacherListItems.forEach((item) => {
       item.addEventListener('click', async (e) => {
         e.preventDefault();
+        e.stopPropagation();
+
         const href = item.getAttribute('href');
-        
         if (!href) return;
 
-        // Show loading overlay on right panel only
-        if (loadingOverlay) {
-          loadingOverlay.style.display = 'flex';
+        const activeLoadingOverlay = getLoadingOverlay();
+        if (activeLoadingOverlay) {
+          activeLoadingOverlay.style.display = 'flex';
         }
+
+        // Let the browser paint the overlay/spinner before starting network work.
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
 
         try {
           const response = await fetch(href);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          
+
           const html = await response.text();
           const parser = new DOMParser();
           const newDoc = parser.parseFromString(html, 'text/html');
-          
-          // Find the new content div
+
           const newContent = newDoc.getElementById('teacher-content');
           if (newContent && contentContainer) {
-            // Replace only the content, preserving the loading overlay
             contentContainer.innerHTML = newContent.innerHTML;
-            
-            // Update URL without full page reload (keep clean URL without query params)
-            window.history.pushState({}, '', '/teachers');
-            
-            // Re-attach event listeners to new teacher list items if needed
-            reattachListeners();
+            setSelectedTeacher(item);
+
+            // Keep URL clean: selected teacher is loaded, but ID is not shown.
+            window.history.replaceState({}, '', '/teachers');
           }
         } catch (error) {
           console.error('Failed to load teacher details:', error);
           alert('Failed to load teacher details. Please try again.');
         } finally {
-          // Hide loading overlay
-          if (loadingOverlay) {
-            loadingOverlay.style.display = 'none';
+          const latestLoadingOverlay = getLoadingOverlay();
+          if (latestLoadingOverlay) {
+            latestLoadingOverlay.style.display = 'none';
           }
         }
       });
     });
-
-    function reattachListeners() {
-      const newItems = document.querySelectorAll('.teacher-list-item');
-      newItems.forEach(item => {
-        // Check if listener already attached
-        if (!item.hasAttribute('data-listener-attached')) {
-          item.addEventListener('click', async (e) => {
-            e.preventDefault();
-            const href = item.getAttribute('href');
-            
-            if (!href) return;
-
-            if (loadingOverlay) {
-              loadingOverlay.style.display = 'flex';
-            }
-
-            try {
-              const response = await fetch(href);
-              if (!response.ok) throw new Error(`HTTP ${response.status}`);
-              
-              const html = await response.text();
-              const parser = new DOMParser();
-              const newDoc = parser.parseFromString(html, 'text/html');
-              
-              const newContent = newDoc.getElementById('teacher-content');
-              if (newContent && contentContainer) {
-                contentContainer.innerHTML = newContent.innerHTML;
-                window.history.pushState({}, '', '/teachers');
-                reattachListeners();
-              }
-            } catch (error) {
-              console.error('Failed to load teacher details:', error);
-              alert('Failed to load teacher details. Please try again.');
-            } finally {
-              if (loadingOverlay) {
-                loadingOverlay.style.display = 'none';
-              }
-            }
-          });
-          item.setAttribute('data-listener-attached', 'true');
-        }
-      });
-    }
 
     // Search functionality
     const searchInput = document.getElementById('teacher-search-input');
