@@ -5,6 +5,15 @@
     <title>Create Account - Ai-Listo</title>
     <meta name="description" content="Create an Ai-Listo account." />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      rel="icon"
+      type="image/png"
+      href="{{ url_for('static', filename='images/logo.png') }}"
+    />
+    <link
+      rel="apple-touch-icon"
+      href="{{ url_for('static', filename='images/logo.png') }}"
+    />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -587,18 +596,10 @@
     <div class="auth-centered">
       <!-- Logo -->
       <div class="auth-centered-logo">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polygon points="23 7 16 12 23 17 23 7" />
-          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-        </svg>
+        <img
+          src="{{ url_for('static', filename='images/logo.png') }}"
+          alt="Ai-Listo logo"
+        />
       </div>
       <h1 class="auth-form-title">Create Account</h1>
       <p class="auth-form-subtitle" style="margin-bottom: 1.5rem">

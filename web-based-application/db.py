@@ -610,6 +610,7 @@ def get_sessions_for_month(teacher_id: int, year: int, month: int) -> list[dict]
             FROM sessions s
             JOIN subjects sub ON s.subject_id = sub.id
             WHERE sub.teacher_id = %s
+                            AND s.status = 'completed'
               AND s.start_time >= %s
               AND s.start_time < %s
             ORDER BY s.start_time DESC
@@ -628,6 +629,7 @@ def get_session_month_options(teacher_id: int) -> list[str]:
             FROM sessions s
             JOIN subjects sub ON s.subject_id = sub.id
             WHERE sub.teacher_id = %s
+                            AND s.status = 'completed'
               AND s.start_time IS NOT NULL
             GROUP BY month_start
             ORDER BY month_start DESC
@@ -921,7 +923,7 @@ def get_history_summary_stats(teacher_id: int) -> dict:
                     END
                 ) AS avg_attention
             FROM subjects sub
-            LEFT JOIN sessions s ON s.subject_id = sub.id
+            LEFT JOIN sessions s ON s.subject_id = sub.id AND s.status = 'completed'
             WHERE sub.teacher_id = %s
             """,
             (teacher_id,),

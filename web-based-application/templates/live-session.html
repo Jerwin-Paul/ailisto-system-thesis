@@ -460,6 +460,92 @@
         </div>
       </div>
 
+      <!-- Classroom Window -->
+      <div class="card card-borderless">
+        <div class="card-content">
+          <p class="stat-label" style="margin-bottom: 0.5rem">Classroom Window</p>
+          <div
+            id="window-status"
+            style="font-size: 1.1rem; font-weight: 600; color: var(--text-700)"
+          >
+            --
+          </div>
+          <p
+            id="tracked-students"
+            class="text-xs"
+            style="color: var(--text-400); margin-top: 0.35rem"
+          >
+            Tracked students: --
+          </p>
+          <p id="window-size" class="text-xs" style="color: var(--text-400)">
+            Window size: --
+          </p>
+        </div>
+      </div>
+
+      <!-- Classroom Features -->
+      <div class="card card-borderless">
+        <div class="card-content">
+          <p class="stat-label" style="margin-bottom: 0.75rem">Classroom Features</p>
+          <div
+            style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem"
+          >
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Engaged</p>
+              <p id="class-engaged" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Fatigue</p>
+              <p id="class-fatigue" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Off-task</p>
+              <p id="class-offtask" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Stability</p>
+              <p id="class-stability" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Switch rate</p>
+              <p id="class-switch-rate" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Context align</p>
+              <p id="class-context-alignment" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Percent engaged</p>
+              <p id="percent-engaged" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Percent sleeping</p>
+              <p id="percent-sleeping" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Write</p>
+              <p id="class-write" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Hand raise</p>
+              <p id="class-handrise" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Sleep</p>
+              <p id="class-sleep" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Yawn</p>
+              <p id="class-yawn" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Turn head</p>
+              <p id="class-turnhead" style="font-weight: 600">--</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Recommendations -->
       <div class="insight-box">
         <svg
@@ -547,6 +633,22 @@
     var aiInsight = document.getElementById("ai-insight");
     var trendPlaceholder = document.getElementById("trend-placeholder");
     var yoloStream = document.getElementById("yolo-stream");
+    var windowStatusEl = document.getElementById("window-status");
+    var trackedStudentsEl = document.getElementById("tracked-students");
+    var windowSizeEl = document.getElementById("window-size");
+    var classEngagedEl = document.getElementById("class-engaged");
+    var classFatigueEl = document.getElementById("class-fatigue");
+    var classOfftaskEl = document.getElementById("class-offtask");
+    var classStabilityEl = document.getElementById("class-stability");
+    var classSwitchRateEl = document.getElementById("class-switch-rate");
+    var classContextAlignEl = document.getElementById("class-context-alignment");
+    var percentEngagedEl = document.getElementById("percent-engaged");
+    var percentSleepingEl = document.getElementById("percent-sleeping");
+    var classWriteEl = document.getElementById("class-write");
+    var classHandriseEl = document.getElementById("class-handrise");
+    var classSleepEl = document.getElementById("class-sleep");
+    var classYawnEl = document.getElementById("class-yawn");
+    var classTurnheadEl = document.getElementById("class-turnhead");
     var pausedOverlay = document.getElementById("paused-overlay");
     var yoloStatusOverlay = document.getElementById("yolo-status-overlay");
     var yoloSpinner = document.getElementById("yolo-spinner");
@@ -1187,6 +1289,26 @@
       const sessionIdToEnd = currentSessionId;
       const summaryStats = getSessionSummaryStats();
 
+      if (sessionIdToEnd && !shouldSaveSession) {
+        try {
+          const resp = await fetch(getCancelSessionUrl(sessionIdToEnd), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+          });
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.error || "Could not cancel session.");
+          }
+        } catch (err) {
+          console.error("Failed to cancel session in backend:", err);
+          attentionStatus.textContent = "Cancel failed";
+          aiInsight.textContent =
+            "Session is still active because cancellation failed. Please try again.";
+          return;
+        }
+      }
+
       isSessionActive = false;
       isPaused = false;
       inferenceInFlight = false;
@@ -1239,22 +1361,6 @@
           }
         } catch (err) {
           console.error("Failed to end session in backend:", err);
-        }
-      }
-
-      if (sessionIdToEnd && !shouldSaveSession) {
-        try {
-          const resp = await fetch(getCancelSessionUrl(sessionIdToEnd), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-          });
-          if (!resp.ok) {
-            const data = await resp.json().catch(() => ({}));
-            throw new Error(data.error || "Could not cancel session.");
-          }
-        } catch (err) {
-          console.error("Failed to cancel session in backend:", err);
         }
       }
     }
@@ -1362,13 +1468,11 @@
         ctx.strokeRect(x1, y1, w, h);
 
         const confPct = Math.round((det.conf || 0) * 100);
-        const attentionLabel = normalizeAttentionLabel(det.attention);
-        const label =
-          (det.label || "person") +
-          " " +
-          confPct +
-          "%" +
-          (attentionLabel ? " | Attention: " + attentionLabel : "");
+        const labelName = det.label_normalized || det.label || "person";
+        const trackId = det.track_id !== null && det.track_id !== undefined
+          ? " #" + det.track_id
+          : "";
+        const label = labelName + trackId + " " + confPct + "%";
         const ty = y1 > 24 ? y1 - 8 : y1 + 20;
         ctx.fillText(label, x1, ty);
       });
@@ -1392,48 +1496,71 @@
       return null;
     }
 
+    function modelAttentionToUiLabel(rawValue) {
+      if (rawValue === null || rawValue === undefined) return null;
+      const value = String(rawValue).trim().toLowerCase();
+      if (!value) return null;
+      if (value === "low" || value === "0") return "Low";
+      if (value === "medium" || value === "1") return "Medium";
+      if (value === "high" || value === "2") return "High";
+      return null;
+    }
+
     function scoreToAttentionLabel(score) {
       if (score > 80) return "High";
       if (score > 60) return "Medium";
       return "Low";
     }
 
-    function updateAttentionFromDetections(detections) {
-      const items = Array.isArray(detections) ? detections : [];
-      const labelCounts = { Low: 0, Medium: 0, High: 0 };
-      const scores = [];
+    function formatPct(value) {
+      if (value === null || value === undefined || Number.isNaN(value)) return "--";
+      return Math.round(Number(value) * 100) + "%";
+    }
 
-      items.forEach((det) => {
-        const label = normalizeAttentionLabel(det && det.attention);
-        if (!label) return;
+    function formatRatio(value, digits) {
+      if (value === null || value === undefined || Number.isNaN(value)) return "--";
+      var fixed = Number(digits) || 2;
+      return Number(value).toFixed(fixed);
+    }
 
-        labelCounts[label] += 1;
-        const mappedScore = attentionLabelToScore(label);
-        if (mappedScore !== null) scores.push(mappedScore);
-      });
+    function setText(el, text) {
+      if (!el) return;
+      el.textContent = text;
+    }
 
-      let score;
-      let level;
+    function getWindowProgressState(aggregation, fallbackWindowSize) {
+      var rawWindowSize = Number(
+        (aggregation && (aggregation.window_size || aggregation.windowSize)) ||
+          fallbackWindowSize ||
+          0,
+      );
+      var rawFrameIndex = Number(
+        (aggregation && (aggregation.frame_index || aggregation.frameIndex)) || 0,
+      );
 
-      if (scores.length > 0) {
-        const total = scores.reduce((sum, val) => sum + val, 0);
-        score = Math.round(total / scores.length);
+      var windowSize = Number.isFinite(rawWindowSize) && rawWindowSize > 0
+        ? rawWindowSize
+        : 0;
+      var frameIndex = Number.isFinite(rawFrameIndex) && rawFrameIndex > 0
+        ? rawFrameIndex
+        : 0;
+      var explicitReady = Boolean(
+        aggregation && (aggregation.window_ready || aggregation.windowReady),
+      );
+      var inferredReady = windowSize > 0 && frameIndex >= windowSize;
+      var windowReady = explicitReady || inferredReady;
+      var progress = Math.min(frameIndex, windowSize || frameIndex);
 
-        const ranked = ["Low", "Medium", "High"];
-        level = ranked.reduce((best, current) => {
-          if (labelCounts[current] > labelCounts[best]) return current;
-          if (labelCounts[current] === labelCounts[best]) {
-            return attentionLabelToScore(current) > attentionLabelToScore(best)
-              ? current
-              : best;
-          }
-          return best;
-        }, "Low");
-      } else {
-        const count = items.length;
-        score = Math.max(45, Math.min(95, 55 + count * 7));
-        level = scoreToAttentionLabel(score);
-      }
+      return {
+        windowSize: windowSize,
+        frameIndex: frameIndex,
+        windowReady: windowReady,
+        progress: progress,
+      };
+    }
+
+    function applyAttentionUpdate(score, level, statusOverride, insightOverride) {
+      if (score === null || score === undefined || level === null) return;
 
       attentionHistory.push({ time: Date.now(), value: score });
       if (attentionHistory.length > 30) attentionHistory.shift();
@@ -1443,22 +1570,160 @@
         "attention-score-value " + level.toLowerCase();
 
       attentionStatus.textContent =
-        "Attention level: " + level + " (" + score + "%)";
+        statusOverride || "Attention level: " + level + " (" + score + "%)";
 
-      if (level === "High")
+      if (insightOverride) {
+        aiInsight.textContent = insightOverride;
+      } else if (level === "High") {
         aiInsight.textContent =
           "Great engagement! Most students appear attentive.";
-      else if (level === "Medium")
+      } else if (level === "Medium") {
         aiInsight.textContent =
           "Attention is moderate. Try a quick interactive prompt to lift focus.";
-      else
+      } else {
         aiInsight.textContent =
           "Low attention trend detected. Consider changing pace or activity.";
+      }
 
-      trendPlaceholder.style.display = "none";
-      trendChart.data.labels = attentionHistory.map((_, i) => i);
-      trendChart.data.datasets[0].data = attentionHistory.map((h) => h.value);
-      trendChart.update();
+      if (trendChart) {
+        trendPlaceholder.style.display = "none";
+        trendChart.data.labels = attentionHistory.map((_, i) => i);
+        trendChart.data.datasets[0].data = attentionHistory.map((h) => h.value);
+        trendChart.update();
+      }
+    }
+
+    function updateAttentionFromDetections(detections) {
+      const items = Array.isArray(detections) ? detections : [];
+      let engaged = 0;
+      let fatigue = 0;
+      let offtask = 0;
+
+      items.forEach((det) => {
+        const raw = det && (det.label_normalized || det.label || "");
+        const label = String(raw).trim().toLowerCase();
+        if (!label) return;
+        if (label === "write" || label === "handrise" || label === "upright") {
+          engaged += 1;
+          return;
+        }
+        if (label === "sleep" || label === "yawn") {
+          fatigue += 1;
+          return;
+        }
+        if (label === "turnhead") {
+          offtask += 1;
+        }
+      });
+
+      const total = Math.max(1, engaged + fatigue + offtask);
+      const engagedRatio = engaged / total;
+      const fatigueRatio = fatigue / total;
+      const offtaskRatio = offtask / total;
+      let score = Math.round(
+        45 + engagedRatio * 55 - (fatigueRatio + offtaskRatio) * 20,
+      );
+      score = Math.max(30, Math.min(95, score));
+      const level = scoreToAttentionLabel(score);
+
+      applyAttentionUpdate(score, level);
+    }
+
+    function updateAttentionFromAggregation(aggregation, detections, fallbackWindowSize) {
+      const classroom = aggregation && aggregation.classroom_features;
+      const windowState = getWindowProgressState(aggregation, fallbackWindowSize);
+      const windowReady = windowState.windowReady;
+      if (classroom) {
+        const modelLabel = modelAttentionToUiLabel(classroom.attention_label);
+        const percentEngaged =
+          typeof classroom.percent_engaged === "number"
+            ? classroom.percent_engaged
+            : null;
+        const score =
+          modelLabel !== null
+            ? attentionLabelToScore(modelLabel)
+            : percentEngaged !== null
+              ? Math.round(percentEngaged * 100)
+              : null;
+        const level = modelLabel || (score !== null ? scoreToAttentionLabel(score) : null);
+        if (score === null || level === null) {
+          updateAttentionFromDetections(detections);
+          return;
+        }
+        const statusText = windowReady
+          ? "Attention level: " + level + " (" + score + "%)"
+          : "Warming up... collecting " + (windowState.windowSize || 30) + " frames";
+        const insightText = windowReady
+          ? null
+          : "Warming up the classroom window. Insights will improve shortly.";
+        applyAttentionUpdate(score, level, statusText, insightText);
+        return;
+      }
+
+      updateAttentionFromDetections(detections);
+    }
+
+    function updateClassroomAggregation(aggregation, fallbackWindowSize) {
+      if (!aggregation || typeof aggregation !== "object") {
+        setText(windowStatusEl, "--");
+        setText(trackedStudentsEl, "Tracked students: --");
+        setText(windowSizeEl, "Window size: --");
+        setText(classEngagedEl, "--");
+        setText(classFatigueEl, "--");
+        setText(classOfftaskEl, "--");
+        setText(classStabilityEl, "--");
+        setText(classSwitchRateEl, "--");
+        setText(classContextAlignEl, "--");
+        setText(percentEngagedEl, "--");
+        setText(percentSleepingEl, "--");
+        setText(classWriteEl, "--");
+        setText(classHandriseEl, "--");
+        setText(classSleepEl, "--");
+        setText(classYawnEl, "--");
+        setText(classTurnheadEl, "--");
+        return;
+      }
+
+      var windowState = getWindowProgressState(aggregation, fallbackWindowSize);
+      var windowSize = windowState.windowSize;
+      var frameIndex = windowState.frameIndex;
+      var windowReady = windowState.windowReady;
+      var trackedStudents = Number(
+        aggregation.tracked_students || aggregation.trackedStudents || aggregation.students || 0,
+      );
+      var progress = windowState.progress;
+      var statusText = windowReady
+        ? "Window ready"
+        : "Warming up (" + progress + "/" + (windowSize || "--") + ")";
+
+      setText(windowStatusEl, statusText);
+      setText(trackedStudentsEl, "Tracked students: " + trackedStudents);
+      setText(
+        windowSizeEl,
+        "Window size: " + (windowSize ? windowSize + " frames" : "--"),
+      );
+
+      var classroom =
+        aggregation.classroom_features ||
+        aggregation.classroomFeatures ||
+        aggregation.features ||
+        {};
+      setText(classEngagedEl, formatRatio(classroom.class_engaged, 2));
+      setText(classFatigueEl, formatRatio(classroom.class_fatigue, 2));
+      setText(classOfftaskEl, formatRatio(classroom.class_offtask, 2));
+      setText(classStabilityEl, formatRatio(classroom.class_stability, 2));
+      setText(classSwitchRateEl, formatRatio(classroom.class_switch_rate, 2));
+      setText(
+        classContextAlignEl,
+        formatRatio(classroom.class_context_alignment, 2),
+      );
+      setText(percentEngagedEl, formatPct(classroom.percent_engaged));
+      setText(percentSleepingEl, formatPct(classroom.percent_sleeping));
+      setText(classWriteEl, formatRatio(classroom.class_write, 2));
+      setText(classHandriseEl, formatRatio(classroom.class_handrise, 2));
+      setText(classSleepEl, formatRatio(classroom.class_sleep, 2));
+      setText(classYawnEl, formatRatio(classroom.class_yawn, 2));
+      setText(classTurnheadEl, formatRatio(classroom.class_turnhead, 2));
     }
 
     async function runInferenceLoop() {
@@ -1496,11 +1761,16 @@
         const jpegData = captureCanvas.toDataURL("image/jpeg", 0.7);
         const frameBase64 = jpegData.split(",", 2)[1];
 
+        const payload = { frame: frameBase64 };
+        if (currentSessionId) {
+          payload.session_id = String(currentSessionId);
+        }
+
         const resp = await fetch(yoloInferUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ frame: frameBase64 }),
+          body: JSON.stringify(payload),
         });
 
         const raw = await resp.text();
@@ -1529,10 +1799,17 @@
         if (!isSessionActive) return;
 
         const detections = data.detections || [];
+        const aggregation =
+          data.classroom_aggregation ||
+          data.classroomAggregation ||
+          data.classroom_agg ||
+          data.classroom ||
+          {};
         inferFailureCount = 0;
         yoloStatusOverlay.style.display = "none";
         drawDetections(detections, data.width, data.height);
-        updateAttentionFromDetections(detections);
+        updateClassroomAggregation(aggregation, data.window_size);
+        updateAttentionFromAggregation(aggregation, detections, data.window_size);
         nextDelay = 30;
       } catch (err) {
         if (isSessionActive) {
