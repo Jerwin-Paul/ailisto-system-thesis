@@ -82,14 +82,38 @@
   <body>
     <div class="app-layout">
       <!-- Sidebar -->
-      <aside class="sidebar">
+      <aside class="sidebar" id="app-sidebar" aria-hidden="false">
         <div class="sidebar-header">
-          <div class="sidebar-brand">
-            <img
-              class="sidebar-brand-full-logo"
-              src="{{ url_for('static', filename='images/full_logo_blue.png') }}"
-              alt="Ai-Listo logo"
-            />
+          <div class="sidebar-header-top">
+            <div class="sidebar-brand">
+              <img
+                class="sidebar-brand-full-logo"
+                src="{{ url_for('static', filename='images/full_logo_blue.png') }}"
+                alt="Ai-Listo logo"
+              />
+            </div>
+            <button
+              type="button"
+              class="sidebar-close-btn"
+              id="sidebar-close-btn"
+              aria-label="Hide sidebar"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+              <span>Close</span>
+            </button>
           </div>
           <p class="sidebar-subtitle">SSS Vilage Elementary School</p>
         </div>
@@ -251,9 +275,9 @@
         <div class="sidebar-footer">
           <a
             href="/profile"
-            class="sidebar-user"
+            class="sidebar-user {% if request.path == '/profile' %}sidebar-user-active{% endif %}"
             data-spa
-            style="text-decoration:none; border-radius: var(--radius-xl); transition: background 0.2s; {% if request.path == '/profile' %}background: var(--primary-light);{% endif %}"
+            style="text-decoration:none; border-radius: var(--radius-xl); transition: background 0.2s;"
           >
             {% set sidebar_avatar_src = (user.avatar_url or '')|trim %}
             {% set sidebar_has_avatar = sidebar_avatar_src and sidebar_avatar_src not in ['None', 'null', 'NULL'] %}
@@ -263,12 +287,14 @@
                 id="sidebar-avatar-img"
                 src="{{ sidebar_avatar_src if sidebar_has_avatar else '' }}"
                 alt=""
-                style="width: 100%; height: 100%; object-fit: cover; display: {% if sidebar_has_avatar %}block{% else %}none{% endif %}; border-radius: 50%;"
+                {% if not sidebar_has_avatar %}hidden{% endif %}
+                style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;"
               />
               <span
                 id="sidebar-avatar-initials"
+                {% if sidebar_has_avatar %}hidden{% endif %}
                 style="
-                  display: {% if sidebar_has_avatar %}none{% else %}inline-flex{% endif %};
+                  display: inline-flex;
                   align-items: center;
                   justify-content: center;
                   width: 100%;
@@ -322,8 +348,47 @@
         </div>
       </aside>
 
+      <button
+        type="button"
+        class="sidebar-backdrop"
+        id="sidebar-backdrop"
+        aria-label="Hide sidebar"
+      ></button>
+
       <!-- Main Content -->
       <main class="main-content">
+        <div class="main-mobile-header">
+          <button
+            type="button"
+            class="mobile-nav-toggle"
+            id="sidebar-open-btn"
+            aria-label="Show sidebar"
+            aria-controls="app-sidebar"
+            aria-expanded="false"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+            <span>Menu</span>
+          </button>
+          <img
+            class="main-mobile-logo"
+            src="{{ url_for('static', filename='images/full_logo_blue.png') }}"
+            alt="Ai-Listo logo"
+          />
+        </div>
         <!-- Content-area loading overlay -->
         <div id="page-loading">
           <div class="page-loading-spinner"></div>
@@ -352,7 +417,50 @@
         const contentEl = document.getElementById("page-content");
         const mainContentEl = document.querySelector(".main-content");
         const pageLoadingEl = document.getElementById("page-loading");
+        const appLayoutEl = document.querySelector(".app-layout");
+        const sidebarEl = document.getElementById("app-sidebar");
+        const sidebarOpenBtn = document.getElementById("sidebar-open-btn");
+        const sidebarCloseBtn = document.getElementById("sidebar-close-btn");
+        const sidebarBackdropEl = document.getElementById("sidebar-backdrop");
         const cache = {};
+
+        function isNarrowViewport() {
+          return window.matchMedia("(max-width: 900px)").matches;
+        }
+
+        function setSidebarState(nextIsOpen) {
+          if (!appLayoutEl || !sidebarEl) return;
+
+          if (!isNarrowViewport()) {
+            appLayoutEl.classList.remove("sidebar-open");
+            document.body.classList.remove("sidebar-lock-scroll");
+            sidebarEl.setAttribute("aria-hidden", "false");
+            if (sidebarOpenBtn) {
+              sidebarOpenBtn.setAttribute("aria-expanded", "false");
+            }
+            return;
+          }
+
+          appLayoutEl.classList.toggle("sidebar-open", nextIsOpen);
+          document.body.classList.toggle("sidebar-lock-scroll", nextIsOpen);
+          sidebarEl.setAttribute("aria-hidden", nextIsOpen ? "false" : "true");
+          if (sidebarOpenBtn) {
+            sidebarOpenBtn.setAttribute("aria-expanded", nextIsOpen ? "true" : "false");
+          }
+        }
+
+        function closeSidebar() {
+          setSidebarState(false);
+        }
+
+        function openSidebar() {
+          setSidebarState(true);
+        }
+
+        function toggleSidebar() {
+          const isOpen = !!appLayoutEl && appLayoutEl.classList.contains("sidebar-open");
+          setSidebarState(!isOpen);
+        }
 
         function positionContentLoader() {
           if (!mainContentEl || !pageLoadingEl) return;
@@ -394,10 +502,15 @@
             const href = link.getAttribute("href");
             if (href === window.location.pathname) {
               e.preventDefault();
+              closeSidebar();
               return;
             }
-            if (href === "/logout") return;
+            if (href === "/logout") {
+              closeSidebar();
+              return;
+            }
             e.preventDefault();
+            closeSidebar();
 
             // Show loading overlay
             showContentLoader();
@@ -556,9 +669,27 @@
           });
         }
 
+        if (sidebarOpenBtn) {
+          sidebarOpenBtn.addEventListener("click", toggleSidebar);
+        }
+        if (sidebarCloseBtn) {
+          sidebarCloseBtn.addEventListener("click", closeSidebar);
+        }
+        if (sidebarBackdropEl) {
+          sidebarBackdropEl.addEventListener("click", closeSidebar);
+        }
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            closeSidebar();
+          }
+        });
+
         bindSpaLinks();
+        closeSidebar();
 
         window.addEventListener("resize", () => {
+          closeSidebar();
           if (pageLoadingEl && pageLoadingEl.classList.contains("active")) {
             positionContentLoader();
           }

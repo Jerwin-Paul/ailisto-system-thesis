@@ -514,22 +514,26 @@
     function syncSidebarAvatar(avatarUrl) {
       if (!sidebarAvatarImg || !sidebarAvatarInitials) return;
 
+      // Use hidden toggles to keep sidebar avatar state consistent across pages and viewports.
+      sidebarAvatarImg.style.display = "";
+      sidebarAvatarInitials.style.display = "";
+
       const candidate = (avatarUrl || "").trim();
       if (!candidate || candidate === "None" || candidate === "null") {
         sidebarAvatarImg.removeAttribute("src");
-        sidebarAvatarImg.style.display = "none";
-        sidebarAvatarInitials.style.display = "inline-flex";
+        sidebarAvatarImg.hidden = true;
+        sidebarAvatarInitials.hidden = false;
         return;
       }
 
       sidebarAvatarImg.onload = function () {
-        sidebarAvatarImg.style.display = "block";
-        sidebarAvatarInitials.style.display = "none";
+        sidebarAvatarImg.hidden = false;
+        sidebarAvatarInitials.hidden = true;
       };
       sidebarAvatarImg.onerror = function () {
         sidebarAvatarImg.removeAttribute("src");
-        sidebarAvatarImg.style.display = "none";
-        sidebarAvatarInitials.style.display = "inline-flex";
+        sidebarAvatarImg.hidden = true;
+        sidebarAvatarInitials.hidden = false;
       };
       sidebarAvatarImg.src = candidate + (candidate.includes("?") ? "&" : "?") + "v=" + Date.now();
     }
