@@ -73,7 +73,12 @@
             <div class="class-stat-header">
               <div style="min-width:0;">
                 {% if user.role == 'admin' %}
-                <p class="class-stat-name">{{ cls.name }}</p>
+                <p class="class-stat-name" style="display:flex; align-items:center; gap:0.45rem;">
+                  <span>{{ cls.name }}</span>
+                  {% if cls.role == 'admin' %}
+                  <span style="display: inline-flex; align-items: center; padding: 0.1rem 0.45rem; border-radius: 9999px; font-size: 0.67rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; background: var(--blue-50); color: var(--blue-700); border: 1px solid var(--blue-200);">Admin</span>
+                  {% endif %}
+                </p>
                 {% else %}
                 <p class="class-stat-name">{{ cls.course_code }}{% if cls.section %} - Section {{ cls.section }}{% endif %}</p>
                 <p class="class-stat-sub">{{ cls.name }}</p>
@@ -99,7 +104,7 @@
             <div class="class-stat-header">
               <div style="min-width:0;">
                 <p class="class-stat-name">No data yet</p>
-                <p class="class-stat-sub">{% if user.role == 'admin' %}Teachers will appear here once they run sessions.{% else %}Run a session to see attention analytics here.{% endif %}</p>
+                <p class="class-stat-sub">{% if user.role == 'admin' %}Teachers and admins will appear here once they run sessions.{% else %}Run a session to see attention analytics here.{% endif %}</p>
               </div>
             </div>
           </div>

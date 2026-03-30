@@ -1542,14 +1542,21 @@ def classes():
 def teachers():
     import datetime as _dt
     user = current_user()
+
+    def _can_view_teacher_panel(candidate):
+        if not candidate:
+            return False
+        if candidate.get("role") == "admin":
+            return True
+        return candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved"
     
     # Only admins can access this page
     if user.get("role") != "admin":
         flash("Access denied. Only admins can view teachers.", "error")
         return redirect(url_for("classes"))
     
-    # Get all approved teachers
-    all_teachers = db.get_approved_teachers()
+    # Get all approved teachers and admins (admins can also have teaching schedules).
+    all_teachers = db.get_approved_teachers_and_admins()
     
     # Get subject data for a specific teacher if requested
     selected_teacher = None
@@ -1560,7 +1567,7 @@ def teachers():
     if teacher_id_param:
         # Verify teacher exists and is approved
         candidate = db.get_user_by_id(teacher_id_param)
-        if candidate and candidate.get("role") == "teacher" and candidate.get("approval_status") == "approved":
+        if _can_view_teacher_panel(candidate):
             selected_teacher = candidate
             subjects = db.get_subjects(teacher_id_param)
             
@@ -1569,13 +1576,27 @@ def teachers():
                 if t is None:
                     return None
                 if isinstance(t, _dt.time):
-                    return t.strftime('%H:%M')
-                if isinstance(t, _dt.timedelta):
+                    parsed_time = t
+                elif isinstance(t, _dt.timedelta):
                     total = int(t.total_seconds())
                     h, rem = divmod(total, 3600)
                     m = rem // 60
-                    return f'{h:02d}:{m:02d}'
-                return str(t)
+                    parsed_time = _dt.time(hour=h % 24, minute=m)
+                elif isinstance(t, str):
+                    raw = t.strip()
+                    parsed_time = None
+                    for fmt in ('%H:%M:%S', '%H:%M', '%I:%M %p', '%I:%M%p'):
+                        try:
+                            parsed_time = _dt.datetime.strptime(raw, fmt).time()
+                            break
+                        except ValueError:
+                            continue
+                    if parsed_time is None:
+                        return raw
+                else:
+                    return str(t)
+
+                return parsed_time.strftime('%I:%M %p').lstrip('0')
 
             groups_map = {}
             groups_order = []

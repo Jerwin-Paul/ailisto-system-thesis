@@ -440,6 +440,18 @@ def get_approved_teachers() -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def get_approved_teachers_and_admins() -> list[dict]:
+    with get_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT id, first_name, last_name, email, role
+            FROM users
+            WHERE (role = 'teacher' AND approval_status = 'approved')
+               OR role = 'admin'
+            ORDER BY first_name, last_name
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
 def update_user_role(user_id: int, role: str) -> dict | None:
     with get_cursor() as cur:
         cur.execute(
@@ -818,6 +830,7 @@ def get_dashboard_stats_admin() -> dict:
                 u.id,
                 u.first_name,
                 u.last_name,
+                u.role,
                 COUNT(s.id) AS total_sessions,
                 AVG(
                     CASE
@@ -830,8 +843,9 @@ def get_dashboard_stats_admin() -> dict:
             FROM users u
             LEFT JOIN subjects sub ON u.id = sub.teacher_id
             LEFT JOIN sessions s ON s.subject_id = sub.id
-            WHERE u.role = 'teacher' AND u.approval_status = 'approved'
-            GROUP BY u.id, u.first_name, u.last_name
+            WHERE (u.role = 'teacher' AND u.approval_status = 'approved')
+               OR u.role = 'admin'
+            GROUP BY u.id, u.first_name, u.last_name, u.role
             ORDER BY u.first_name ASC, u.last_name ASC
         """)
         teacher_rows = cur.fetchall()
@@ -839,6 +853,7 @@ def get_dashboard_stats_admin() -> dict:
             {
                 "id": row["id"],
                 "name": f"{row['first_name']} {row['last_name']}",
+                "role": row["role"],
                 "total_sessions": row["total_sessions"],
                 "avg_attention": round(row["avg_attention"]) if row["avg_attention"] is not None else None,
             }
