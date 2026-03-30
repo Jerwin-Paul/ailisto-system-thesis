@@ -246,8 +246,12 @@
 
     function updateWeeklyChart(weeklyAttention) {
       const ctx = chartCanvas.getContext('2d');
-      const weeklyLabels = weeklyAttention.map((item) => item.label);
-      const weeklyValues = weeklyAttention.map((item) => item.value);
+      const filteredWeeklyAttention = (weeklyAttention || []).filter((item) => {
+        const label = String((item && item.label) || '').trim().toLowerCase();
+        return label !== 'saturday' && label !== 'sat';
+      });
+      const weeklyLabels = filteredWeeklyAttention.map((item) => item.label);
+      const weeklyValues = filteredWeeklyAttention.map((item) => item.value);
       const gradient = ctx.createLinearGradient(0, 0, 0, 300);
       gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
       gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
