@@ -6,6 +6,7 @@ import re
 import secrets
 import string
 import time
+import unicodedata
 import requests
 from functools import wraps
 from datetime import datetime
@@ -242,9 +243,16 @@ def _safe_filename_part(value: str) -> str:
     return cleaned.strip("_") or "user"
 
 
-def _build_terms_pdf_filename(full_name: str, agreed_at: datetime) -> str:
-    stamp = agreed_at.strftime("%Y%m%d-%H%M%S")
-    return f"ai-listo-terms-agreement-{_safe_filename_part(full_name)}-{stamp}.pdf"
+def _agreement_name_for_filename(full_name: str) -> str:
+    normalized = unicodedata.normalize("NFKD", (full_name or "").strip())
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    normalized = re.sub(r"\s+", " ", normalized.lower())
+    normalized = re.sub(r"[^a-z0-9 ]+", "", normalized)
+    return normalized or "user"
+
+
+def _build_terms_pdf_filename(full_name: str) -> str:
+    return f"ai-listo-terms-agreement-{_agreement_name_for_filename(full_name)}.pdf"
 
 
 def _build_terms_policy_pdf(
@@ -1158,7 +1166,7 @@ def register():
 
             agreed_at = datetime.now()
             full_name = f"{first_name} {last_name}".strip()
-            terms_filename = _build_terms_pdf_filename(full_name, agreed_at)
+            terms_filename = _build_terms_pdf_filename(full_name)
             terms_pdf = _build_terms_policy_pdf(full_name, agreed_at)
 
             db.create_user_terms_agreement_proof(
@@ -1196,7 +1204,7 @@ def register():
 def download_terms_pdf():
     full_name = request.args.get("name", "Prospective User").strip() or "Prospective User"
     generated_at = datetime.now()
-    filename = _build_terms_pdf_filename(full_name, generated_at)
+    filename = _build_terms_pdf_filename(full_name)
     buf = _build_terms_policy_pdf(
         full_name,
         generated_at,
@@ -1875,11 +1883,13 @@ def admin_download_user_agreement(proof_id: int):
     if not pdf_data:
         return jsonify({"error": "Agreement proof has no PDF data."}), 404
 
+    download_filename = _build_terms_pdf_filename(proof.get("full_name") or "user")
+
     return send_file(
         io.BytesIO(bytes(pdf_data)),
         mimetype="application/pdf",
         as_attachment=True,
-        download_name=proof.get("file_name") or f"terms-agreement-{proof_id}.pdf",
+        download_name=download_filename,
     )
 
 
