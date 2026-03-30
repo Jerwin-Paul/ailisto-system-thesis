@@ -701,13 +701,18 @@ def get_sessions_by_date_range(
     """Return teacher sessions in date range with optional subject and/or section filters."""
     with get_cursor(commit=False) as cur:
         cur.execute("""
-            SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+            SELECT
+                s.*, sub.name AS subject_name, sub.course_code, sub.section,
+                u.first_name AS teacher_first_name,
+                u.last_name AS teacher_last_name
             FROM sessions s
             JOIN subjects sub ON s.subject_id = sub.id
                         JOIN users u ON sub.teacher_id = u.id
                         WHERE (%s IS NULL OR sub.teacher_id = %s)
-                            AND u.role = 'teacher'
-                            AND u.approval_status = 'approved'
+                            AND (
+                                u.role = 'admin'
+                                OR (u.role = 'teacher' AND u.approval_status = 'approved')
+                            )
               AND s.start_time >= %s::date
               AND s.start_time < (%s::date + INTERVAL '1 day')
               AND (%s = '' OR sub.course_code = %s)

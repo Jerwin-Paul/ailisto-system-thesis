@@ -1767,10 +1767,10 @@ def history():
 def reports():
     user = current_user()
     
-    # For admins, allow selecting a teacher
+    # For admins, allow selecting approved teachers and admins.
     teachers = []
     if user.get("role") == "admin":
-        teachers = db.get_approved_teachers()
+        teachers = db.get_approved_teachers_and_admins()
     
     subjects = db.get_subjects(user["id"])
     login_marker = session.get("login_marker")
@@ -2380,7 +2380,32 @@ def _build_report_pdf(
 
     story.append(Paragraph("Session Details", section_style))
     if sessions_list:
-        table_data = [["Class", "Date", "Start Time", "End Time", "Duration", "Avg. Attention"]]
+        show_teacher_column = (teacher_name or "").strip().lower() == "all teachers"
+        header_text_style = ParagraphStyle(
+            "ReportTableHeaderText",
+            parent=normal_style,
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=9.5,
+            alignment=1,
+            textColor=colors.white,
+        )
+        teacher_cell_style = ParagraphStyle(
+            "ReportTeacherCellText",
+            parent=normal_style,
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=9.5,
+            alignment=1,
+            textColor=dark,
+        )
+
+        avg_attention_header = Paragraph("Avg.<br/>Attention", header_text_style)
+        if show_teacher_column:
+            table_data = [["Teacher", "Class", "Date", "Start Time", "End Time", "Duration", avg_attention_header]]
+        else:
+            table_data = [["Class", "Date", "Start Time", "End Time", "Duration", avg_attention_header]]
+
         for s in sessions_list:
             course = f"{s.get('course_code', '')} - {s.get('section', '')}"
             date_display = s["start_time"].strftime("%b %d, %Y") if s.get("start_time") else "—"
@@ -2397,9 +2422,37 @@ def _build_report_pdf(
                 if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
                 else "—"
             )
-            table_data.append([course, date_display, start_time_display, end_time_display, duration, att])
+            if show_teacher_column:
+                teacher_first_name = str(s.get("teacher_first_name", "") or "").strip()
+                teacher_last_name = str(s.get("teacher_last_name", "") or "").strip()
+                if teacher_last_name and teacher_first_name:
+                    teacher_full_name = Paragraph(
+                        f"{teacher_last_name},<br/>{teacher_first_name}",
+                        teacher_cell_style,
+                    )
+                elif teacher_last_name:
+                    teacher_full_name = Paragraph(f"{teacher_last_name},", teacher_cell_style)
+                elif teacher_first_name:
+                    teacher_full_name = Paragraph(teacher_first_name, teacher_cell_style)
+                else:
+                    teacher_full_name = "—"
+                table_data.append([
+                    teacher_full_name,
+                    course,
+                    date_display,
+                    start_time_display,
+                    end_time_display,
+                    duration,
+                    att,
+                ])
+            else:
+                table_data.append([course, date_display, start_time_display, end_time_display, duration, att])
 
-        col_widths = [3.5 * cm, 2.8 * cm, 2.4 * cm, 2.4 * cm, 2.7 * cm, 2.7 * cm]
+        if show_teacher_column:
+            # Prioritize class readability by giving it more width and shrinking teacher.
+            col_widths = [2.3 * cm, 3.5 * cm, 2.2 * cm, 1.9 * cm, 1.9 * cm, 2.0 * cm, 2.7 * cm]
+        else:
+            col_widths = [3.5 * cm, 2.8 * cm, 2.4 * cm, 2.4 * cm, 2.7 * cm, 2.7 * cm]
         detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
         detail_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
@@ -2455,7 +2508,11 @@ def _resolve_report_target_scope(user: dict, teacher_id_raw) -> tuple[int | None
             raise ValueError("Invalid teacherId") from None
 
         target_user = db.get_user_by_id(teacher_id)
-        if not target_user or target_user.get("role") != "teacher" or target_user.get("approval_status") != "approved":
+        is_report_target = bool(target_user) and (
+            target_user.get("role") == "admin"
+            or (target_user.get("role") == "teacher" and target_user.get("approval_status") == "approved")
+        )
+        if not is_report_target:
             raise LookupError("Teacher not found")
 
         teacher_label = f"{target_user['first_name']} {target_user['last_name']}"
