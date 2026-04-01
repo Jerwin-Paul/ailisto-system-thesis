@@ -531,7 +531,7 @@
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
         <div>
-          <h4 class="insight-title">Recommendations</h4>
+          <h4 class="insight-title" id="insight-heading">Recommendations</h4>
           <p class="insight-text" id="ai-insight">
             Start a session to receive recommendations.
           </p>
@@ -599,6 +599,7 @@
     var camOffIcon = document.getElementById("cam-off-icon");
     var attentionValue = document.getElementById("attention-value");
     var attentionStatus = document.getElementById("attention-status");
+    var insightHeading = document.getElementById("insight-heading");
     var aiInsight = document.getElementById("ai-insight");
     var trendPlaceholder = document.getElementById("trend-placeholder");
     var yoloStream = document.getElementById("yolo-stream");
@@ -640,6 +641,125 @@
     var inferMaxWidth = 320;
     var inferMinQuality = 0.45;
     var inferMaxQuality = 0.72;
+    var mediumRecommendationOptions = [
+      "You might ask a short question to the class.",
+      "It may help to call on a student to explain the last point.",
+      "You could try rephrasing or simplifying the explanation.",
+      "It might be helpful to give a real-life example.",
+      "You could let students answer in pairs or small groups.",
+      "It may help to ask for a show of hands or a quick poll.",
+      "You might pause and ask, 'Does this make sense?'",
+      "You could ask students to summarize the concept.",
+      "It might help to slow down slightly.",
+      "You may want to give students a few seconds to process.",
+    ];
+    var lowRecommendationOptions = [
+      "Consider changing pace or activity.",
+      "You might introduce a short activity or exercise.",
+      "It may help to call on a student directly.",
+      "You could ask students to sit properly or refocus.",
+      "It might be effective to use gestures, movement, or visual aids.",
+      "You could show a video, diagram, or demo.",
+      "It may help to write or draw on the board instead of lecturing.",
+      "You might consider adding a quick energizer or short break, if appropriate.",
+    ];
+    var recommendationState = {
+      currentLevel: null,
+      mediumPool: [],
+      lowPool: [],
+      rotationInterval: null,
+    };
+
+    function setInsightHeading(text) {
+      if (!insightHeading) return;
+      insightHeading.textContent = text;
+    }
+
+    function stopRecommendationRotation() {
+      if (recommendationState.rotationInterval) {
+        clearInterval(recommendationState.rotationInterval);
+        recommendationState.rotationInterval = null;
+      }
+    }
+
+    function shuffleArray(values) {
+      var arr = values.slice();
+      for (var i = arr.length - 1; i > 0; i -= 1) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+      }
+      return arr;
+    }
+
+    function nextRecommendation(level) {
+      if (level === "Medium") {
+        if (!recommendationState.mediumPool.length) {
+          recommendationState.mediumPool = shuffleArray(mediumRecommendationOptions);
+        }
+        return recommendationState.mediumPool.pop();
+      }
+
+      if (level === "Low") {
+        if (!recommendationState.lowPool.length) {
+          recommendationState.lowPool = shuffleArray(lowRecommendationOptions);
+        }
+        return recommendationState.lowPool.pop();
+      }
+
+      return "Most students appear attentive.";
+    }
+
+    function startRecommendationRotation(level) {
+      stopRecommendationRotation();
+      if (level !== "Medium" && level !== "Low") return;
+
+      recommendationState.rotationInterval = setInterval(function () {
+        if (!isSessionActive || recommendationState.currentLevel !== level) return;
+        aiInsight.textContent = nextRecommendation(level);
+      }, 30000);
+    }
+
+    function updateRecommendationForLevel(level) {
+      if (!level) return;
+
+      if (recommendationState.currentLevel !== level) {
+        recommendationState.currentLevel = level;
+        if (level === "High") {
+          stopRecommendationRotation();
+          setInsightHeading("Great engagement!");
+          aiInsight.textContent = "Most students appear attentive.";
+          return;
+        }
+
+        if (level === "Medium") {
+          setInsightHeading("Attention is moderate");
+          aiInsight.textContent = nextRecommendation("Medium");
+          startRecommendationRotation("Medium");
+          return;
+        }
+
+        setInsightHeading("Low attention trend detected");
+        aiInsight.textContent = nextRecommendation("Low");
+        startRecommendationRotation("Low");
+        return;
+      }
+
+      if (level === "High") {
+        stopRecommendationRotation();
+        setInsightHeading("Great engagement!");
+        aiInsight.textContent = "Most students appear attentive.";
+      }
+    }
+
+    function resetRecommendationState() {
+      stopRecommendationRotation();
+      recommendationState.currentLevel = null;
+      recommendationState.mediumPool = [];
+      recommendationState.lowPool = [];
+      setInsightHeading("Recommendations");
+    }
 
     function mountModalToBody(modalEl) {
       if (!modalEl || modalEl.parentNode === document.body) return;
@@ -1162,6 +1282,7 @@
       var selectedSectionName = sectionSelect.value;
 
       isStartingSession = true;
+      resetRecommendationState();
       updateControls();
       attentionStatus.textContent = "Starting session...";
       aiInsight.textContent = "Preparing session and connecting to the YOLO server...";
@@ -1236,6 +1357,9 @@
     }
 
     function showYoloError(title, detail) {
+      stopRecommendationRotation();
+      recommendationState.currentLevel = null;
+      setInsightHeading("Recommendations");
       yoloSpinner.style.display = "none";
       yoloStatusText.textContent = "\u26A0\uFE0F " + title;
       yoloStatusSub.textContent = detail;
@@ -1253,9 +1377,14 @@
       attentionStatus.textContent = isPaused
         ? "Monitoring paused"
         : "Updated in real-time";
-      aiInsight.textContent = isPaused
-        ? "Session is paused. Resume to continue monitoring."
-        : "Monitoring student attention...";
+      if (isPaused) {
+        stopRecommendationRotation();
+        recommendationState.currentLevel = null;
+        setInsightHeading("Recommendations");
+        aiInsight.textContent = "Session is paused. Resume to continue monitoring.";
+      } else {
+        aiInsight.textContent = "Monitoring student attention...";
+      }
     }
 
     async function endSession(saveSession) {
@@ -1310,6 +1439,7 @@
       updateBadge();
       updateControls();
       updateSessionMeta();
+      resetRecommendationState();
       setClassroomWindowCardVisible(true);
       setText(windowStatusEl, "--");
       setText(windowSizeEl, "Window size: --");
@@ -1576,16 +1706,12 @@
         statusOverride || "Attention level: " + level + " (" + score + "%)";
 
       if (insightOverride) {
+        stopRecommendationRotation();
+        recommendationState.currentLevel = null;
+        setInsightHeading("Recommendations");
         aiInsight.textContent = insightOverride;
-      } else if (level === "High") {
-        aiInsight.textContent =
-          "Great engagement! Most students appear attentive.";
-      } else if (level === "Medium") {
-        aiInsight.textContent =
-          "Attention is moderate. Try a quick interactive prompt to lift focus.";
       } else {
-        aiInsight.textContent =
-          "Low attention trend detected. Consider changing pace or activity.";
+        updateRecommendationForLevel(level);
       }
 
       if (trendChart) {
@@ -1831,6 +1957,9 @@
       } catch (err) {
         if (isSessionActive) {
           if (err && err.message === "__YOLO_SERVER_DOWN__") {
+            stopRecommendationRotation();
+            recommendationState.currentLevel = null;
+            setInsightHeading("Recommendations");
             yoloSpinner.style.display = "none";
             yoloStatusText.textContent = "\u26A0\uFE0F YOLO Server is currently unavailable";
             yoloStatusSub.textContent =
@@ -1976,16 +2105,7 @@
           "attention-score-value " + level.toLowerCase();
         attentionStatus.textContent =
           "Attention level: " + level + " (" + score + "%)";
-
-        // Update insight
-        if (score > 80)
-          aiInsight.textContent = "Great engagement! The class seems focused.";
-        else if (score > 60)
-          aiInsight.textContent =
-            "Attention is fluctuating. Try asking a question to re-engage.";
-        else
-          aiInsight.textContent =
-            "Low attention detected. Consider a short break or activity change.";
+        updateRecommendationForLevel(level);
 
         // Update trend chart
         trendPlaceholder.style.display = "none";
