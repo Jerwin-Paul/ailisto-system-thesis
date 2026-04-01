@@ -256,6 +256,7 @@ def get_user_by_email(email: str) -> dict | None:
 
 
 def update_user_profile(user_id: int, first_name: str, last_name: str, email: str) -> dict | None:
+    normalized_email = str(email or "").strip().lower()
     with get_cursor() as cur:
         cur.execute(
             """UPDATE users
@@ -264,7 +265,7 @@ def update_user_profile(user_id: int, first_name: str, last_name: str, email: st
                    email = %s
                WHERE id = %s
                RETURNING *""",
-            (first_name, last_name, email, user_id),
+            (first_name, last_name, normalized_email, user_id),
         )
         row = cur.fetchone()
         return _normalize_user_row(dict(row) if row else None)
