@@ -8,6 +8,7 @@ import string
 import time
 import unicodedata
 import requests
+from requests.adapters import HTTPAdapter
 from functools import wraps
 from datetime import datetime
 
@@ -1384,15 +1385,21 @@ def live_session():
 
 _YOLO_SERVER = os.environ.get("YOLO_SERVER_URL", "http://4.216.188.104:5000").rstrip("/")
 _YOLO_HEALTH_PATHS = ["/health", "/"]
+_YOLO_CONNECT_TIMEOUT = max(0.5, float(os.environ.get("YOLO_CONNECT_TIMEOUT", "2.0")))
+_YOLO_READ_TIMEOUT = max(1.0, float(os.environ.get("YOLO_READ_TIMEOUT", "4.5")))
+_YOLO_HTTP = requests.Session()
+_yolo_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=0)
+_YOLO_HTTP.mount("http://", _yolo_adapter)
+_YOLO_HTTP.mount("https://", _yolo_adapter)
 
 
 def _find_yolo_health_path():
     """Return the first reachable health endpoint path, or None."""
     for path in _YOLO_HEALTH_PATHS:
         try:
-            r = requests.get(
+            r = _YOLO_HTTP.get(
                 f"{_YOLO_SERVER}{path}",
-                timeout=(3, 2),
+                timeout=(_YOLO_CONNECT_TIMEOUT, 2),
             )
             if r.status_code == 200:
                 return path
@@ -1409,9 +1416,9 @@ def yolo_health():
     tried = {}
     for path in _YOLO_HEALTH_PATHS:
         try:
-            r = requests.get(
+            r = _YOLO_HTTP.get(
                 f"{_YOLO_SERVER}{path}",
-                timeout=(3, 2),
+                timeout=(_YOLO_CONNECT_TIMEOUT, 2),
             )
             ct = r.headers.get("Content-Type", "")
             payload = None
@@ -1442,13 +1449,6 @@ def yolo_infer():
     payload = request.get_json(silent=True) or {}
     frame = payload.get("frame") or payload.get("image")
     session_id = payload.get("session_id") or payload.get("sessionId")
-    logging.info(
-        "YOLO infer request received: user_id=%s has_frame=%s frame_len=%s session_id=%s",
-        session.get("user_id"),
-        bool(frame),
-        len(frame) if isinstance(frame, str) else 0,
-        session_id,
-    )
     if not frame:
         logging.warning("YOLO infer rejected: missing frame payload")
         return jsonify({"error": "Missing frame payload"}), 400
@@ -1457,10 +1457,10 @@ def yolo_infer():
         request_payload = {"frame": frame}
         if session_id:
             request_payload["session_id"] = session_id
-        r = requests.post(
+        r = _YOLO_HTTP.post(
             f"{_YOLO_SERVER}/infer",
             json=request_payload,
-            timeout=(3, 8),
+            timeout=(_YOLO_CONNECT_TIMEOUT, _YOLO_READ_TIMEOUT),
         )
     except requests.exceptions.RequestException as exc:
         logging.error("YOLO infer proxy error: %s", exc)
@@ -1472,11 +1472,12 @@ def yolo_infer():
         logging.error("YOLO infer upstream returned non-JSON response with status %s", r.status_code)
         data = {"error": "Invalid response from YOLO server"}
 
-    logging.info(
-        "YOLO infer upstream response: status=%s keys=%s",
-        r.status_code,
-        sorted(data.keys()) if isinstance(data, dict) else type(data).__name__,
-    )
+    if app.logger.isEnabledFor(logging.DEBUG):
+        logging.debug(
+            "YOLO infer upstream response: status=%s keys=%s",
+            r.status_code,
+            sorted(data.keys()) if isinstance(data, dict) else type(data).__name__,
+        )
 
     return jsonify(data), r.status_code
 

@@ -461,7 +461,7 @@
       </div>
 
       <!-- Classroom Window -->
-      <div class="card card-borderless">
+      <div class="card card-borderless" id="classroom-window-card">
         <div class="card-content">
           <p class="stat-label" style="margin-bottom: 0.5rem">Classroom Window</p>
           <div
@@ -470,13 +470,6 @@
           >
             --
           </div>
-          <p
-            id="tracked-students"
-            class="text-xs"
-            style="color: var(--text-400); margin-top: 0.35rem"
-          >
-            Tracked students: --
-          </p>
           <p id="window-size" class="text-xs" style="color: var(--text-400)">
             Window size: --
           </p>
@@ -491,56 +484,32 @@
             style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem"
           >
             <div>
-              <p class="text-xs" style="color: var(--text-400)">Engaged</p>
-              <p id="class-engaged" style="font-weight: 600">--</p>
+              <p class="text-xs" style="color: var(--text-400)">Hand raise</p>
+              <p id="class-handrise" style="font-weight: 600">--</p>
             </div>
             <div>
-              <p class="text-xs" style="color: var(--text-400)">Fatigue</p>
-              <p id="class-fatigue" style="font-weight: 600">--</p>
-            </div>
-            <div>
-              <p class="text-xs" style="color: var(--text-400)">Off-task</p>
-              <p id="class-offtask" style="font-weight: 600">--</p>
-            </div>
-            <div>
-              <p class="text-xs" style="color: var(--text-400)">Stability</p>
-              <p id="class-stability" style="font-weight: 600">--</p>
-            </div>
-            <div>
-              <p class="text-xs" style="color: var(--text-400)">Switch rate</p>
-              <p id="class-switch-rate" style="font-weight: 600">--</p>
-            </div>
-            <div>
-              <p class="text-xs" style="color: var(--text-400)">Context align</p>
-              <p id="class-context-alignment" style="font-weight: 600">--</p>
-            </div>
-            <div>
-              <p class="text-xs" style="color: var(--text-400)">Percent engaged</p>
-              <p id="percent-engaged" style="font-weight: 600">--</p>
-            </div>
-            <div>
-              <p class="text-xs" style="color: var(--text-400)">Percent sleeping</p>
-              <p id="percent-sleeping" style="font-weight: 600">--</p>
+              <p class="text-xs" style="color: var(--text-400)">Turn head</p>
+              <p id="class-turnhead" style="font-weight: 600">--</p>
             </div>
             <div>
               <p class="text-xs" style="color: var(--text-400)">Write</p>
               <p id="class-write" style="font-weight: 600">--</p>
             </div>
             <div>
-              <p class="text-xs" style="color: var(--text-400)">Hand raise</p>
-              <p id="class-handrise" style="font-weight: 600">--</p>
+              <p class="text-xs" style="color: var(--text-400)">Yawn</p>
+              <p id="class-yawn" style="font-weight: 600">--</p>
+            </div>
+            <div>
+              <p class="text-xs" style="color: var(--text-400)">Stability</p>
+              <p id="class-stability" style="font-weight: 600">--</p>
             </div>
             <div>
               <p class="text-xs" style="color: var(--text-400)">Sleep</p>
               <p id="class-sleep" style="font-weight: 600">--</p>
             </div>
             <div>
-              <p class="text-xs" style="color: var(--text-400)">Yawn</p>
-              <p id="class-yawn" style="font-weight: 600">--</p>
-            </div>
-            <div>
-              <p class="text-xs" style="color: var(--text-400)">Turn head</p>
-              <p id="class-turnhead" style="font-weight: 600">--</p>
+              <p class="text-xs" style="color: var(--text-400)">Context align</p>
+              <p id="class-context-alignment" style="font-weight: 600">--</p>
             </div>
           </div>
         </div>
@@ -633,17 +602,14 @@
     var aiInsight = document.getElementById("ai-insight");
     var trendPlaceholder = document.getElementById("trend-placeholder");
     var yoloStream = document.getElementById("yolo-stream");
+    var classroomWindowCardEl = document.getElementById("classroom-window-card");
     var windowStatusEl = document.getElementById("window-status");
-    var trackedStudentsEl = document.getElementById("tracked-students");
     var windowSizeEl = document.getElementById("window-size");
     var classEngagedEl = document.getElementById("class-engaged");
     var classFatigueEl = document.getElementById("class-fatigue");
     var classOfftaskEl = document.getElementById("class-offtask");
     var classStabilityEl = document.getElementById("class-stability");
-    var classSwitchRateEl = document.getElementById("class-switch-rate");
     var classContextAlignEl = document.getElementById("class-context-alignment");
-    var percentEngagedEl = document.getElementById("percent-engaged");
-    var percentSleepingEl = document.getElementById("percent-sleeping");
     var classWriteEl = document.getElementById("class-write");
     var classHandriseEl = document.getElementById("class-handrise");
     var classSleepEl = document.getElementById("class-sleep");
@@ -668,6 +634,12 @@
     var isCancelSubmitting = false;
     var isEndSubmitting = false;
     var isStartingSession = false;
+    var inferCaptureWidth = 224;
+    var inferJpegQuality = 0.55;
+    var inferMinWidth = 160;
+    var inferMaxWidth = 320;
+    var inferMinQuality = 0.45;
+    var inferMaxQuality = 0.72;
 
     function mountModalToBody(modalEl) {
       if (!modalEl || modalEl.parentNode === document.body) return;
@@ -823,7 +795,6 @@
         endSessionModal.remove();
       }
     };
-
     // ─── Initialize ───
     function populateCameraList(videoDevices) {
       // Clear existing options except the placeholder
@@ -1249,6 +1220,9 @@
       yoloStatusText.textContent = "Connecting to YOLO server\u2026";
       yoloStatusSub.textContent = "";
       yoloStatusOverlay.style.display = "flex";
+      setClassroomWindowCardVisible(true);
+      setText(windowStatusEl, "Warming up (0/30)");
+      setText(windowSizeEl, "Window size: --");
 
       updateBadge();
       updateControls();
@@ -1336,6 +1310,9 @@
       updateBadge();
       updateControls();
       updateSessionMeta();
+      setClassroomWindowCardVisible(true);
+      setText(windowStatusEl, "--");
+      setText(windowSizeEl, "Window size: --");
       attentionValue.textContent = "--";
       attentionValue.className = "attention-score-value";
       attentionStatus.textContent = "Updated in real-time";
@@ -1432,6 +1409,27 @@
       inferLoopTimeout = setTimeout(runInferenceLoop, delayMs);
     }
 
+    function tuneInferencePayload(rttMs) {
+      if (!Number.isFinite(rttMs)) return;
+
+      if (rttMs > 900) {
+        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 32);
+        inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.06);
+        return;
+      }
+
+      if (rttMs > 600) {
+        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 16);
+        inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.04);
+        return;
+      }
+
+      if (rttMs < 220) {
+        inferCaptureWidth = Math.min(inferMaxWidth, inferCaptureWidth + 8);
+        inferJpegQuality = Math.min(inferMaxQuality, inferJpegQuality + 0.01);
+      }
+    }
+
     function drawDetections(detections, srcWidth, srcHeight) {
       const ctx = canvasEl.getContext("2d");
       const renderWidth = videoEl.videoWidth || 1280;
@@ -1526,6 +1524,11 @@
     function setText(el, text) {
       if (!el) return;
       el.textContent = text;
+    }
+
+    function setClassroomWindowCardVisible(isVisible) {
+      if (!classroomWindowCardEl) return;
+      classroomWindowCardEl.style.display = isVisible ? "" : "none";
     }
 
     function getWindowProgressState(aggregation, fallbackWindowSize) {
@@ -1673,17 +1676,14 @@
 
     function updateClassroomAggregation(aggregation, fallbackWindowSize) {
       if (!aggregation || typeof aggregation !== "object") {
+        setClassroomWindowCardVisible(true);
         setText(windowStatusEl, "--");
-        setText(trackedStudentsEl, "Tracked students: --");
         setText(windowSizeEl, "Window size: --");
         setText(classEngagedEl, "--");
         setText(classFatigueEl, "--");
         setText(classOfftaskEl, "--");
         setText(classStabilityEl, "--");
-        setText(classSwitchRateEl, "--");
         setText(classContextAlignEl, "--");
-        setText(percentEngagedEl, "--");
-        setText(percentSleepingEl, "--");
         setText(classWriteEl, "--");
         setText(classHandriseEl, "--");
         setText(classSleepEl, "--");
@@ -1696,16 +1696,13 @@
       var windowSize = windowState.windowSize;
       var frameIndex = windowState.frameIndex;
       var windowReady = windowState.windowReady;
-      var trackedStudents = Number(
-        aggregation.tracked_students || aggregation.trackedStudents || aggregation.students || 0,
-      );
       var progress = windowState.progress;
       var statusText = windowReady
         ? "Window ready"
         : "Warming up (" + progress + "/" + (windowSize || "--") + ")";
 
+      setClassroomWindowCardVisible(!windowReady);
       setText(windowStatusEl, statusText);
-      setText(trackedStudentsEl, "Tracked students: " + trackedStudents);
       setText(
         windowSizeEl,
         "Window size: " + (windowSize ? windowSize + " frames" : "--"),
@@ -1720,13 +1717,10 @@
       setText(classFatigueEl, formatRatio(classroom.class_fatigue, 2));
       setText(classOfftaskEl, formatRatio(classroom.class_offtask, 2));
       setText(classStabilityEl, formatRatio(classroom.class_stability, 2));
-      setText(classSwitchRateEl, formatRatio(classroom.class_switch_rate, 2));
       setText(
         classContextAlignEl,
         formatRatio(classroom.class_context_alignment, 2),
       );
-      setText(percentEngagedEl, formatPct(classroom.percent_engaged));
-      setText(percentSleepingEl, formatPct(classroom.percent_sleeping));
       setText(classWriteEl, formatRatio(classroom.class_write, 2));
       setText(classHandriseEl, formatRatio(classroom.class_handrise, 2));
       setText(classSleepEl, formatRatio(classroom.class_sleep, 2));
@@ -1762,9 +1756,9 @@
       inferenceInFlight = true;
 
       try {
-        const targetWidth = 320;
+        const targetWidth = inferCaptureWidth;
         const targetHeight = Math.max(
-          180,
+          Math.round(targetWidth * 0.5625),
           Math.round((videoEl.videoHeight / videoEl.videoWidth) * targetWidth),
         );
 
@@ -1772,7 +1766,7 @@
         captureCanvas.height = targetHeight;
         captureCtx.drawImage(videoEl, 0, 0, targetWidth, targetHeight);
 
-        const jpegData = captureCanvas.toDataURL("image/jpeg", 0.7);
+        const jpegData = captureCanvas.toDataURL("image/jpeg", inferJpegQuality);
         const frameBase64 = jpegData.split(",", 2)[1];
 
         const payload = { frame: frameBase64 };
@@ -1780,12 +1774,21 @@
           payload.session_id = String(currentSessionId);
         }
 
+        const controller = new AbortController();
+        const requestStartedAt = performance.now();
+        const abortTimer = setTimeout(function () {
+          controller.abort();
+        }, 2600);
+
         const resp = await fetch(yoloInferUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
+          signal: controller.signal,
           body: JSON.stringify(payload),
         });
+        clearTimeout(abortTimer);
+        tuneInferencePayload(performance.now() - requestStartedAt);
 
         const raw = await resp.text();
         let data = {};
@@ -1824,7 +1827,7 @@
         drawDetections(detections, data.width, data.height);
         updateClassroomAggregation(aggregation, data.window_size);
         updateAttentionFromAggregation(aggregation, detections, data.window_size);
-        nextDelay = 30;
+        nextDelay = 20;
       } catch (err) {
         if (isSessionActive) {
           if (err && err.message === "__YOLO_SERVER_DOWN__") {
@@ -1846,6 +1849,9 @@
             nextDelay = retryMs;
 
             const reason =
+              err && err.name === "AbortError"
+                ? "Inference timed out. Auto-retrying with lower frame quality."
+                :
               err && err.message
                 ? err.message
                 : "Could not process camera frame on YOLO server.";
