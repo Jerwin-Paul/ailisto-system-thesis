@@ -248,8 +248,9 @@ def get_user_by_id(user_id: int) -> dict | None:
 
 
 def get_user_by_email(email: str) -> dict | None:
+    normalized_email = str(email or "").strip().lower()
     with get_cursor(commit=False) as cur:
-        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        cur.execute("SELECT * FROM users WHERE LOWER(email) = %s", (normalized_email,))
         row = cur.fetchone()
         return _normalize_user_row(dict(row) if row else None)
 
@@ -303,12 +304,13 @@ def create_user(
     role: str = "teacher",
     approval_status: str = "approved",
 ) -> dict:
+    normalized_email = str(email or "").strip().lower()
     hashed = hash_password(password)
     with get_cursor() as cur:
         cur.execute(
             """INSERT INTO users (email, password, first_name, last_name, role, approval_status)
                VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
-            (email, hashed, first_name, last_name, role, approval_status),
+            (normalized_email, hashed, first_name, last_name, role, approval_status),
         )
         return _normalize_user_row(dict(cur.fetchone()))
 

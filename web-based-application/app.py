@@ -784,7 +784,7 @@ def ensure_supabase_auth_user(email: str) -> tuple[bool, str | None]:
 def login():
     if request.method == "POST":
         is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
-        email = request.form.get("email", "").strip()
+        email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
 
         if not email:
@@ -1122,7 +1122,7 @@ def resend_login_otp():
 def register():
     if request.method == "POST":
         is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
-        email      = request.form.get("email", "").strip()
+        email      = request.form.get("email", "").strip().lower()
         password   = request.form.get("password", "")
         confirm    = request.form.get("confirmPassword", "")
         first_name = request.form.get("firstName", "").strip()
