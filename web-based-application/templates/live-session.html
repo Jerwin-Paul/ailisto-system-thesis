@@ -1603,7 +1603,13 @@
         const raw = det && (det.label_normalized || det.label || "");
         const label = String(raw).trim().toLowerCase();
         if (!label) return;
-        if (label === "write" || label === "handrise" || label === "upright") {
+        if (
+          label === "write" ||
+          label === "handrise" ||
+          label === "handraise" ||
+          label === "hand_raise" ||
+          label === "upright"
+        ) {
           engaged += 1;
           return;
         }
@@ -1634,7 +1640,9 @@
       const windowState = getWindowProgressState(aggregation, fallbackWindowSize);
       const windowReady = windowState.windowReady;
       if (classroom) {
-        const modelLabel = modelAttentionToUiLabel(classroom.attention_label);
+        const modelLabel = modelAttentionToUiLabel(
+          classroom.attention_label || aggregation.attention_label,
+        );
         const percentEngaged =
           typeof classroom.percent_engaged === "number"
             ? classroom.percent_engaged
@@ -1731,7 +1739,13 @@
       let nextDelay = 60;
       let stopLoop = false;
 
-      if (isPaused || !isCameraReady || !videoEl.videoWidth) {
+      if (isPaused) {
+        // Session paused; pausedOverlay is already displayed
+        scheduleNextInference(120);
+        return;
+      }
+
+      if (!isCameraReady || !videoEl.videoWidth) {
         yoloStatusText.textContent = "Waiting for camera frame...";
         yoloStatusSub.textContent =
           "Make sure camera preview is active before YOLO inference starts.";

@@ -1414,7 +1414,17 @@ def yolo_health():
                 timeout=(3, 2),
             )
             ct = r.headers.get("Content-Type", "")
-            tried[path] = {"status": r.status_code, "content_type": ct}
+            payload = None
+            if "application/json" in ct.lower():
+                try:
+                    payload = r.json()
+                except ValueError:
+                    payload = None
+            tried[path] = {
+                "status": r.status_code,
+                "content_type": ct,
+                "payload": payload,
+            }
             r.close()
         except requests.exceptions.RequestException as exc:
             tried[path] = {"status": 0, "error": str(exc)[:120]}
@@ -1430,8 +1440,8 @@ def yolo_health():
 def yolo_infer():
     """Forward browser camera frames to YOLO server and return detections."""
     payload = request.get_json(silent=True) or {}
-    frame = payload.get("frame")
-    session_id = payload.get("session_id")
+    frame = payload.get("frame") or payload.get("image")
+    session_id = payload.get("session_id") or payload.get("sessionId")
     logging.info(
         "YOLO infer request received: user_id=%s has_frame=%s frame_len=%s session_id=%s",
         session.get("user_id"),
