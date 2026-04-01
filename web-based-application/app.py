@@ -1975,10 +1975,11 @@ def api_update_profile():
     if not updated:
         return jsonify({"error": "User not found."}), 404
 
-    # Regenerate user agreement PDF if name changed
+    # Regenerate user agreement PDF if name or email changed
     old_full_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
     new_full_name = f"{first_name} {last_name}".strip()
-    if old_full_name != new_full_name:
+    old_email = str(user.get("email", "")).strip().lower()
+    if old_full_name != new_full_name or old_email != email:
         try:
             new_filename = _build_terms_pdf_filename(new_full_name)
             new_pdf = _build_terms_policy_pdf(
