@@ -344,6 +344,32 @@ def create_user_terms_agreement_proof(
         return dict(cur.fetchone())
 
 
+def update_user_terms_agreement_proof(
+    user_id: int,
+    full_name: str,
+    file_name: str,
+    pdf_data: bytes,
+) -> dict | None:
+    """Update the user's terms agreement PDF with new name and pdf_data."""
+    with get_cursor() as cur:
+        cur.execute(
+            """UPDATE user_terms_agreements
+               SET full_name = %s,
+                   file_name = %s,
+                   pdf_data = %s
+               WHERE user_id = %s
+               RETURNING id, user_id, full_name, agreed_at, terms_version, file_name, created_at""",
+            (
+                full_name,
+                file_name,
+                psycopg2.Binary(pdf_data),
+                user_id,
+            ),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
 def list_users() -> list[dict]:
     with get_cursor(commit=False) as cur:
         cur.execute("""

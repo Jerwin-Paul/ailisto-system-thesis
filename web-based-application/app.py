@@ -259,6 +259,7 @@ def _build_terms_pdf_filename(full_name: str) -> str:
 def _build_terms_policy_pdf(
     full_name: str,
     agreed_at: datetime,
+    email: str | None = None,
     include_signature_meta: bool = True,
 ) -> io.BytesIO:
     """Build a PDF copy of Terms and Privacy Policy with signer metadata."""
@@ -341,7 +342,10 @@ def _build_terms_policy_pdf(
             )
         )
         if full_name:
-            story.append(Paragraph(f"Agreed by: {full_name}", subtitle_style))
+            agreed_by_line = f"Agreed by: {full_name}"
+            if email:
+                agreed_by_line += f" ({email})"
+            story.append(Paragraph(agreed_by_line, subtitle_style))
     story.append(Spacer(1, 0.2 * cm))
     story.append(HRFlowable(width="100%", thickness=1.2, color=brand))
     story.append(Spacer(1, 0.2 * cm))
@@ -1168,7 +1172,7 @@ def register():
             agreed_at = datetime.now()
             full_name = f"{first_name} {last_name}".strip()
             terms_filename = _build_terms_pdf_filename(full_name)
-            terms_pdf = _build_terms_policy_pdf(full_name, agreed_at)
+            terms_pdf = _build_terms_policy_pdf(full_name, agreed_at, email=email)
 
             db.create_user_terms_agreement_proof(
                 user_id=created_user["id"],
@@ -1970,6 +1974,28 @@ def api_update_profile():
 
     if not updated:
         return jsonify({"error": "User not found."}), 404
+
+    # Regenerate user agreement PDF if name changed
+    old_full_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+    new_full_name = f"{first_name} {last_name}".strip()
+    if old_full_name != new_full_name:
+        try:
+            new_filename = _build_terms_pdf_filename(new_full_name)
+            new_pdf = _build_terms_policy_pdf(
+                new_full_name,
+                datetime.now(),
+                email=email,
+                include_signature_meta=True,
+            )
+            db.update_user_terms_agreement_proof(
+                user_id=user["id"],
+                full_name=new_full_name,
+                file_name=new_filename,
+                pdf_data=new_pdf.getvalue(),
+            )
+        except Exception as exc:
+            logging.exception("Failed to regenerate user agreement PDF for user %s", user["id"])
+            # Non-blocking error: continue even if PDF regeneration fails
 
     return jsonify({"success": True, "user": _safe_user_profile_payload(updated)})
 
