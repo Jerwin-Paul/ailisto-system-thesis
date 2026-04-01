@@ -210,6 +210,7 @@
     let weeklyChart = null;
     let isWeeklyLoading = false;
     const WEEKLY_STATE_KEY = 'ailisto_weekly_trends_state';
+    const CURRENT_LOGIN_MARKER = {{ (session.get('login_marker') or '')|tojson }};
 
     function setWeeklyLoading(loading) {
       isWeeklyLoading = loading;
@@ -231,7 +232,13 @@
 
     function saveWeeklyState(data) {
       try {
-        sessionStorage.setItem(WEEKLY_STATE_KEY, JSON.stringify(data));
+        sessionStorage.setItem(
+          WEEKLY_STATE_KEY,
+          JSON.stringify({
+            ...data,
+            login_marker: CURRENT_LOGIN_MARKER,
+          }),
+        );
       } catch (error) {
         // Ignore storage failures; chart still works without persistence.
       }
@@ -243,6 +250,10 @@
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || !Array.isArray(parsed.weekly_attention)) return null;
+        if (!parsed.login_marker || parsed.login_marker !== CURRENT_LOGIN_MARKER) {
+          sessionStorage.removeItem(WEEKLY_STATE_KEY);
+          return null;
+        }
         return parsed;
       } catch (error) {
         return null;
