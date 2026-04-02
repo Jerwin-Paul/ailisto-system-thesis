@@ -91,7 +91,7 @@
         >
           <label class="form-label" style="font-size: 0.75rem; margin-bottom: 0.25rem">Teacher</label>
           <select id="teacher-filter" class="form-select" aria-label="Filter by teacher">
-            <option value="">— Select a Teacher —</option>
+            <option value="">All Teachers</option>
             {% for t in teachers %}
             <option value="{{ t.id }}" {% if selected_teacher and selected_teacher.id == t.id %}selected{% endif %}>
               {{ t.first_name }} {{ t.last_name }}
@@ -122,7 +122,6 @@
             {% endfor %}
           </select>
         </div>
-        {% if subject_filters or section_filters %}
         <div
           class="form-group"
           style="flex: 1; min-width: 180px; margin-bottom: 0"
@@ -147,7 +146,6 @@
             {% endfor %}
           </select>
         </div>
-        {% endif %}
       </div>
     </div>
     <div class="card-content">
@@ -266,6 +264,8 @@
   let hasInitialisedHistoryPage = false;
   let initialCurrentMonthMarkup = '';
   let initialCurrentMonthMeta = { month: '', year: '' };
+  let sessionsLoadController = null;
+  let sessionsLoadSequence = 0;
 
   function getElements() {
     const sessionsTable = document.getElementById('sessions-table');
@@ -330,21 +330,12 @@
 
   function scheduleChartRefresh() {
     window.requestAnimationFrame(function () {
-      window.requestAnimationFrame(function () {
-        try {
-          renderAttentionChart();
-        } catch (error) {
-          console.error('Chart refresh failed:', error);
-        }
-      });
-    });
-    window.setTimeout(function () {
       try {
         renderAttentionChart();
       } catch (error) {
-        console.error('Chart delayed refresh failed:', error);
+        console.error('Chart refresh failed:', error);
       }
-    }, 120);
+    });
   }
 
   function resetHistoryChart() {
@@ -395,15 +386,17 @@
   }
 
   function captureInitialCurrentMonthRows() {
-    const { sessionsTbody, monthFilter, yearFilter } = getElements();
+    const { sessionsTbody, monthFilter, yearFilter, teacherFilter } = getElements();
     if (!sessionsTbody) return;
     initialCurrentMonthMarkup = sessionsTbody.innerHTML;
     initialCurrentMonthMeta = {
       month: monthFilter ? monthFilter.value : '',
       year: yearFilter ? yearFilter.value : '',
+      teacher: teacherFilter ? teacherFilter.value : '',
     };
     sessionsTbody.dataset.loadedMonth = initialCurrentMonthMeta.month;
     sessionsTbody.dataset.loadedYear = initialCurrentMonthMeta.year;
+    sessionsTbody.dataset.loadedTeacher = initialCurrentMonthMeta.teacher;
   }
 
   function restoreInitialCurrentMonthRows() {
@@ -412,6 +405,19 @@
     sessionsTbody.innerHTML = initialCurrentMonthMarkup;
     sessionsTbody.dataset.loadedMonth = initialCurrentMonthMeta.month;
     sessionsTbody.dataset.loadedYear = initialCurrentMonthMeta.year;
+    sessionsTbody.dataset.loadedTeacher = initialCurrentMonthMeta.teacher || '';
+  }
+
+  function isLoadedSelectionCurrent() {
+    const { sessionsTbody, monthFilter, yearFilter, teacherFilter } = getElements();
+    if (!sessionsTbody || !monthFilter || !yearFilter) return false;
+
+    const selectedTeacher = teacherFilter ? teacherFilter.value : '';
+    return (
+      (sessionsTbody.dataset.loadedMonth || '') === monthFilter.value
+      && (sessionsTbody.dataset.loadedYear || '') === yearFilter.value
+      && (sessionsTbody.dataset.loadedTeacher || '') === selectedTeacher
+    );
   }
 
   // When subject changes, cascade the section dropdown
@@ -638,18 +644,46 @@
   }
 
   function setSessionsRows(sessions) {
-    const { sessionsTbody, monthFilter, yearFilter } = getElements();
+    const { sessionsTbody, monthFilter, yearFilter, teacherFilter, subjectFilter, sectionFilter } = getElements();
     if (!sessionsTbody) return;
 
     sessionsTbody.innerHTML = '';
     sessionsTbody.dataset.loadedMonth = monthFilter ? monthFilter.value : '';
     sessionsTbody.dataset.loadedYear = yearFilter ? yearFilter.value : '';
+    sessionsTbody.dataset.loadedTeacher = teacherFilter ? teacherFilter.value : '';
     sessions.forEach(addSessionRow);
+
+    // Prevent stale subject/section selections from hiding newly loaded rows.
+    if (subjectFilter && subjectFilter.value) {
+      const subjectExists = sessions.some(function (session) {
+        return (session.course_code || '') === subjectFilter.value;
+      });
+      if (!subjectExists) {
+        subjectFilter.value = '';
+      }
+    }
+
+    if (subjectFilter) {
+      updateSectionOptions(subjectFilter.value);
+    }
+
+    if (sectionFilter && sectionFilter.value) {
+      const selectedSubject = subjectFilter ? subjectFilter.value : '';
+      const sectionExists = sessions.some(function (session) {
+        const courseCode = session.course_code || '';
+        const section = session.section || '';
+        if (selectedSubject && courseCode !== selectedSubject) {
+          return false;
+        }
+        return section === sectionFilter.value;
+      });
+      if (!sectionExists) {
+        sectionFilter.value = '';
+      }
+    }
+
     applySessionFilters();
     scheduleChartRefresh();
-    
-    // Hide loading after data is set and filters applied
-    window.setTimeout(hideLoading, 100);
   }
 
   async function loadSessionsForMonth(monthValue) {
@@ -658,6 +692,12 @@
     const selectedYear = Number.parseInt(yearFilter ? yearFilter.value : '', 10);
     if (Number.isNaN(selectedMonth) || Number.isNaN(selectedYear)) return;
 
+    const requestSequence = ++sessionsLoadSequence;
+    if (sessionsLoadController) {
+      sessionsLoadController.abort();
+    }
+    sessionsLoadController = new AbortController();
+
     showLoading();
 
     try {
@@ -665,15 +705,29 @@
         year: String(selectedYear),
         month_num: String(selectedMonth),
       });
-      const teacherId = teacherFilter ? teacherFilter.value : '';
-      if (teacherId) params.append('teacher_id', teacherId);
+      if (teacherFilter) {
+        // Always include teacher_id for admins so clearing selection resets session-scoped teacher filter.
+        params.set('teacher_id', teacherFilter.value || '');
+      }
 
-      const response = await fetch(`/api/sessions?${params}`);
+      const response = await fetch(`/api/sessions?${params}`, {
+        signal: sessionsLoadController.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to load sessions (${response.status})`);
+      }
       const data = await response.json();
+      if (requestSequence !== sessionsLoadSequence) return;
       setSessionsRows(data.sessions || []);
     } catch (error) {
+      if (error && error.name === 'AbortError') return;
       console.error('Error loading sessions for month:', error);
-      setSessionsRows([]);
+      if (requestSequence !== sessionsLoadSequence) return;
+      // Keep currently displayed rows when a request fails to avoid flashing an empty table.
+    } finally {
+      if (requestSequence === sessionsLoadSequence) {
+        hideLoading();
+      }
     }
   }
 
@@ -682,7 +736,6 @@
     if (!target || !target.id) return;
 
     if (target.id === 'teacher-filter') {
-      const teacherId = target.value;
       const url = new URL(window.location.href);
       const { monthFilter, yearFilter } = getElements();
       const selectedMonth = monthFilter ? monthFilter.value : '';
@@ -691,15 +744,12 @@
       if (selectedYear) url.searchParams.set('year', String(selectedYear));
       if (selectedMonth) url.searchParams.set('month_num', String(selectedMonth));
 
-      // Use teacher_id only for this navigation request; backend persists selection then redirects to clean URL.
-      if (teacherId) url.searchParams.set('teacher_id', teacherId);
-      else url.searchParams.set('teacher_id', '');
-
-      // Show loading animation before redirect
-      showLoading();
-      window.setTimeout(() => {
-        window.location.href = url.toString();
-      }, 100);
+      // Keep URL stable and fetch data immediately instead of full-page reload.
+      url.searchParams.delete('teacher_id');
+      window.history.replaceState({}, '', url.toString());
+      if (selectedMonth) {
+        loadSessionsForMonth(String(selectedMonth));
+      }
       return;
     }
 
@@ -734,19 +784,21 @@
   }
 
   function initialiseHistoryPage(forceReload = false) {
-    if (!hasInitialisedHistoryPage) {
+    const isFirstInitialisation = !hasInitialisedHistoryPage;
+    if (isFirstInitialisation) {
       document.removeEventListener('change', handleAnyFilterChange, true);
       document.addEventListener('change', handleAnyFilterChange, true);
       hasInitialisedHistoryPage = true;
+
+      resetFiltersToDefaults();
+      syncUrlToCurrentMonthYear();
+
+      if (initialCurrentMonthMarkup) {
+        restoreInitialCurrentMonthRows();
+      }
     }
 
     const { monthFilter, yearFilter, sessionsTbody } = getElements();
-    resetFiltersToDefaults();
-    syncUrlToCurrentMonthYear();
-
-    if (initialCurrentMonthMarkup) {
-      restoreInitialCurrentMonthRows();
-    }
 
     const selectedMonth = monthFilter ? monthFilter.value : '';
     const selectedYear = yearFilter ? yearFilter.value : '';
@@ -756,7 +808,7 @@
       sessionsTbody.dataset.loadedYear = selectedYear;
     }
 
-    if (monthFilter && monthFilter.value && forceReload) {
+    if (monthFilter && monthFilter.value && forceReload && !isLoadedSelectionCurrent()) {
       loadSessionsForMonth(monthFilter.value);
     }
 
@@ -765,9 +817,9 @@
   }
 
   captureInitialCurrentMonthRows();
-  initialiseHistoryPage(true);
+  initialiseHistoryPage(false);
   window.addEventListener('load', function () {
-    initialiseHistoryPage(true);
+    initialiseHistoryPage(false);
   });
 
   window.addEventListener('pagehide', function () {
@@ -776,18 +828,18 @@
   });
 
   window.addEventListener('pageshow', function () {
-    initialiseHistoryPage(true);
+    initialiseHistoryPage(false);
   });
 
   window.addEventListener('spa:content-ready', function () {
-    initialiseHistoryPage(true);
+    initialiseHistoryPage(false);
   });
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       // Reload sessions for current month to show latest data
       const { monthFilter } = getElements();
-      if (monthFilter && monthFilter.value) {
+      if (monthFilter && monthFilter.value && !isLoadedSelectionCurrent()) {
         loadSessionsForMonth(monthFilter.value);
       } else {
         applySessionFilters();

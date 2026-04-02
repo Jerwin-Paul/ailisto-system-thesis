@@ -923,6 +923,14 @@ endblock %} {% block content %}
 
     // Reconcile pending UI at startup to prevent stale empty-state visibility.
     refreshPendingUi();
+
+    // Setup page cleanup for SPA navigation to remove the modal from body when leaving this page
+    window.__pageCleanup = function() {
+      const modal = document.getElementById("user-change-modal");
+      if (modal && modal.parentElement === document.body) {
+        modal.remove();
+      }
+    };
   }
 
   // Call on page load and after SPA dynamic injection.

@@ -1711,8 +1711,15 @@ def history():
                 session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
 
     now = datetime.now()
-    selected_year = now.year
-    selected_month_num = now.month
+    selected_year = request.args.get("year", type=int) or now.year
+    selected_month_num = request.args.get("month_num", type=int) or now.month
+
+    # Guard against invalid date filters from query params.
+    if selected_month_num < 1 or selected_month_num > 12:
+        selected_month_num = now.month
+    if selected_year < 1970 or selected_year > 2100:
+        selected_year = now.year
+
     selected_month = f"{selected_year:04d}-{selected_month_num:02d}"
     sessions_list = db.get_sessions_for_month(effective_teacher_id, selected_year, selected_month_num)
     stats = db.get_history_summary_stats(effective_teacher_id)
@@ -1796,15 +1803,24 @@ def reports():
     # Keep subject filter unique by course code so one choice can span sections.
     seen_course_codes = set()
     subject_filters = []
+    subject_section_map = {}  # { course_code: [section, ...] }
     section_filters = sorted({str(s.get("section", "")).strip() for s in subjects if s.get("section")})
 
     for subj in subjects:
         code = str(subj.get("course_code", "")).strip()
         name = str(subj.get("name", "")).strip()
+        section = str(subj.get("section", "")).strip()
         if not code or code in seen_course_codes:
+            if code and section:
+                subject_section_map.setdefault(code, [])
+                if section not in subject_section_map[code]:
+                    subject_section_map[code].append(section)
             continue
         seen_course_codes.add(code)
         subject_filters.append({"course_code": code, "name": name})
+        subject_section_map.setdefault(code, [])
+        if section and section not in subject_section_map[code]:
+            subject_section_map[code].append(section)
 
     subject_filters.sort(key=lambda s: s["course_code"])
 
@@ -1813,6 +1829,7 @@ def reports():
         user=user,
         subject_filters=subject_filters,
         section_filters=section_filters,
+        subject_section_map=subject_section_map,
         report_login_marker=login_marker,
         teachers=teachers,
     )

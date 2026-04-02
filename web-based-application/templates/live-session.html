@@ -1440,9 +1440,7 @@
       updateControls();
       updateSessionMeta();
       resetRecommendationState();
-      setClassroomWindowCardVisible(true);
-      setText(windowStatusEl, "--");
-      setText(windowSizeEl, "Window size: --");
+      updateClassroomAggregation(null);
       attentionValue.textContent = "--";
       attentionValue.className = "attention-score-value";
       attentionStatus.textContent = "Updated in real-time";
