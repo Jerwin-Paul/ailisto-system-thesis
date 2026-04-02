@@ -264,6 +264,8 @@
   let hasInitialisedHistoryPage = false;
   let initialCurrentMonthMarkup = '';
   let initialCurrentMonthMeta = { month: '', year: '' };
+  let sessionsLoadController = null;
+  let sessionsLoadSequence = 0;
 
   function getElements() {
     const sessionsTable = document.getElementById('sessions-table');
@@ -675,9 +677,6 @@
 
     applySessionFilters();
     scheduleChartRefresh();
-    
-    // Hide loading after data is set and filters applied
-    window.setTimeout(hideLoading, 100);
   }
 
   async function loadSessionsForMonth(monthValue) {
@@ -685,6 +684,12 @@
     const selectedMonth = Number.parseInt(monthValue, 10);
     const selectedYear = Number.parseInt(yearFilter ? yearFilter.value : '', 10);
     if (Number.isNaN(selectedMonth) || Number.isNaN(selectedYear)) return;
+
+    const requestSequence = ++sessionsLoadSequence;
+    if (sessionsLoadController) {
+      sessionsLoadController.abort();
+    }
+    sessionsLoadController = new AbortController();
 
     showLoading();
 
@@ -696,12 +701,24 @@
       const teacherId = teacherFilter ? teacherFilter.value : '';
       if (teacherId) params.append('teacher_id', teacherId);
 
-      const response = await fetch(`/api/sessions?${params}`);
+      const response = await fetch(`/api/sessions?${params}`, {
+        signal: sessionsLoadController.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to load sessions (${response.status})`);
+      }
       const data = await response.json();
+      if (requestSequence !== sessionsLoadSequence) return;
       setSessionsRows(data.sessions || []);
     } catch (error) {
+      if (error && error.name === 'AbortError') return;
       console.error('Error loading sessions for month:', error);
-      setSessionsRows([]);
+      if (requestSequence !== sessionsLoadSequence) return;
+      // Keep currently displayed rows when a request fails to avoid flashing an empty table.
+    } finally {
+      if (requestSequence === sessionsLoadSequence) {
+        hideLoading();
+      }
     }
   }
 
@@ -762,19 +779,21 @@
   }
 
   function initialiseHistoryPage(forceReload = false) {
-    if (!hasInitialisedHistoryPage) {
+    const isFirstInitialisation = !hasInitialisedHistoryPage;
+    if (isFirstInitialisation) {
       document.removeEventListener('change', handleAnyFilterChange, true);
       document.addEventListener('change', handleAnyFilterChange, true);
       hasInitialisedHistoryPage = true;
+
+      resetFiltersToDefaults();
+      syncUrlToCurrentMonthYear();
+
+      if (initialCurrentMonthMarkup) {
+        restoreInitialCurrentMonthRows();
+      }
     }
 
     const { monthFilter, yearFilter, sessionsTbody } = getElements();
-    resetFiltersToDefaults();
-    syncUrlToCurrentMonthYear();
-
-    if (initialCurrentMonthMarkup) {
-      restoreInitialCurrentMonthRows();
-    }
 
     const selectedMonth = monthFilter ? monthFilter.value : '';
     const selectedYear = yearFilter ? yearFilter.value : '';
