@@ -91,7 +91,7 @@
         >
           <label class="form-label" style="font-size: 0.75rem; margin-bottom: 0.25rem">Teacher</label>
           <select id="teacher-filter" class="form-select" aria-label="Filter by teacher">
-            <option value="">— Select a Teacher —</option>
+            <option value="">All Teachers</option>
             {% for t in teachers %}
             <option value="{{ t.id }}" {% if selected_teacher and selected_teacher.id == t.id %}selected{% endif %}>
               {{ t.first_name }} {{ t.last_name }}
@@ -122,7 +122,6 @@
             {% endfor %}
           </select>
         </div>
-        {% if subject_filters or section_filters %}
         <div
           class="form-group"
           style="flex: 1; min-width: 180px; margin-bottom: 0"
@@ -147,7 +146,6 @@
             {% endfor %}
           </select>
         </div>
-        {% endif %}
       </div>
     </div>
     <div class="card-content">
@@ -638,13 +636,43 @@
   }
 
   function setSessionsRows(sessions) {
-    const { sessionsTbody, monthFilter, yearFilter } = getElements();
+    const { sessionsTbody, monthFilter, yearFilter, subjectFilter, sectionFilter } = getElements();
     if (!sessionsTbody) return;
 
     sessionsTbody.innerHTML = '';
     sessionsTbody.dataset.loadedMonth = monthFilter ? monthFilter.value : '';
     sessionsTbody.dataset.loadedYear = yearFilter ? yearFilter.value : '';
     sessions.forEach(addSessionRow);
+
+    // Prevent stale subject/section selections from hiding newly loaded rows.
+    if (subjectFilter && subjectFilter.value) {
+      const subjectExists = sessions.some(function (session) {
+        return (session.course_code || '') === subjectFilter.value;
+      });
+      if (!subjectExists) {
+        subjectFilter.value = '';
+      }
+    }
+
+    if (subjectFilter) {
+      updateSectionOptions(subjectFilter.value);
+    }
+
+    if (sectionFilter && sectionFilter.value) {
+      const selectedSubject = subjectFilter ? subjectFilter.value : '';
+      const sectionExists = sessions.some(function (session) {
+        const courseCode = session.course_code || '';
+        const section = session.section || '';
+        if (selectedSubject && courseCode !== selectedSubject) {
+          return false;
+        }
+        return section === sectionFilter.value;
+      });
+      if (!sectionExists) {
+        sectionFilter.value = '';
+      }
+    }
+
     applySessionFilters();
     scheduleChartRefresh();
     

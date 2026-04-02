@@ -1711,8 +1711,15 @@ def history():
                 session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
 
     now = datetime.now()
-    selected_year = now.year
-    selected_month_num = now.month
+    selected_year = request.args.get("year", type=int) or now.year
+    selected_month_num = request.args.get("month_num", type=int) or now.month
+
+    # Guard against invalid date filters from query params.
+    if selected_month_num < 1 or selected_month_num > 12:
+        selected_month_num = now.month
+    if selected_year < 1970 or selected_year > 2100:
+        selected_year = now.year
+
     selected_month = f"{selected_year:04d}-{selected_month_num:02d}"
     sessions_list = db.get_sessions_for_month(effective_teacher_id, selected_year, selected_month_num)
     stats = db.get_history_summary_stats(effective_teacher_id)
