@@ -1166,7 +1166,7 @@ def register():
                 password,
                 first_name,
                 last_name,
-                approval_status="pending",
+                approval_status="approved",
             )
 
             agreed_at = datetime.now()
@@ -1196,10 +1196,10 @@ def register():
             return render_template("register.html")
 
         create_supabase_auth_user(email, password)
-        pending_msg = "Account created. Wait for Admin approval before signing in."
+        approved_msg = "Account approved. You can now sign in."
         if is_ajax:
-            return jsonify({"success": True, "redirect": url_for("login"), "message": pending_msg})
-        flash(pending_msg, "success")
+            return jsonify({"success": True, "redirect": url_for("login"), "message": approved_msg})
+        flash(approved_msg, "success")
         return redirect(url_for("login"))
 
     return render_template("register.html")

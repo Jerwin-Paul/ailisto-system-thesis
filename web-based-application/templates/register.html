@@ -1203,7 +1203,7 @@
           if (data.success) {
             closeTermsModal();
             await showApprovalNotice(
-              data.message || "Wait for Admin approval before signing in.",
+              data.message || "Account approved. You can now sign in.",
             );
             window.location.href = data.redirect;
             return;
