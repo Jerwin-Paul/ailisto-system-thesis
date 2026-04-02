@@ -330,21 +330,12 @@
 
   function scheduleChartRefresh() {
     window.requestAnimationFrame(function () {
-      window.requestAnimationFrame(function () {
-        try {
-          renderAttentionChart();
-        } catch (error) {
-          console.error('Chart refresh failed:', error);
-        }
-      });
-    });
-    window.setTimeout(function () {
       try {
         renderAttentionChart();
       } catch (error) {
-        console.error('Chart delayed refresh failed:', error);
+        console.error('Chart refresh failed:', error);
       }
-    }, 120);
+    });
   }
 
   function resetHistoryChart() {
@@ -395,15 +386,17 @@
   }
 
   function captureInitialCurrentMonthRows() {
-    const { sessionsTbody, monthFilter, yearFilter } = getElements();
+    const { sessionsTbody, monthFilter, yearFilter, teacherFilter } = getElements();
     if (!sessionsTbody) return;
     initialCurrentMonthMarkup = sessionsTbody.innerHTML;
     initialCurrentMonthMeta = {
       month: monthFilter ? monthFilter.value : '',
       year: yearFilter ? yearFilter.value : '',
+      teacher: teacherFilter ? teacherFilter.value : '',
     };
     sessionsTbody.dataset.loadedMonth = initialCurrentMonthMeta.month;
     sessionsTbody.dataset.loadedYear = initialCurrentMonthMeta.year;
+    sessionsTbody.dataset.loadedTeacher = initialCurrentMonthMeta.teacher;
   }
 
   function restoreInitialCurrentMonthRows() {
@@ -412,6 +405,19 @@
     sessionsTbody.innerHTML = initialCurrentMonthMarkup;
     sessionsTbody.dataset.loadedMonth = initialCurrentMonthMeta.month;
     sessionsTbody.dataset.loadedYear = initialCurrentMonthMeta.year;
+    sessionsTbody.dataset.loadedTeacher = initialCurrentMonthMeta.teacher || '';
+  }
+
+  function isLoadedSelectionCurrent() {
+    const { sessionsTbody, monthFilter, yearFilter, teacherFilter } = getElements();
+    if (!sessionsTbody || !monthFilter || !yearFilter) return false;
+
+    const selectedTeacher = teacherFilter ? teacherFilter.value : '';
+    return (
+      (sessionsTbody.dataset.loadedMonth || '') === monthFilter.value
+      && (sessionsTbody.dataset.loadedYear || '') === yearFilter.value
+      && (sessionsTbody.dataset.loadedTeacher || '') === selectedTeacher
+    );
   }
 
   // When subject changes, cascade the section dropdown
@@ -638,12 +644,13 @@
   }
 
   function setSessionsRows(sessions) {
-    const { sessionsTbody, monthFilter, yearFilter, subjectFilter, sectionFilter } = getElements();
+    const { sessionsTbody, monthFilter, yearFilter, teacherFilter, subjectFilter, sectionFilter } = getElements();
     if (!sessionsTbody) return;
 
     sessionsTbody.innerHTML = '';
     sessionsTbody.dataset.loadedMonth = monthFilter ? monthFilter.value : '';
     sessionsTbody.dataset.loadedYear = yearFilter ? yearFilter.value : '';
+    sessionsTbody.dataset.loadedTeacher = teacherFilter ? teacherFilter.value : '';
     sessions.forEach(addSessionRow);
 
     // Prevent stale subject/section selections from hiding newly loaded rows.
@@ -698,8 +705,10 @@
         year: String(selectedYear),
         month_num: String(selectedMonth),
       });
-      const teacherId = teacherFilter ? teacherFilter.value : '';
-      if (teacherId) params.append('teacher_id', teacherId);
+      if (teacherFilter) {
+        // Always include teacher_id for admins so clearing selection resets session-scoped teacher filter.
+        params.set('teacher_id', teacherFilter.value || '');
+      }
 
       const response = await fetch(`/api/sessions?${params}`, {
         signal: sessionsLoadController.signal,
@@ -727,7 +736,6 @@
     if (!target || !target.id) return;
 
     if (target.id === 'teacher-filter') {
-      const teacherId = target.value;
       const url = new URL(window.location.href);
       const { monthFilter, yearFilter } = getElements();
       const selectedMonth = monthFilter ? monthFilter.value : '';
@@ -736,15 +744,12 @@
       if (selectedYear) url.searchParams.set('year', String(selectedYear));
       if (selectedMonth) url.searchParams.set('month_num', String(selectedMonth));
 
-      // Use teacher_id only for this navigation request; backend persists selection then redirects to clean URL.
-      if (teacherId) url.searchParams.set('teacher_id', teacherId);
-      else url.searchParams.set('teacher_id', '');
-
-      // Show loading animation before redirect
-      showLoading();
-      window.setTimeout(() => {
-        window.location.href = url.toString();
-      }, 100);
+      // Keep URL stable and fetch data immediately instead of full-page reload.
+      url.searchParams.delete('teacher_id');
+      window.history.replaceState({}, '', url.toString());
+      if (selectedMonth) {
+        loadSessionsForMonth(String(selectedMonth));
+      }
       return;
     }
 
@@ -803,7 +808,7 @@
       sessionsTbody.dataset.loadedYear = selectedYear;
     }
 
-    if (monthFilter && monthFilter.value && forceReload) {
+    if (monthFilter && monthFilter.value && forceReload && !isLoadedSelectionCurrent()) {
       loadSessionsForMonth(monthFilter.value);
     }
 
@@ -812,9 +817,9 @@
   }
 
   captureInitialCurrentMonthRows();
-  initialiseHistoryPage(true);
+  initialiseHistoryPage(false);
   window.addEventListener('load', function () {
-    initialiseHistoryPage(true);
+    initialiseHistoryPage(false);
   });
 
   window.addEventListener('pagehide', function () {
@@ -823,18 +828,18 @@
   });
 
   window.addEventListener('pageshow', function () {
-    initialiseHistoryPage(true);
+    initialiseHistoryPage(false);
   });
 
   window.addEventListener('spa:content-ready', function () {
-    initialiseHistoryPage(true);
+    initialiseHistoryPage(false);
   });
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       // Reload sessions for current month to show latest data
       const { monthFilter } = getElements();
-      if (monthFilter && monthFilter.value) {
+      if (monthFilter && monthFilter.value && !isLoadedSelectionCurrent()) {
         loadSessionsForMonth(monthFilter.value);
       } else {
         applySessionFilters();
