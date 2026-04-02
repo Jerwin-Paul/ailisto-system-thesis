@@ -206,6 +206,27 @@
       .login-lockout .lockout-timer {
         font-weight: 700;
       }
+      .evaluator-note {
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+        padding: 0.8rem 0.9rem;
+        border-radius: 10px;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e3a8a;
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+      .evaluator-note p {
+        margin: 0;
+      }
+      .evaluator-note p + p {
+        margin-top: 0.35rem;
+      }
+      .evaluator-note a {
+        color: #1d4ed8;
+        font-weight: 600;
+      }
       .otp-actions {
         display: flex;
         justify-content: center;
@@ -354,6 +375,14 @@
           <p class="auth-form-subtitle">
             Sign in to access your teacher dashboard
           </p>
+
+          <div class="evaluator-note" role="note" aria-label="Evaluator account options">
+            <p>
+              Evaluators: you may <a href="/register">create a new account</a> or use this test account.
+            </p>
+            <p>email: teacher@school.com</p>
+            <p>pass: password123</p>
+          </div>
 
           <div
             class="login-lockout{% if lockout_seconds and lockout_seconds > 0 %} show{% endif %}"
