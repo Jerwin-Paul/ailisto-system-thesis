@@ -226,6 +226,7 @@
 
 <script>
   (function () {
+  const subjectSectionMap = {{ subject_section_map | tojson }};
   const reportLoginMarker = {{ report_login_marker|tojson }};
   const reportPreviewStorageKey = `ailisto_report_preview_${reportLoginMarker}`;
 
@@ -234,6 +235,41 @@
   let currentSubjectCode = "";
   let currentSection = "";
   let currentTeacherId = "";
+
+  function updateReportSectionOptions(selectedSubject) {
+    const sectionSelect = document.getElementById("reportSection");
+    if (!sectionSelect) return;
+
+    const previousSection = sectionSelect.value;
+    sectionSelect.innerHTML = '<option value="">All Sections</option>';
+
+    let sections = [];
+    if (selectedSubject && subjectSectionMap[selectedSubject]) {
+      sections = subjectSectionMap[selectedSubject].slice().sort();
+    } else {
+      const seen = new Set();
+      Object.values(subjectSectionMap).forEach(function (items) {
+        (items || []).forEach(function (sec) {
+          if (sec) seen.add(sec);
+        });
+      });
+      sections = Array.from(seen).sort();
+    }
+
+    sections.forEach(function (sec) {
+      const option = document.createElement("option");
+      option.value = sec;
+      option.textContent = sec;
+      if (sec === previousSection) {
+        option.selected = true;
+      }
+      sectionSelect.appendChild(option);
+    });
+
+    if (previousSection && !sections.includes(previousSection)) {
+      sectionSelect.value = "";
+    }
+  }
 
   function seedDates() {
     const today = new Date();
@@ -287,8 +323,15 @@
 
     document.getElementById("reportStartDate").value = state.startDate;
     document.getElementById("reportEndDate").value = state.endDate;
-    document.getElementById("reportSubject").value = state.subjectCode || "";
-    document.getElementById("reportSection").value = state.section || "";
+    const reportSubject = document.getElementById("reportSubject");
+    const reportSection = document.getElementById("reportSection");
+    if (reportSubject) {
+      reportSubject.value = state.subjectCode || "";
+      updateReportSectionOptions(reportSubject.value || "");
+    }
+    if (reportSection) {
+      reportSection.value = state.section || "";
+    }
     const reportTeacher = document.getElementById("reportTeacher");
     if (reportTeacher) {
       reportTeacher.value = state.teacherId || "";
@@ -319,6 +362,13 @@
   }
 
   (function initReportPageState() {
+    const reportSubject = document.getElementById("reportSubject");
+    if (reportSubject) {
+      reportSubject.addEventListener("change", function () {
+        updateReportSectionOptions(reportSubject.value || "");
+      });
+    }
+
     const navEntries = performance.getEntriesByType("navigation");
     const navType = navEntries && navEntries[0] ? navEntries[0].type : "";
 
@@ -331,6 +381,7 @@
     const restored = restorePreviewState();
     if (!restored) {
       seedDates();
+      updateReportSectionOptions(reportSubject ? reportSubject.value : "");
     }
   })();
 
