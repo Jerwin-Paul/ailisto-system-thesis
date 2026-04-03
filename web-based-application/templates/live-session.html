@@ -641,6 +641,7 @@
     var inferMaxWidth = 320;
     var inferMinQuality = 0.45;
     var inferMaxQuality = 0.72;
+    var inferUnavailableAfterFailures = 10;
     var mediumRecommendationOptions = [
       "You might ask a short question to the class.",
       "It may help to call on a student to explain the last point.",
@@ -1368,6 +1369,13 @@
       aiInsight.textContent = title + ": " + detail;
     }
 
+    function showYoloServerUnavailable() {
+      showYoloError(
+        "YOLO Server is currently unavailable",
+        "The YOLO server is turned off to save computing power since this system is still under testing stage. Contact the developers to switch the servers on.",
+      );
+    }
+
     function pauseSession() {
       isPaused = !isPaused;
       pausedOverlay.style.display = isPaused ? "flex" : "none";
@@ -1923,10 +1931,22 @@
         }
 
         if (!resp.ok) {
+          const upstreamErrorText = String(
+            data.error || data.detail || "",
+          ).toLowerCase();
           if (resp.status === 401) {
             throw new Error("Session expired. Please sign in again.");
           }
-          if (resp.status === 502) {
+          if (
+            resp.status === 502 ||
+            resp.status === 503 ||
+            resp.status === 504 ||
+            (resp.status >= 500 &&
+              (upstreamErrorText.includes("yolo server unavailable") ||
+                upstreamErrorText.includes("bad gateway") ||
+                upstreamErrorText.includes("upstream") ||
+                upstreamErrorText.includes("connection refused")))
+          ) {
             throw new Error("__YOLO_SERVER_DOWN__");
           }
           throw new Error(
@@ -1955,20 +1975,16 @@
       } catch (err) {
         if (isSessionActive) {
           if (err && err.message === "__YOLO_SERVER_DOWN__") {
-            stopRecommendationRotation();
-            recommendationState.currentLevel = null;
-            setInsightHeading("Recommendations");
-            yoloSpinner.style.display = "none";
-            yoloStatusText.textContent = "\u26A0\uFE0F YOLO Server is currently unavailable";
-            yoloStatusSub.textContent =
-              "The YOLO server is turned off to save computing power since this system is still under testing stage. Contact the developers to switch the servers on.";
-            yoloStatusOverlay.style.display = "flex";
-            attentionStatus.textContent = "Server unavailable";
-            aiInsight.textContent =
-              "YOLO server is offline. Contact the developers to switch it on.";
+            showYoloServerUnavailable();
             stopLoop = true;
           } else {
             inferFailureCount += 1;
+            if (inferFailureCount >= inferUnavailableAfterFailures) {
+              showYoloServerUnavailable();
+              stopLoop = true;
+              return;
+            }
+
             const retryMs = Math.min(
               5000,
               Math.round(300 * Math.pow(1.5, Math.min(inferFailureCount, 8))),
