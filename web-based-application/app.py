@@ -200,6 +200,142 @@ def _duration_minutes_ignore_seconds(start_time: datetime | None, end_time: date
     return int(delta_seconds // 60)
 
 
+def _parse_clock_to_minutes(value) -> int:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("Missing time value.")
+
+    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
+        try:
+            parsed = datetime.strptime(raw, fmt)
+            return parsed.hour * 60 + parsed.minute
+        except ValueError:
+            continue
+
+    raise ValueError(f"Invalid time value '{raw}'.")
+
+
+def _minutes_to_clock(minutes: int) -> str:
+    hour24 = (minutes // 60) % 24
+    minute = minutes % 60
+    period = "AM" if hour24 < 12 else "PM"
+    hour12 = hour24 % 12
+    if hour12 == 0:
+        hour12 = 12
+    return f"{hour12}:{minute:02d} {period}"
+
+
+def _normalize_schedule_day(value) -> str:
+    return str(value or "").strip().lower()
+
+
+def _build_schedule_slots(
+    entries: list[dict] | None,
+    *,
+    source_label: str,
+    require_complete_rows: bool,
+) -> list[dict]:
+    slots = []
+    for idx, entry in enumerate(entries or [], start=1):
+        day = str((entry or {}).get("day", "")).strip()
+        start_raw = (entry or {}).get("startTime") or (entry or {}).get("start_time")
+        end_raw = (entry or {}).get("endTime") or (entry or {}).get("end_time")
+
+        has_any = bool(day or start_raw or end_raw)
+        has_all = bool(day and start_raw and end_raw)
+
+        if not has_any:
+            continue
+
+        if require_complete_rows and not has_all:
+            raise ValueError(f"Schedule row #{idx} is incomplete. Please provide day, start time, and end time.")
+
+        if not has_all:
+            continue
+
+        start_min = _parse_clock_to_minutes(start_raw)
+        end_min = _parse_clock_to_minutes(end_raw)
+        if start_min >= end_min:
+            raise ValueError(f"Schedule row #{idx} has an invalid time range. End time must be after start time.")
+
+        slots.append(
+            {
+                "source": source_label,
+                "row": idx,
+                "day": day,
+                "day_key": _normalize_schedule_day(day),
+                "start_min": start_min,
+                "end_min": end_min,
+                "start_label": _minutes_to_clock(start_min),
+                "end_label": _minutes_to_clock(end_min),
+            }
+        )
+
+    return slots
+
+
+def _find_overlap(slots_a: list[dict], slots_b: list[dict]) -> tuple[dict, dict] | None:
+    for first in slots_a:
+        for second in slots_b:
+            if first["day_key"] != second["day_key"]:
+                continue
+            if first["start_min"] < second["end_min"] and first["end_min"] > second["start_min"]:
+                return first, second
+    return None
+
+
+def _validate_schedule_conflicts(
+    teacher_id: int,
+    candidate_entries: list[dict] | None,
+    *,
+    exclude_subject_id: int | None = None,
+) -> None:
+    candidate_slots = _build_schedule_slots(
+        candidate_entries,
+        source_label="new schedule",
+        require_complete_rows=True,
+    )
+
+    # First, reject overlaps/duplicates within the payload itself.
+    for i in range(len(candidate_slots)):
+        for j in range(i + 1, len(candidate_slots)):
+            first = candidate_slots[i]
+            second = candidate_slots[j]
+            if first["day_key"] != second["day_key"]:
+                continue
+            if first["start_min"] < second["end_min"] and first["end_min"] > second["start_min"]:
+                raise ValueError(
+                    "Schedule conflict in submitted entries: "
+                    f"{first['day']} {first['start_label']} - {first['end_label']} overlaps with "
+                    f"{second['day']} {second['start_label']} - {second['end_label']}."
+                )
+
+    existing_slots = []
+    for subject in db.get_subjects(teacher_id):
+        if exclude_subject_id is not None and subject.get("id") == exclude_subject_id:
+            continue
+
+        course_code = str(subject.get("course_code", "")).strip()
+        section = str(subject.get("section", "")).strip()
+        label = " ".join(part for part in [course_code, f"({section})" if section else ""] if part).strip() or "existing class"
+        existing_slots.extend(
+            _build_schedule_slots(
+                subject.get("schedules") or [],
+                source_label=label,
+                require_complete_rows=False,
+            )
+        )
+
+    conflict = _find_overlap(candidate_slots, existing_slots)
+    if conflict:
+        current, existing = conflict
+        raise ValueError(
+            "Schedule overlaps with an existing class: "
+            f"{current['day']} {current['start_label']} - {current['end_label']} conflicts with "
+            f"{existing['source']} ({existing['day']} {existing['start_label']} - {existing['end_label']})."
+        )
+
+
 # ─── Auth Helpers ─────────────────────────────────────────────────────
 
 def _password_policy_unmet(password: str) -> list[str]:
@@ -2132,7 +2268,12 @@ def api_admin_update_user_role(user_id):
 @login_required
 def api_create_subject():
     user = current_user()
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
+    try:
+        _validate_schedule_conflicts(user["id"], data.get("schedule", []))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     subject = db.create_subject(
         teacher_id=user["id"],
         name=data["name"],
@@ -2175,7 +2316,21 @@ def api_delete_subject_group():
 @app.route("/api/subjects/<int:subject_id>/schedules", methods=["PUT"])
 @login_required
 def api_update_schedules(subject_id):
-    data = request.get_json()
+    user = current_user()
+    subject = db.get_subject_for_teacher(subject_id, user["id"])
+    if not subject:
+        return jsonify({"error": "Subject not found for your account."}), 404
+
+    data = request.get_json(silent=True) or {}
+    try:
+        _validate_schedule_conflicts(
+            user["id"],
+            data.get("schedules", []),
+            exclude_subject_id=subject_id,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     schedules = db.update_subject_schedules(subject_id, data.get("schedules", []))
     return jsonify(schedules)
 

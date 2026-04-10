@@ -756,6 +756,18 @@
     };
   }
 
+  async function readApiErrorMessage(response, fallbackMessage) {
+    try {
+      const payload = await response.json();
+      if (payload && payload.error) {
+        return String(payload.error);
+      }
+    } catch (err) {
+      // Non-JSON responses should still use a safe fallback message.
+    }
+    return fallbackMessage;
+  }
+
   function rerenderSelectedSubjectDetail() {
     if (selectedSubjectIndex === null) return;
     showSubjectDetail(selectedSubjectIndex);
@@ -877,8 +889,10 @@
         rerenderSelectedSubjectDetail();
         renderSchedulePanelByDay();
       } else {
-        alert('Failed to save schedules. Please try again.');
+        alert(await readApiErrorMessage(res, 'Failed to save schedules. Please try again.'));
       }
+    } catch (error) {
+      alert('Failed to save schedules. Please try again.');
     } finally {
       btn.disabled = false;
       btn.innerHTML = originalContent;
@@ -1022,8 +1036,10 @@
         rerenderSelectedSubjectDetail();
         renderSchedulePanelByDay();
       } else {
-        alert('Failed to add section. Please try again.');
+        alert(await readApiErrorMessage(res, 'Failed to add section. Please try again.'));
       }
+    } catch (error) {
+      alert('Failed to add section. Please try again.');
     } finally {
       btn.disabled = false;
       btn.innerHTML = originalContent;
