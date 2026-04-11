@@ -2519,6 +2519,7 @@ def _build_report_interpretation_content(
     sessions_list: list,
     subject_filter: str = "",
     section_filter: str = "",
+    include_teacher_context: bool = False,
 ) -> dict:
     rows = []
     for session_item in sessions_list:
@@ -2539,6 +2540,16 @@ def _build_report_interpretation_content(
         section = str(session_item.get("section") or "").strip()
         section_display = _normalize_section_for_display(section) or "Unspecified Section"
         class_label = _format_subject_section_label(course_code, section)
+        teacher_first_name = str(session_item.get("teacher_first_name") or "").strip()
+        teacher_last_name = str(session_item.get("teacher_last_name") or "").strip()
+        if teacher_last_name and teacher_first_name:
+            teacher_display = f"{teacher_first_name} {teacher_last_name}"
+        elif teacher_last_name:
+            teacher_display = teacher_last_name
+        elif teacher_first_name:
+            teacher_display = teacher_first_name
+        else:
+            teacher_display = "Unspecified Teacher"
 
         rows.append(
             {
@@ -2546,6 +2557,7 @@ def _build_report_interpretation_content(
                 "course_code": course_code or "Unspecified Subject",
                 "section": section_display,
                 "class_label": class_label,
+                "teacher_display": teacher_display,
                 "weekday": start_time.strftime("%A"),
                 "hour": int(start_time.hour),
             }
@@ -2609,10 +2621,21 @@ def _build_report_interpretation_content(
         group_empty_text = "No subjects matched the interpretation criteria."
         group_table_title_template = f"{{prefix}} overall attention by subject for {normalized_section_filter}"
 
+    def _row_group_id(item: dict):
+        group_label = item[group_key]
+        if include_teacher_context:
+            return (group_label, item.get("teacher_display") or "Unspecified Teacher")
+        return group_label
+
+    def _group_display_label(group_id) -> str:
+        if include_teacher_context and isinstance(group_id, tuple):
+            return f"{group_id[0]} ({group_id[1]})"
+        return str(group_id)
+
     group_scores = {}
     for item in rows:
-        label = item[group_key]
-        group_scores.setdefault(label, []).append(item["score"])
+        group_id = _row_group_id(item)
+        group_scores.setdefault(group_id, []).append(item["score"])
 
     group_averages = {
         label: (sum(values) / len(values))
@@ -2645,13 +2668,16 @@ def _build_report_interpretation_content(
 
         group_ranked = sorted(
             [
-                (label, avg_score)
-                for label, avg_score in group_averages.items()
-                if group_levels.get(label) == focus_level
+                (group_id, avg_score)
+                for group_id, avg_score in group_averages.items()
+                if group_levels.get(group_id) == focus_level
             ],
-            key=lambda pair: (pair[1], pair[0]),
+            key=lambda pair: (pair[1], _group_display_label(pair[0])),
         )
-        group_summary_text = _format_top_labels(group_ranked, group_empty_text)
+        group_summary_text = _format_top_labels(
+            [(_group_display_label(group_id), score) for group_id, score in group_ranked],
+            group_empty_text,
+        )
 
         day_scores = {}
         for item in rows:
@@ -2675,8 +2701,11 @@ def _build_report_interpretation_content(
         top_focus_hours = {hour for hour, _ in hour_ranked[:3]}
 
         group_table_rows = [
-            [label, f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention"]
-            for label, score in group_ranked[:3]
+            [
+                _group_display_label(group_id),
+                f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention",
+            ]
+            for group_id, score in group_ranked[:3]
         ]
         day_table_title = f"Days that most often showed {focus_level} attention"
         day_table_rows = [
@@ -2702,9 +2731,9 @@ def _build_report_interpretation_content(
         correlation_rows = []
 
         if top_days or top_hours:
-            for group_label, _ in group_ranked[:3]:
+            for group_id, _ in group_ranked[:3]:
                 focused_rows = [
-                    item for item in rows if item[group_key] == group_label and item["level"] == focus_level
+                    item for item in rows if _row_group_id(item) == group_id and item["level"] == focus_level
                 ]
                 if not focused_rows:
                     continue
@@ -2750,13 +2779,14 @@ def _build_report_interpretation_content(
                     section_value = representative["section"]
                 elif group_key == "section":
                     subject_value = str(subject_filter or representative["course_code"]).strip() or representative["course_code"]
-                    section_value = group_label
+                    section_value = representative["section"]
                 else:
-                    subject_value = group_label
+                    subject_value = representative["course_code"]
                     section_value = normalized_section_filter or representative["section"]
 
                 correlation_rows.append(
                     {
+                        "teacher": representative.get("teacher_display") or "Unspecified Teacher",
                         "subject": subject_value,
                         "section": section_value,
                         "attention_level": attention_label,
@@ -2781,14 +2811,15 @@ def _build_report_interpretation_content(
         for row in correlation_rows:
             day_value = str(row.get("day") or "Not specific")
             time_value = str(row.get("time_window") or "Not specific")
+            teacher_prefix = f"{row.get('teacher')}: " if include_teacher_context else ""
             if day_value != "Not specific" and time_value != "Not specific":
-                sentence = f"{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} during {day_value}, around {time_value}."
+                sentence = f"{teacher_prefix}{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} during {day_value}, around {time_value}."
             elif day_value != "Not specific":
-                sentence = f"{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} during {day_value}, with no single dominant time window."
+                sentence = f"{teacher_prefix}{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} during {day_value}, with no single dominant time window."
             elif time_value != "Not specific":
-                sentence = f"{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} around {time_value}, with no single dominant day."
+                sentence = f"{teacher_prefix}{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} around {time_value}, with no single dominant day."
             else:
-                sentence = f"{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} with no single dominant day or time window."
+                sentence = f"{teacher_prefix}{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} with no single dominant day or time window."
             correlation_sentence_lines.append(sentence)
 
         sections.append(
@@ -2807,6 +2838,7 @@ def _build_report_interpretation_content(
                 "time_table_title": time_table_title,
                 "time_table_rows": time_table_rows,
                 "correlation_rows": correlation_rows,
+                "include_teacher_context": include_teacher_context,
                 "correlation_detected_line": correlation_detected_line,
                 "correlation_sentence_lines": correlation_sentence_lines,
             }
@@ -2836,7 +2868,7 @@ def _build_report_pdf(
     from reportlab.graphics.charts.linecharts import HorizontalLineChart
     from reportlab.graphics.widgets.markers import makeMarker
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether, CondPageBreak
     )
 
     try:
@@ -2921,6 +2953,7 @@ def _build_report_pdf(
     story.append(Spacer(1, 0.3 * cm))
 
     teacher_name = teacher_label or f"{user['first_name']} {user['last_name']}"
+    show_teacher_column = (teacher_name or "").strip().lower() == "all teachers"
     generated_at = datetime.now().strftime("%B %d, %Y at %I:%M %p")
     story.append(Paragraph(f"<b>Report Period:</b> {start_display} to {end_display}", normal_style))
     story.append(Paragraph(f"<b>Teacher:</b> {teacher_name}", normal_style))
@@ -2974,6 +3007,7 @@ def _build_report_pdf(
         sessions_list,
         subject_filter=subject_filter,
         section_filter=section_filter,
+        include_teacher_context=show_teacher_column,
     )
 
     sections = interpretation_content.get("sections", [])
@@ -3057,32 +3091,50 @@ def _build_report_pdf(
 
             correlation_rows = section_data.get("correlation_rows", [])
             correlation_sentence_lines = section_data.get("correlation_sentence_lines", [])
+            include_teacher_context = bool(section_data.get("include_teacher_context"))
             if correlation_rows:
                 for line in correlation_sentence_lines:
                     correlation_block.append(Paragraph(html.escape(line), normal_style, bulletText="•"))
                 correlation_block.append(Spacer(1, 0.15 * cm))
 
-                correlation_data = [[
-                    "Subject",
-                    "Section",
-                    "Attention Level",
-                    "Day",
-                    "Time Window",
-                ]]
+                if include_teacher_context:
+                    correlation_data = [[
+                        "Teacher",
+                        "Subject",
+                        "Section",
+                        "Attention Level",
+                        "Day",
+                        "Time Window",
+                    ]]
+                else:
+                    correlation_data = [[
+                        "Subject",
+                        "Section",
+                        "Attention Level",
+                        "Day",
+                        "Time Window",
+                    ]]
                 for row in correlation_rows:
-                    correlation_data.append([
-                        Paragraph(html.escape(str(row.get("subject") or "—")), table_cell_style),
-                        Paragraph(html.escape(str(row.get("section") or "—")), table_cell_style),
-                        Paragraph(html.escape(str(row.get("attention_level") or "—")), table_cell_style),
-                        Paragraph(html.escape(str(row.get("day") or "—")), table_cell_style),
-                        Paragraph(html.escape(str(row.get("time_window") or "—")), table_cell_style),
-                    ])
+                    if include_teacher_context:
+                        correlation_data.append([
+                            Paragraph(html.escape(str(row.get("teacher") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("subject") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("section") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("attention_level") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("day") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("time_window") or "—")), table_cell_style),
+                        ])
+                    else:
+                        correlation_data.append([
+                            Paragraph(html.escape(str(row.get("subject") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("section") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("attention_level") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("day") or "—")), table_cell_style),
+                            Paragraph(html.escape(str(row.get("time_window") or "—")), table_cell_style),
+                        ])
 
-                correlation_table = Table(
-                    correlation_data,
-                    colWidths=[3.2 * cm, 3.4 * cm, 3.2 * cm, 2.7 * cm, 4.0 * cm],
-                    repeatRows=1,
-                )
+                correlation_col_widths = [3.2 * cm, 2.7 * cm, 2.8 * cm, 2.7 * cm, 2.3 * cm, 2.8 * cm] if include_teacher_context else [3.2 * cm, 3.4 * cm, 3.2 * cm, 2.7 * cm, 4.0 * cm]
+                correlation_table = Table(correlation_data, colWidths=correlation_col_widths, repeatRows=1)
                 correlation_table.setStyle(TableStyle([
                     ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -3160,9 +3212,10 @@ def _build_report_pdf(
             Paragraph("No attention data available for trend chart in the selected date range.", normal_style),
         ]))
 
+    # Avoid starting Session Details at the page bottom when only a few rows would fit.
+    story.append(CondPageBreak(6.8 * cm))
     story.append(Paragraph("Session Details", section_style))
     if sessions_list:
-        show_teacher_column = (teacher_name or "").strip().lower() == "all teachers"
         header_text_style = ParagraphStyle(
             "ReportTableHeaderText",
             parent=normal_style,
@@ -3208,10 +3261,10 @@ def _build_report_pdf(
 
         def _teacher_name_paragraph(first_name: str, last_name: str) -> Paragraph:
             if last_name and first_name:
-                one_line = f"{last_name}, {first_name}"
+                one_line = f"{first_name} {last_name}"
                 if len(one_line) <= 20:
                     return Paragraph(html.escape(one_line), cell_text_style)
-                return Paragraph(f"{html.escape(last_name)},<br/>{html.escape(first_name)}", cell_text_style)
+                return Paragraph(f"{html.escape(first_name)}<br/>{html.escape(last_name)}", cell_text_style)
 
             single_name = last_name or first_name
             if not single_name:
