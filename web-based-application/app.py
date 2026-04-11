@@ -1,5 +1,6 @@
 import os
 import io
+import html
 import json
 import logging
 import re
@@ -471,12 +472,7 @@ def _build_terms_policy_pdf(
     story.append(Paragraph("Terms of Service and Privacy Policy", subtitle_style))
     story.append(Paragraph(f"Version: {TERMS_VERSION}", subtitle_style))
     if include_signature_meta:
-        story.append(
-            Paragraph(
-                f"Generated: {agreed_at.strftime('%B %d, %Y at %I:%M %p')}",
-                subtitle_style,
-            )
-        )
+        story.append(Paragraph(f"Generated: {agreed_at.strftime('%B %d, %Y at %I:%M %p')}", subtitle_style))
         if full_name:
             agreed_by_line = f"Agreed by: {full_name}"
             if email:
@@ -500,6 +496,7 @@ def _build_terms_policy_pdf(
     doc.build(story)
     buf.seek(0)
     return buf
+
 
 def login_required(f):
     """Redirect to /login if no user session."""
@@ -2405,6 +2402,345 @@ def api_cancel_session(session_id):
     return jsonify({"success": True, "id": session_id})
 
 
+def _compute_quantile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+
+    ordered = sorted(float(v) for v in values)
+    if len(ordered) == 1:
+        return ordered[0]
+
+    q_clamped = max(0.0, min(1.0, float(q)))
+    position = (len(ordered) - 1) * q_clamped
+    left_index = int(position)
+    right_index = min(left_index + 1, len(ordered) - 1)
+    fraction = position - left_index
+
+    return ordered[left_index] + (ordered[right_index] - ordered[left_index]) * fraction
+
+
+def _attention_level_from_score(
+    score: float | int | None,
+    *,
+    p_min: float | None = None,
+    p_max: float | None = None,
+) -> str | None:
+    if score is None:
+        return None
+
+    value = float(score)
+
+    if p_min is not None and p_max is not None:
+        denom = float(p_max) - float(p_min)
+        if denom == 0:
+            normalized_score = 0.5
+        else:
+            normalized_score = (value - float(p_min)) / denom
+            normalized_score = max(0.0, min(1.0, normalized_score))
+
+        if normalized_score >= 0.66:
+            return "high"
+        if normalized_score >= 0.33:
+            return "medium"
+        return "low"
+
+    # Fallback when report quantiles are unavailable.
+    if value > 75:
+        return "high"
+    if value > 50:
+        return "medium"
+    return "low"
+
+
+def _format_top_labels(items: list[tuple[str, float]], empty_text: str) -> str:
+    if not items:
+        return empty_text
+    top_items = [label for label, _ in items[:3]]
+    if len(top_items) == 1:
+        return top_items[0]
+    if len(top_items) == 2:
+        return f"{top_items[0]} and {top_items[1]}"
+    return f"{', '.join(top_items[:-1])}, and {top_items[-1]}"
+
+
+def _hour_window_label(hour_24: int) -> str:
+    start_display = datetime(2000, 1, 1, hour_24, 0).strftime("%I:%M %p").lstrip("0")
+    end_display = datetime(2000, 1, 1, hour_24, 59).strftime("%I:%M %p").lstrip("0")
+    return f"{start_display} - {end_display}"
+
+
+def _normalize_section_for_display(section: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(section or "").strip())
+    return re.sub(r"\s*-\s*", "-", cleaned)
+
+
+def _format_subject_section_label(course_code: str, section: str) -> str:
+    course = str(course_code or "").strip() or "Unspecified Subject"
+    section_display = _normalize_section_for_display(section) or "Unspecified Section"
+    return f"{course}: {section_display}"
+
+
+def _build_report_interpretation_content(
+    sessions_list: list,
+    subject_filter: str = "",
+    section_filter: str = "",
+) -> dict:
+    rows = []
+    for session_item in sessions_list:
+        summary_stats = session_item.get("summary_stats") or {}
+        score_raw = summary_stats.get("avgAttention")
+        if score_raw is None:
+            continue
+        try:
+            score = float(score_raw)
+        except (TypeError, ValueError):
+            continue
+
+        start_time = session_item.get("start_time")
+        if not start_time:
+            continue
+
+        course_code = str(session_item.get("course_code") or "").strip()
+        section = str(session_item.get("section") or "").strip()
+        section_display = _normalize_section_for_display(section) or "Unspecified Section"
+        class_label = _format_subject_section_label(course_code, section)
+
+        rows.append(
+            {
+                "score": score,
+                "course_code": course_code or "Unspecified Subject",
+                "section": section_display,
+                "class_label": class_label,
+                "weekday": start_time.strftime("%A"),
+                "hour": int(start_time.hour),
+            }
+        )
+
+    if not rows:
+        return {
+            "correlation_rows": [],
+            "focus_line": "No interpretation could be generated because there are no sessions with valid attention data in the selected date range.",
+            "fallback_line": None,
+            "group_table_title": "",
+            "group_table_rows": [],
+            "day_table_title": "",
+            "day_table_rows": [],
+            "time_table_title": "",
+            "time_table_rows": [],
+            "correlation_detected_line": None,
+            "correlation_sentence_lines": [],
+            "interpretation_sentence_lines": [],
+        }
+
+    session_scores = [item["score"] for item in rows]
+    report_p_min = _compute_quantile(session_scores, 0.05)
+    report_p_max = _compute_quantile(session_scores, 0.95)
+
+    for item in rows:
+        item["level"] = _attention_level_from_score(
+            item["score"],
+            p_min=report_p_min,
+            p_max=report_p_max,
+        )
+
+    normalized_section_filter = _normalize_section_for_display(section_filter)
+
+    weekday_order = {
+        "Monday": 0,
+        "Tuesday": 1,
+        "Wednesday": 2,
+        "Thursday": 3,
+        "Friday": 4,
+        "Saturday": 5,
+        "Sunday": 6,
+    }
+
+    def _most_common(values: list, *, limit: int = 2, order_map: dict | None = None) -> list:
+        if not values:
+            return []
+        counts = {}
+        for value in values:
+            counts[value] = counts.get(value, 0) + 1
+        ranked_items = sorted(
+            counts.items(),
+            key=lambda pair: (
+                -pair[1],
+                (order_map or {}).get(pair[0], 999),
+                str(pair[0]),
+            ),
+        )
+        return [value for value, _ in ranked_items[:limit]]
+
+    if not subject_filter and not section_filter:
+        group_key = "class_label"
+        group_empty_text = "No classes matched the interpretation criteria."
+        group_table_title = "Lowest overall attention by class"
+    elif subject_filter:
+        group_key = "section"
+        group_empty_text = "No sections matched the interpretation criteria."
+        group_table_title = f"Lowest overall attention by section for {subject_filter}"
+    else:
+        group_key = "course_code"
+        group_empty_text = "No subjects matched the interpretation criteria."
+        group_table_title = f"Lowest overall attention by subject for {normalized_section_filter}"
+
+    group_scores = {}
+    for item in rows:
+        label = item[group_key]
+        group_scores.setdefault(label, []).append(item["score"])
+
+    group_averages = {
+        label: (sum(values) / len(values))
+        for label, values in group_scores.items()
+    }
+    group_levels = {
+        label: _attention_level_from_score(avg_score, p_min=report_p_min, p_max=report_p_max)
+        for label, avg_score in group_averages.items()
+    }
+
+    has_low_group = any(level == "low" for level in group_levels.values())
+    focus_level = "low" if has_low_group else "medium"
+    focus_label = "Low" if has_low_group else "Medium"
+    attention_label = f"{focus_label} Attention"
+
+    group_ranked = sorted(
+        [
+            (label, avg_score)
+            for label, avg_score in group_averages.items()
+            if group_levels.get(label) == focus_level
+        ],
+        key=lambda pair: (pair[1], pair[0]),
+    )
+    group_summary_text = _format_top_labels(group_ranked, group_empty_text)
+
+    day_scores = {}
+    for item in rows:
+        day_scores.setdefault(item["weekday"], []).append(item["score"])
+    day_ranked = []
+    for day_name, values in day_scores.items():
+        avg_score = sum(values) / len(values)
+        if _attention_level_from_score(avg_score, p_min=report_p_min, p_max=report_p_max) == focus_level:
+            day_ranked.append((day_name, avg_score))
+    day_ranked.sort(key=lambda pair: (pair[1], weekday_order.get(pair[0], 99), pair[0]))
+
+    hour_scores = {}
+    for item in rows:
+        hour_scores.setdefault(item["hour"], []).append(item["score"])
+    hour_ranked = []
+    for hour, values in hour_scores.items():
+        avg_score = sum(values) / len(values)
+        if _attention_level_from_score(avg_score, p_min=report_p_min, p_max=report_p_max) == focus_level:
+            hour_ranked.append((hour, avg_score))
+    hour_ranked.sort(key=lambda pair: (pair[1], pair[0]))
+    top_focus_hours = {hour for hour, _ in hour_ranked[:3]}
+
+    correlation_rows = []
+
+    group_table_rows = [[label, f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention"] for label, score in group_ranked[:3]]
+    day_table_title = f"Days that most often showed {focus_level} attention"
+    day_table_rows = [[day_name, f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention"] for day_name, score in day_ranked[:3]]
+    time_table_title = f"Time windows that usually showed {focus_level} attention"
+    time_table_rows = [[_hour_window_label(hour), f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention"] for hour, score in hour_ranked[:3]]
+
+    focus_line = f"Interpretation focus: {focus_label} attention level patterns across the selected sessions."
+
+    fallback_line = None
+    if not has_low_group:
+        fallback_line = (
+            "No low-attention group averages were detected in this range, so medium-attention trends were used for interpretation."
+        )
+
+    focus_block_line = focus_line if not fallback_line else f"{focus_line} {fallback_line}"
+
+    def _ensure_terminal_period(text: str) -> str:
+        value = str(text or "").strip()
+        if not value:
+            return value
+        if value.endswith((".", "!", "?")):
+            return value
+        return f"{value}."
+
+    top_days = {day_name for day_name, _ in day_ranked[:2]}
+    top_hours = {hour for hour, _ in hour_ranked[:2]}
+    if top_days and top_hours:
+        for group_label, _ in group_ranked[:3]:
+            focused_rows = [
+                item for item in rows if item[group_key] == group_label and item["level"] == focus_level
+            ]
+            if not focused_rows:
+                continue
+
+            overlapped_rows = [
+                item
+                for item in focused_rows
+                if item["weekday"] in top_days and item["hour"] in top_hours
+            ]
+            if not overlapped_rows:
+                continue
+
+            top_day = _most_common(
+                [item["weekday"] for item in overlapped_rows],
+                limit=1,
+                order_map=weekday_order,
+            )
+            top_hour = _most_common([item["hour"] for item in overlapped_rows], limit=1)
+
+            representative = overlapped_rows[0]
+            if group_key == "class_label":
+                subject_value = representative["course_code"]
+                section_value = representative["section"]
+            elif group_key == "section":
+                subject_value = str(subject_filter or representative["course_code"]).strip() or representative["course_code"]
+                section_value = group_label
+            else:
+                subject_value = group_label
+                section_value = normalized_section_filter or representative["section"]
+
+            correlation_rows.append(
+                {
+                    "subject": subject_value,
+                    "section": section_value,
+                    "attention_level": attention_label,
+                    "day": top_day[0] if top_day else "None",
+                    "time_window": _hour_window_label(top_hour[0]) if top_hour else "None",
+                }
+            )
+
+    if correlation_rows:
+        correlation_detected_line = f"Correlation detected: {focus_label} attention tends to occur on the listed days and listed time windows together."
+    else:
+        correlation_detected_line = f"Correlation: none. No strong day-time overlap was detected for {focus_level} attention."
+
+    correlation_sentence_lines = []
+    for row in correlation_rows:
+        correlation_sentence_lines.append(
+            f"{row['subject']}: {row['section']} is mostly {row['attention_level'].lower()} during {row['day']}, around {row['time_window']}."
+        )
+
+    interpretation_sentence_lines = [
+        _ensure_terminal_period(f"{group_table_title}: {group_summary_text}"),
+        _ensure_terminal_period(f"{day_table_title}: {_format_top_labels(day_ranked, 'No day-level pattern was identified.')}"),
+        _ensure_terminal_period(f"{time_table_title}: {_format_top_labels([(_hour_window_label(hour), score) for hour, score in hour_ranked], 'No time-of-day pattern was identified.')}"),
+    ]
+
+    return {
+        "correlation_rows": correlation_rows,
+        "focus_line": focus_line,
+        "focus_block_line": focus_block_line,
+        "fallback_line": fallback_line,
+        "group_table_title": group_table_title,
+        "group_no_match_text": group_empty_text,
+        "group_table_rows": group_table_rows,
+        "day_table_title": day_table_title,
+        "day_table_rows": day_table_rows,
+        "time_table_title": time_table_title,
+        "time_table_rows": time_table_rows,
+        "correlation_detected_line": correlation_detected_line,
+        "correlation_sentence_lines": correlation_sentence_lines,
+        "interpretation_sentence_lines": interpretation_sentence_lines,
+    }
+
+
 def _build_report_pdf(
     user: dict,
     start_date: str,
@@ -2423,7 +2759,7 @@ def _build_report_pdf(
     from reportlab.graphics.charts.linecharts import HorizontalLineChart
     from reportlab.graphics.widgets.markers import makeMarker
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, PageBreak
     )
 
     try:
@@ -2486,6 +2822,18 @@ def _build_report_pdf(
         textColor=dark,
         fontName="Helvetica",
     )
+    table_cell_style = ParagraphStyle(
+        "ReportTableCellWrap",
+        parent=normal_style,
+        fontSize=8.5,
+        leading=10,
+    )
+
+    def _strip_label_prefix(text: str, prefix: str) -> str:
+        value = str(text or "").strip()
+        if value.lower().startswith(prefix.lower()):
+            return value[len(prefix):].lstrip()
+        return value
 
     story = []
 
@@ -2535,7 +2883,124 @@ def _build_report_pdf(
     ]))
     story.append(summary_table)
 
+    interpretation_content = _build_report_interpretation_content(
+        sessions_list,
+        subject_filter=subject_filter,
+        section_filter=section_filter,
+    )
+
+    story.append(Paragraph("Interpretation", section_style))
+
+    interpretation_table_data = [["Interpretation Metric", "Details"]]
+    group_title = interpretation_content.get("group_table_title") or "Lowest overall attention"
+    group_no_match_text = interpretation_content.get("group_no_match_text") or "No groups matched the interpretation criteria."
+    group_rows = interpretation_content.get("group_table_rows", [])
+    day_title = interpretation_content.get("day_table_title") or "Days"
+    day_rows = interpretation_content.get("day_table_rows", [])
+    time_title = interpretation_content.get("time_table_title") or "Time windows"
+    time_rows = interpretation_content.get("time_table_rows", [])
+
+    def _join_first_col(rows: list[list[str]], fallback_text: str) -> str:
+        if not rows:
+            return fallback_text
+        return ", ".join(str(row[0]) for row in rows[:3])
+
+    interpretation_table_data.append([
+        Paragraph(html.escape(group_title), table_cell_style),
+        Paragraph(html.escape(_join_first_col(group_rows, group_no_match_text)), table_cell_style),
+    ])
+    interpretation_table_data.append([
+        Paragraph(html.escape(day_title), table_cell_style),
+        Paragraph(html.escape(_join_first_col(day_rows, "No day-level pattern was identified.")), table_cell_style),
+    ])
+    interpretation_table_data.append([
+        Paragraph(html.escape(time_title), table_cell_style),
+        Paragraph(html.escape(_join_first_col(time_rows, "No time-of-day pattern was identified.")), table_cell_style),
+    ])
+
+    interpretation_table = Table(
+        interpretation_table_data,
+        colWidths=[6.0 * cm, 10.5 * cm],
+        repeatRows=1,
+    )
+    interpretation_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("ALIGN", (0, 1), (-1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    story.append(interpretation_table)
+    story.append(Spacer(1, 0.15 * cm))
+
+    focus_line = interpretation_content.get("focus_block_line") or interpretation_content.get("focus_line")
+    if focus_line:
+        focus_detail = _strip_label_prefix(focus_line, "Interpretation focus:")
+        story.append(Paragraph(f"<b>Interpretation Focus:</b> {html.escape(focus_detail)}", normal_style))
+
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph("Correlation Table", section_style))
+
+    correlation_rows = interpretation_content.get("correlation_rows", [])
+    if correlation_rows:
+        correlation_data = [[
+            "Subject",
+            "Section",
+            "Attention Level",
+            "Day",
+            "Time Window",
+        ]]
+        for row in correlation_rows:
+            correlation_data.append([
+                Paragraph(html.escape(str(row.get("subject") or "—")), table_cell_style),
+                Paragraph(html.escape(str(row.get("section") or "—")), table_cell_style),
+                Paragraph(html.escape(str(row.get("attention_level") or "—")), table_cell_style),
+                Paragraph(html.escape(str(row.get("day") or "—")), table_cell_style),
+                Paragraph(html.escape(str(row.get("time_window") or "—")), table_cell_style),
+            ])
+
+        correlation_table = Table(
+            correlation_data,
+            colWidths=[3.2 * cm, 3.4 * cm, 3.2 * cm, 2.7 * cm, 4.0 * cm],
+            repeatRows=1,
+        )
+        correlation_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (0, 1), (-1, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ]))
+        story.append(correlation_table)
+
+    detected_line = interpretation_content.get("correlation_detected_line")
+    if detected_line:
+        story.append(Spacer(1, 0.15 * cm))
+        detected_detail = _strip_label_prefix(detected_line, "Correlation detected:")
+        detected_detail = _strip_label_prefix(detected_detail, "Correlation:")
+        story.append(Paragraph(f"<b>Correlation Detected:</b> {html.escape(detected_detail)}", normal_style))
+
+    correlation_sentence_lines = interpretation_content.get("correlation_sentence_lines", [])
+    if correlation_rows:
+        for line in correlation_sentence_lines:
+            story.append(Paragraph(html.escape(line), normal_style, bulletText="•"))
+
     # Build daily average-attention trend points from the selected date range sessions.
+    story.append(PageBreak())
     daily_attention_totals = {}
     daily_attention_counts = {}
     for s in sessions_list:
