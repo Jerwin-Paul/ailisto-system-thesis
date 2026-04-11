@@ -2935,12 +2935,21 @@ def _build_report_pdf(
         for s in sessions_list
         if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
     ]
-    avg_att = round(sum(attentions) / len(attentions)) if attentions else 0
+    numeric_attentions = []
+    for score in attentions:
+        try:
+            numeric_attentions.append(float(score))
+        except (TypeError, ValueError):
+            continue
+
+    report_p_min = _compute_quantile(numeric_attentions, 0.05) if numeric_attentions else None
+    report_p_max = _compute_quantile(numeric_attentions, 0.95) if numeric_attentions else None
+    avg_att = round(sum(numeric_attentions) / len(numeric_attentions)) if numeric_attentions else 0
 
     # Keep report table widths consistent across sections.
     report_table_total_width = 16.5 * cm
 
-    story.append(Paragraph("Summary", section_style))
+    summary_block = [Paragraph("Summary", section_style)]
     summary_data = [
         ["Total Sessions", "Avg. Attention"],
         [str(total), f"{avg_att}%"],
@@ -2958,7 +2967,8 @@ def _build_report_pdf(
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
-    story.append(summary_table)
+    summary_block.append(summary_table)
+    story.append(KeepTogether(summary_block))
 
     interpretation_content = _build_report_interpretation_content(
         sessions_list,
@@ -2975,18 +2985,20 @@ def _build_report_pdf(
         return ", ".join(str(row[0]) for row in rows[:3])
 
     if not sections:
-        story.append(Paragraph("Interpretation", section_style))
-        story.append(Paragraph(html.escape(no_data_message or "No interpretation data available."), normal_style))
+        story.append(KeepTogether([
+            Paragraph("Interpretation", section_style),
+            Paragraph(html.escape(no_data_message or "No interpretation data available."), normal_style),
+        ]))
     else:
         for idx, section_data in enumerate(sections):
             attention_header = section_data.get("attention_label", "Attention")
 
-            story.append(Paragraph(f"Interpretation ({attention_header})", section_style))
+            interpretation_block = [Paragraph(f"Interpretation ({attention_header})", section_style)]
             focus_line = section_data.get("focus_block_line") or section_data.get("focus_line")
             if focus_line:
                 focus_detail = _strip_label_prefix(focus_line, "Interpretation focus:")
-                story.append(Paragraph(f"<b>Interpretation Focus:</b> {html.escape(focus_detail)}", normal_style))
-                story.append(Spacer(1, 0.15 * cm))
+                interpretation_block.append(Paragraph(f"<b>Interpretation Focus:</b> {html.escape(focus_detail)}", normal_style))
+                interpretation_block.append(Spacer(1, 0.15 * cm))
 
             interpretation_table_data = [["Interpretation Metric", "Details"]]
             group_title = section_data.get("group_table_title") or "Lowest overall attention"
@@ -3029,23 +3041,26 @@ def _build_report_pdf(
                 ("TOPPADDING", (0, 0), (-1, -1), 7),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
             ]))
-            story.append(interpretation_table)
+            interpretation_block.append(interpretation_table)
+            story.append(KeepTogether(interpretation_block))
 
-            story.append(Spacer(1, 0.3 * cm))
-            story.append(Paragraph(f"Correlation Table ({attention_header})", section_style))
+            correlation_block = [
+                Spacer(1, 0.3 * cm),
+                Paragraph(f"Correlation Table ({attention_header})", section_style),
+            ]
 
             detected_line = section_data.get("correlation_detected_line")
             if detected_line:
                 detected_detail = _strip_label_prefix(detected_line, "Correlation detected:")
                 detected_detail = _strip_label_prefix(detected_detail, "Correlation:")
-                story.append(Paragraph(f"<b>Correlation Detected:</b> {html.escape(detected_detail)}", normal_style))
+                correlation_block.append(Paragraph(f"<b>Correlation Detected:</b> {html.escape(detected_detail)}", normal_style))
 
             correlation_rows = section_data.get("correlation_rows", [])
             correlation_sentence_lines = section_data.get("correlation_sentence_lines", [])
             if correlation_rows:
                 for line in correlation_sentence_lines:
-                    story.append(Paragraph(html.escape(line), normal_style, bulletText="•"))
-                story.append(Spacer(1, 0.15 * cm))
+                    correlation_block.append(Paragraph(html.escape(line), normal_style, bulletText="•"))
+                correlation_block.append(Spacer(1, 0.15 * cm))
 
                 correlation_data = [[
                     "Subject",
@@ -3082,7 +3097,9 @@ def _build_report_pdf(
                     ("TOPPADDING", (0, 0), (-1, -1), 7),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
                 ]))
-                story.append(correlation_table)
+                correlation_block.append(correlation_table)
+
+            story.append(KeepTogether(correlation_block))
 
             if idx < len(sections) - 1:
                 story.append(Spacer(1, 0.35 * cm))
@@ -3155,71 +3172,118 @@ def _build_report_pdf(
             alignment=1,
             textColor=colors.white,
         )
-        teacher_cell_style = ParagraphStyle(
-            "ReportTeacherCellText",
+        cell_text_style = ParagraphStyle(
+            "ReportDetailCellText",
             parent=normal_style,
             fontName="Helvetica",
             fontSize=8.5,
-            leading=9.5,
+            leading=10,
             alignment=1,
             textColor=dark,
         )
 
-        avg_attention_header = Paragraph("Avg.<br/>Attention", header_text_style)
+        def _clock_display(dt_value: datetime | None) -> str:
+            if not dt_value:
+                return "—"
+            return dt_value.strftime("%I:%M %p").lstrip("0")
+
+        def _calendar_display(dt_value: datetime | None) -> str:
+            if not dt_value:
+                return "—"
+            return f"{dt_value.strftime('%b')} {dt_value.day}, {dt_value.year}"
+
+        def _attention_cell_text(session_item: dict) -> str:
+            summary_stats = session_item.get("summary_stats") or {}
+            score_raw = summary_stats.get("avgAttention")
+            if score_raw is None:
+                return "—"
+            try:
+                score = float(score_raw)
+            except (TypeError, ValueError):
+                return "—"
+
+            level = _attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max)
+            level_display = str(level or "unknown").capitalize()
+            return f"{score:.2f}% ({level_display})"
+
+        def _teacher_name_paragraph(first_name: str, last_name: str) -> Paragraph:
+            if last_name and first_name:
+                one_line = f"{last_name}, {first_name}"
+                if len(one_line) <= 20:
+                    return Paragraph(html.escape(one_line), cell_text_style)
+                return Paragraph(f"{html.escape(last_name)},<br/>{html.escape(first_name)}", cell_text_style)
+
+            single_name = last_name or first_name
+            if not single_name:
+                return Paragraph("—", cell_text_style)
+            if len(single_name) <= 20:
+                return Paragraph(html.escape(single_name), cell_text_style)
+
+            split_at = single_name.rfind(" ", 0, len(single_name) // 2 + 1)
+            if split_at > 0:
+                part1 = html.escape(single_name[:split_at])
+                part2 = html.escape(single_name[split_at + 1:])
+                return Paragraph(f"{part1}<br/>{part2}", cell_text_style)
+
+            return Paragraph(html.escape(single_name), cell_text_style)
+
+        avg_attention_header = Paragraph("Avg. Attention<br/>(L: 33% &gt; M: 66% &gt; H: 100%)", header_text_style)
         if show_teacher_column:
-            table_data = [["Teacher", "Class", "Date", "Start Time", "End Time", "Duration", avg_attention_header]]
+            table_data = [["Teacher", "Class", "Date", "Time", "Duration", avg_attention_header]]
         else:
-            table_data = [["Class", "Date", "Start Time", "End Time", "Duration", avg_attention_header]]
+            table_data = [["Class", "Date", "Time", "Duration", avg_attention_header]]
 
         for s in sessions_list:
-            course = f"{s.get('course_code', '')} - {s.get('section', '')}"
-            date_display = s["start_time"].strftime("%b %d, %Y") if s.get("start_time") else "—"
-            start_time_display = s["start_time"].strftime("%I:%M %p") if s.get("start_time") else "—"
-            end_time_display = s["end_time"].strftime("%I:%M %p") if s.get("end_time") else "—"
+            course_code = str(s.get("course_code") or "Unspecified Subject").strip()
+            section_display = _normalize_section_for_display(str(s.get("section") or "Unspecified Section"))
+            class_display = Paragraph(
+                f"{html.escape(course_code)}<br/>{html.escape(section_display)}",
+                cell_text_style,
+            )
+
+            start_time = s.get("start_time")
+            date_display = Paragraph(
+                f"{html.escape(start_time.strftime('%A') if start_time else '—')}<br/>{html.escape(_calendar_display(start_time))}",
+                cell_text_style,
+            )
+
+            if s.get("start_time") and s.get("end_time"):
+                time_display = Paragraph(
+                    f"{html.escape(_clock_display(s.get('start_time')))} - {html.escape(_clock_display(s.get('end_time')))}",
+                    cell_text_style,
+                )
+            else:
+                time_display = Paragraph("—", cell_text_style)
+
             if s.get("start_time") and s.get("end_time"):
                 mins = _duration_minutes_ignore_seconds(s.get("start_time"), s.get("end_time")) or 0
                 hours, rem_mins = divmod(mins, 60)
                 duration = f"{hours} hr {rem_mins} min"
             else:
                 duration = "—"
-            att = (
-                f"{s['summary_stats']['avgAttention']}%"
-                if s.get("summary_stats") and s["summary_stats"].get("avgAttention") is not None
-                else "—"
-            )
+            duration_display = Paragraph(html.escape(duration), cell_text_style)
+            att = Paragraph(html.escape(_attention_cell_text(s)), cell_text_style)
             if show_teacher_column:
                 teacher_first_name = str(s.get("teacher_first_name", "") or "").strip()
                 teacher_last_name = str(s.get("teacher_last_name", "") or "").strip()
-                if teacher_last_name and teacher_first_name:
-                    teacher_full_name = Paragraph(
-                        f"{teacher_last_name},<br/>{teacher_first_name}",
-                        teacher_cell_style,
-                    )
-                elif teacher_last_name:
-                    teacher_full_name = Paragraph(f"{teacher_last_name},", teacher_cell_style)
-                elif teacher_first_name:
-                    teacher_full_name = Paragraph(teacher_first_name, teacher_cell_style)
-                else:
-                    teacher_full_name = "—"
+                teacher_full_name = _teacher_name_paragraph(teacher_first_name, teacher_last_name)
                 table_data.append([
                     teacher_full_name,
-                    course,
+                    class_display,
                     date_display,
-                    start_time_display,
-                    end_time_display,
-                    duration,
+                    time_display,
+                    duration_display,
                     att,
                 ])
             else:
-                table_data.append([course, date_display, start_time_display, end_time_display, duration, att])
+                table_data.append([class_display, date_display, time_display, duration_display, att])
 
         if show_teacher_column:
-            # Prioritize class readability by giving it more width and shrinking teacher.
-            col_widths = [2.3 * cm, 3.5 * cm, 2.2 * cm, 1.9 * cm, 1.9 * cm, 2.0 * cm, 2.7 * cm]
+            col_widths = [3.0 * cm, 3.1 * cm, 2.7 * cm, 3.8 * cm, 1.7 * cm, 2.2 * cm]
         else:
-            col_widths = [3.5 * cm, 2.8 * cm, 2.4 * cm, 2.4 * cm, 2.7 * cm, 2.7 * cm]
+            col_widths = [4.0 * cm, 3.0 * cm, 4.3 * cm, 2.0 * cm, 3.2 * cm]
         detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-        detail_table.setStyle(TableStyle([
+        table_style_commands = [
             ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -3231,7 +3295,18 @@ def _build_report_pdf(
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
             ("TOPPADDING", (0, 0), (-1, -1), 7),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-        ]))
+        ]
+
+        class_col_idx = 1 if show_teacher_column else 0
+        time_col_idx = 3 if show_teacher_column else 2
+        table_style_commands.extend([
+            ("LEFTPADDING", (class_col_idx, 0), (class_col_idx, -1), 3),
+            ("RIGHTPADDING", (class_col_idx, 0), (class_col_idx, -1), 3),
+            ("LEFTPADDING", (time_col_idx, 0), (time_col_idx, -1), 3),
+            ("RIGHTPADDING", (time_col_idx, 0), (time_col_idx, -1), 3),
+        ])
+
+        detail_table.setStyle(TableStyle(table_style_commands))
         story.append(detail_table)
     else:
         story.append(Paragraph("No sessions found for the selected date range.", normal_style))
