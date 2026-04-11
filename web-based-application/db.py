@@ -523,6 +523,24 @@ def get_subjects(teacher_id: int) -> list[dict]:
         return subjects
 
 
+def get_history_subjects(teacher_id: int | None) -> list[dict]:
+    """Get subjects for history filters, optionally scoped to one teacher."""
+    with get_cursor(commit=False) as cur:
+        if teacher_id is None:
+            cur.execute(
+                """
+                SELECT sub.*
+                FROM subjects sub
+                JOIN users u ON u.id = sub.teacher_id
+                WHERE u.role = 'teacher' AND u.approval_status = 'approved'
+                ORDER BY sub.id
+                """
+            )
+        else:
+            cur.execute("SELECT * FROM subjects WHERE teacher_id = %s ORDER BY id", (teacher_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+
 def create_subject(teacher_id: int, name: str, course_code: str, section: str,
                    schedule_entries: list[dict] | None = None) -> dict:
     with get_cursor() as cur:
@@ -636,8 +654,8 @@ def get_sessions_paginated(teacher_id: int, page: int = 1, per_page: int = 25) -
     return sessions, total_count
 
 
-def get_sessions_for_month(teacher_id: int, year: int, month: int) -> list[dict]:
-    """Get all sessions for a teacher within the given month."""
+def get_sessions_for_month(teacher_id: int | None, year: int, month: int) -> list[dict]:
+    """Get completed sessions within the given month, scoped to one or all teachers."""
     month_start = datetime(year, month, 1)
     if month == 12:
         month_end = datetime(year + 1, 1, 1)
@@ -645,38 +663,71 @@ def get_sessions_for_month(teacher_id: int, year: int, month: int) -> list[dict]
         month_end = datetime(year, month + 1, 1)
 
     with get_cursor(commit=False) as cur:
-        cur.execute(
-            """
-            SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
-            FROM sessions s
-            JOIN subjects sub ON s.subject_id = sub.id
-            WHERE sub.teacher_id = %s
-                            AND s.status = 'completed'
-              AND s.start_time >= %s
-              AND s.start_time < %s
-            ORDER BY s.start_time DESC
-            """,
-            (teacher_id, month_start, month_end),
-        )
+        if teacher_id is None:
+            cur.execute(
+                """
+                SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+                FROM sessions s
+                JOIN subjects sub ON s.subject_id = sub.id
+                JOIN users u ON u.id = sub.teacher_id
+                WHERE u.role = 'teacher'
+                  AND u.approval_status = 'approved'
+                  AND s.status = 'completed'
+                  AND s.start_time >= %s
+                  AND s.start_time < %s
+                ORDER BY s.start_time DESC
+                """,
+                (month_start, month_end),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+                FROM sessions s
+                JOIN subjects sub ON s.subject_id = sub.id
+                WHERE sub.teacher_id = %s
+                  AND s.status = 'completed'
+                  AND s.start_time >= %s
+                  AND s.start_time < %s
+                ORDER BY s.start_time DESC
+                """,
+                (teacher_id, month_start, month_end),
+            )
         return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
 
 
-def get_session_month_options(teacher_id: int) -> list[str]:
-    """Return distinct months with sessions for a teacher as YYYY-MM values."""
+def get_session_month_options(teacher_id: int | None) -> list[str]:
+    """Return distinct months with sessions for one or all teachers as YYYY-MM values."""
     with get_cursor(commit=False) as cur:
-        cur.execute(
-            """
-            SELECT DATE_TRUNC('month', s.start_time) AS month_start
-            FROM sessions s
-            JOIN subjects sub ON s.subject_id = sub.id
-            WHERE sub.teacher_id = %s
-                            AND s.status = 'completed'
-              AND s.start_time IS NOT NULL
-            GROUP BY month_start
-            ORDER BY month_start DESC
-            """,
-            (teacher_id,),
-        )
+        if teacher_id is None:
+            cur.execute(
+                """
+                SELECT DATE_TRUNC('month', s.start_time) AS month_start
+                FROM sessions s
+                JOIN subjects sub ON s.subject_id = sub.id
+                JOIN users u ON u.id = sub.teacher_id
+                WHERE u.role = 'teacher'
+                  AND u.approval_status = 'approved'
+                  AND s.status = 'completed'
+                  AND s.start_time IS NOT NULL
+                GROUP BY month_start
+                ORDER BY month_start DESC
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT DATE_TRUNC('month', s.start_time) AS month_start
+                FROM sessions s
+                JOIN subjects sub ON s.subject_id = sub.id
+                WHERE sub.teacher_id = %s
+                  AND s.status = 'completed'
+                  AND s.start_time IS NOT NULL
+                GROUP BY month_start
+                ORDER BY month_start DESC
+                """,
+                (teacher_id,),
+            )
         return [row["month_start"].strftime("%Y-%m") for row in cur.fetchall()]
 
 
@@ -956,27 +1007,49 @@ def get_weekly_attention_admin(week_start_date: datetime) -> dict:
         }
 
 
-def get_history_summary_stats(teacher_id: int) -> dict:
+def get_history_summary_stats(teacher_id: int | None) -> dict:
     """Lightweight summary stats for history page cards."""
     with get_cursor(commit=False) as cur:
-        cur.execute(
-            """
-            SELECT
-                COUNT(s.id) AS total_sessions,
-                AVG(
-                    CASE
-                        WHEN s.summary_stats IS NOT NULL
-                         AND s.summary_stats->>'avgAttention' IS NOT NULL
-                        THEN (s.summary_stats->>'avgAttention')::float
-                        ELSE NULL
-                    END
-                ) AS avg_attention
-            FROM subjects sub
-            LEFT JOIN sessions s ON s.subject_id = sub.id AND s.status = 'completed'
-            WHERE sub.teacher_id = %s
-            """,
-            (teacher_id,),
-        )
+        if teacher_id is None:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(s.id) AS total_sessions,
+                    AVG(
+                        CASE
+                            WHEN s.summary_stats IS NOT NULL
+                             AND s.summary_stats->>'avgAttention' IS NOT NULL
+                            THEN (s.summary_stats->>'avgAttention')::float
+                            ELSE NULL
+                        END
+                    ) AS avg_attention
+                FROM sessions s
+                JOIN subjects sub ON s.subject_id = sub.id
+                JOIN users u ON u.id = sub.teacher_id
+                WHERE u.role = 'teacher'
+                  AND u.approval_status = 'approved'
+                  AND s.status = 'completed'
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(s.id) AS total_sessions,
+                    AVG(
+                        CASE
+                            WHEN s.summary_stats IS NOT NULL
+                             AND s.summary_stats->>'avgAttention' IS NOT NULL
+                            THEN (s.summary_stats->>'avgAttention')::float
+                            ELSE NULL
+                        END
+                    ) AS avg_attention
+                FROM subjects sub
+                LEFT JOIN sessions s ON s.subject_id = sub.id AND s.status = 'completed'
+                WHERE sub.teacher_id = %s
+                """,
+                (teacher_id,),
+            )
         row = cur.fetchone() or {}
         return {
             "total_sessions": int(row.get("total_sessions") or 0),

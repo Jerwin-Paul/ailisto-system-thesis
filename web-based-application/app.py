@@ -1807,6 +1807,7 @@ def history():
     effective_teacher_id = user["id"]
 
     if user.get("role") == "admin":
+        effective_teacher_id = None
         teachers = db.get_approved_teachers()
         teacher_arg_present = "teacher_id" in request.args
         if teacher_arg_present:
@@ -1856,7 +1857,7 @@ def history():
     selected_month = f"{selected_year:04d}-{selected_month_num:02d}"
     sessions_list = db.get_sessions_for_month(effective_teacher_id, selected_year, selected_month_num)
     stats = db.get_history_summary_stats(effective_teacher_id)
-    subjects = db.get_subjects(effective_teacher_id)
+    subjects = db.get_history_subjects(effective_teacher_id)
     month_values = db.get_session_month_options(effective_teacher_id)
 
     years = set()
@@ -3351,6 +3352,7 @@ def api_get_sessions():
         # Admin can filter by teacher
         teacher_id = user["id"]
         if user.get("role") == "admin":
+            teacher_id = None
             teacher_arg_present = "teacher_id" in request.args
             if teacher_arg_present:
                 raw_teacher_value = (request.args.get("teacher_id") or "").strip()
