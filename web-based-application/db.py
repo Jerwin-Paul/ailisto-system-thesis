@@ -541,6 +541,40 @@ def get_history_subjects(teacher_id: int | None) -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def get_report_subjects(teacher_id: int | None) -> list[dict]:
+    """Get subjects for report filters, including approved teachers and admins."""
+    with get_cursor(commit=False) as cur:
+        if teacher_id is None:
+            cur.execute(
+                """
+                SELECT sub.*
+                FROM subjects sub
+                JOIN users u ON u.id = sub.teacher_id
+                WHERE (
+                    u.role = 'admin'
+                    OR (u.role = 'teacher' AND u.approval_status = 'approved')
+                )
+                ORDER BY sub.id
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT sub.*
+                FROM subjects sub
+                JOIN users u ON u.id = sub.teacher_id
+                WHERE sub.teacher_id = %s
+                  AND (
+                    u.role = 'admin'
+                    OR (u.role = 'teacher' AND u.approval_status = 'approved')
+                  )
+                ORDER BY sub.id
+                """,
+                (teacher_id,),
+            )
+        return [dict(r) for r in cur.fetchall()]
+
+
 def create_subject(teacher_id: int, name: str, course_code: str, section: str,
                    schedule_entries: list[dict] | None = None) -> dict:
     with get_cursor() as cur:

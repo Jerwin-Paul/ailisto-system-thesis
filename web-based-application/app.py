@@ -1796,6 +1796,42 @@ def teachers():
     )
 
 
+def _build_subject_filter_context(subjects: list[dict]) -> tuple[list[dict], list[str], dict[str, list[str]]]:
+    """Build subject and section filter options from a subjects collection."""
+    seen_course_codes = set()
+    subject_filters = []
+    subject_section_map = {}
+
+    for subj in subjects:
+        code = str(subj.get("course_code", "")).strip()
+        name = str(subj.get("name", "")).strip()
+        section = str(subj.get("section", "")).strip()
+        if not code:
+            continue
+
+        if code not in seen_course_codes:
+            seen_course_codes.add(code)
+            subject_filters.append({"course_code": code, "name": name})
+
+        subject_section_map.setdefault(code, [])
+        if section and section not in subject_section_map[code]:
+            subject_section_map[code].append(section)
+
+    subject_filters.sort(key=lambda s: s["course_code"])
+    for sections in subject_section_map.values():
+        sections.sort()
+
+    section_filters = sorted(
+        {
+            section
+            for sections in subject_section_map.values()
+            for section in sections
+        }
+    )
+
+    return subject_filters, section_filters, subject_section_map
+
+
 @app.route("/history")
 @login_required
 def history():
@@ -1922,41 +1958,37 @@ def history():
 @login_required
 def reports():
     user = current_user()
-    
+
     # For admins, allow selecting approved teachers and admins.
     teachers = []
     if user.get("role") == "admin":
         teachers = db.get_approved_teachers_and_admins()
-    
-    subjects = db.get_subjects(user["id"])
+
+    if user.get("role") == "admin":
+        subjects = db.get_report_subjects(None)
+    else:
+        subjects = db.get_report_subjects(user["id"])
+
     login_marker = session.get("login_marker")
     if not login_marker:
         login_marker = f"{user['id']}-{int(time.time())}"
         session["login_marker"] = login_marker
 
-    # Keep subject filter unique by course code so one choice can span sections.
-    seen_course_codes = set()
-    subject_filters = []
-    subject_section_map = {}  # { course_code: [section, ...] }
-    section_filters = sorted({str(s.get("section", "")).strip() for s in subjects if s.get("section")})
+    subject_filters, section_filters, subject_section_map = _build_subject_filter_context(subjects)
 
-    for subj in subjects:
-        code = str(subj.get("course_code", "")).strip()
-        name = str(subj.get("name", "")).strip()
-        section = str(subj.get("section", "")).strip()
-        if not code or code in seen_course_codes:
-            if code and section:
-                subject_section_map.setdefault(code, [])
-                if section not in subject_section_map[code]:
-                    subject_section_map[code].append(section)
-            continue
-        seen_course_codes.add(code)
-        subject_filters.append({"course_code": code, "name": name})
-        subject_section_map.setdefault(code, [])
-        if section and section not in subject_section_map[code]:
-            subject_section_map[code].append(section)
+    report_subject_filters_by_teacher = {"": subject_filters}
+    report_subject_section_map_by_teacher = {"": subject_section_map}
 
-    subject_filters.sort(key=lambda s: s["course_code"])
+    if user.get("role") == "admin":
+        for teacher in teachers:
+            teacher_id = teacher.get("id")
+            if not teacher_id:
+                continue
+            teacher_subjects = db.get_report_subjects(teacher_id)
+            teacher_filters, _, teacher_section_map = _build_subject_filter_context(teacher_subjects)
+            teacher_key = str(teacher_id)
+            report_subject_filters_by_teacher[teacher_key] = teacher_filters
+            report_subject_section_map_by_teacher[teacher_key] = teacher_section_map
 
     return render_template(
         "reports.html",
@@ -1964,6 +1996,8 @@ def reports():
         subject_filters=subject_filters,
         section_filters=section_filters,
         subject_section_map=subject_section_map,
+        report_subject_filters_by_teacher=report_subject_filters_by_teacher,
+        report_subject_section_map_by_teacher=report_subject_section_map_by_teacher,
         report_login_marker=login_marker,
         teachers=teachers,
     )

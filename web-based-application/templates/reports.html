@@ -226,7 +226,8 @@
 
 <script>
   (function () {
-  const subjectSectionMap = {{ subject_section_map | tojson }};
+  const reportSubjectFiltersByTeacher = {{ report_subject_filters_by_teacher | tojson }};
+  const reportSubjectSectionMapByTeacher = {{ report_subject_section_map_by_teacher | tojson }};
   const reportLoginMarker = {{ report_login_marker|tojson }};
   const reportPreviewStorageKey = `ailisto_report_preview_${reportLoginMarker}`;
 
@@ -236,9 +237,53 @@
   let currentSection = "";
   let currentTeacherId = "";
 
+  function getSelectedTeacherKey() {
+    const reportTeacher = document.getElementById("reportTeacher");
+    if (!reportTeacher) return "";
+    return reportTeacher.value || "";
+  }
+
+  function getActiveSubjectFilters() {
+    const teacherKey = getSelectedTeacherKey();
+    return reportSubjectFiltersByTeacher[teacherKey] || reportSubjectFiltersByTeacher[""] || [];
+  }
+
+  function getActiveSubjectSectionMap() {
+    const teacherKey = getSelectedTeacherKey();
+    return reportSubjectSectionMapByTeacher[teacherKey] || reportSubjectSectionMapByTeacher[""] || {};
+  }
+
+  function syncSubjectOptionsWithTeacher() {
+    const subjectSelect = document.getElementById("reportSubject");
+    if (!subjectSelect) return;
+
+    const previousSubject = subjectSelect.value;
+    const subjectFilters = getActiveSubjectFilters();
+
+    subjectSelect.innerHTML = '<option value="">All Subjects</option>';
+    subjectFilters.forEach(function (subj) {
+      const option = document.createElement("option");
+      option.value = subj.course_code;
+      option.textContent = subj.name
+        ? `${subj.course_code} - ${subj.name}`
+        : subj.course_code;
+      subjectSelect.appendChild(option);
+    });
+
+    if (previousSubject && subjectFilters.some(function (subj) { return subj.course_code === previousSubject; })) {
+      subjectSelect.value = previousSubject;
+    } else {
+      subjectSelect.value = "";
+    }
+
+    updateReportSectionOptions(subjectSelect.value || "");
+  }
+
   function updateReportSectionOptions(selectedSubject) {
     const sectionSelect = document.getElementById("reportSection");
     if (!sectionSelect) return;
+
+    const subjectSectionMap = getActiveSubjectSectionMap();
 
     const previousSection = sectionSelect.value;
     sectionSelect.innerHTML = '<option value="">All Sections</option>';
@@ -323,25 +368,37 @@
 
     document.getElementById("reportStartDate").value = state.startDate;
     document.getElementById("reportEndDate").value = state.endDate;
-    const reportSubject = document.getElementById("reportSubject");
-    const reportSection = document.getElementById("reportSection");
-    if (reportSubject) {
-      reportSubject.value = state.subjectCode || "";
-      updateReportSectionOptions(reportSubject.value || "");
-    }
-    if (reportSection) {
-      reportSection.value = state.section || "";
-    }
     const reportTeacher = document.getElementById("reportTeacher");
     if (reportTeacher) {
       reportTeacher.value = state.teacherId || "";
     }
 
+    syncSubjectOptionsWithTeacher();
+
+    const reportSubject = document.getElementById("reportSubject");
+    const reportSection = document.getElementById("reportSection");
+    if (reportSubject) {
+      const requestedSubjectCode = state.subjectCode || "";
+      const activeSubjectFilters = getActiveSubjectFilters();
+      const hasRequestedSubject = activeSubjectFilters.some(function (subj) {
+        return subj.course_code === requestedSubjectCode;
+      });
+      reportSubject.value = hasRequestedSubject ? requestedSubjectCode : "";
+      updateReportSectionOptions(reportSubject.value || "");
+    }
+    if (reportSection) {
+      const requestedSection = state.section || "";
+      const sectionValues = Array.from(reportSection.options).map(function (option) {
+        return option.value;
+      });
+      reportSection.value = sectionValues.includes(requestedSection) ? requestedSection : "";
+    }
+
     currentStartDate = state.startDate;
     currentEndDate = state.endDate;
-    currentSubjectCode = state.subjectCode || "";
-    currentSection = state.section || "";
-    currentTeacherId = state.teacherId || "";
+    currentSubjectCode = reportSubject ? (reportSubject.value || "") : "";
+    currentSection = reportSection ? (reportSection.value || "") : "";
+    currentTeacherId = reportTeacher ? (reportTeacher.value || "") : "";
 
     const subjectText = getSelectedText("reportSubject", state.subjectText || "All Subjects");
     const sectionText = getSelectedText("reportSection", state.sectionText || "All Sections");
@@ -363,9 +420,21 @@
 
   (function initReportPageState() {
     const reportSubject = document.getElementById("reportSubject");
+    const reportTeacher = document.getElementById("reportTeacher");
+
     if (reportSubject) {
       reportSubject.addEventListener("change", function () {
         updateReportSectionOptions(reportSubject.value || "");
+      });
+    }
+
+    if (reportTeacher) {
+      reportTeacher.addEventListener("change", function () {
+        syncSubjectOptionsWithTeacher();
+        currentTeacherId = reportTeacher.value || "";
+        currentSubjectCode = reportSubject ? (reportSubject.value || "") : "";
+        const reportSection = document.getElementById("reportSection");
+        currentSection = reportSection ? (reportSection.value || "") : "";
       });
     }
 
@@ -381,7 +450,7 @@
     const restored = restorePreviewState();
     if (!restored) {
       seedDates();
-      updateReportSectionOptions(reportSubject ? reportSubject.value : "");
+      syncSubjectOptionsWithTeacher();
     }
   })();
 
