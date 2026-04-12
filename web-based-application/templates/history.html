@@ -163,7 +163,7 @@
         <tbody>
           {% for s in sessions %}
           <tr data-course-code="{{ s.course_code }}" data-section="{{ s.section }}" data-start-time="{{ s.start_time.isoformat() if s.start_time else '' }}" data-end-time="{{ s.end_time.isoformat() if s.end_time else '' }}" data-avg-attention="{{ s.summary_stats.avgAttention if s.summary_stats and s.summary_stats.avgAttention is defined else '' }}">
-            <td><strong>{{ s.course_code }} - {{ s.section }}</strong></td>
+            <td><strong>{{ s.course_code }} {{ s.section }}</strong></td>
             <td>
               {{ s.start_time.strftime('%b %d, %Y') if s.start_time
               else '—' }}
@@ -632,7 +632,7 @@
       : '—';
 
     tr.innerHTML = `
-      <td><strong>${session.course_code || '—'} - ${session.section || '—'}</strong></td>
+      <td><strong>${session.course_code || '—'} ${session.section || '—'}</strong></td>
       <td>${dateOnly}</td>
       <td>${startTime}</td>
       <td>${endTime}</td>

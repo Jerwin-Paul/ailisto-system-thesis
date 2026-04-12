@@ -2385,6 +2385,11 @@ def api_start_session():
 
     try:
         s = db.create_session(subject_id)
+    except ValueError as exc:
+        message = str(exc)
+        if "already exists today" in message:
+            return jsonify({"error": message}), 409
+        return jsonify({"error": message}), 400
     except Exception as exc:
         logging.exception("Failed to create session for user %s subject %s", user["id"], subject_id)
         return jsonify({"error": f"Could not start session: {exc}"}), 500

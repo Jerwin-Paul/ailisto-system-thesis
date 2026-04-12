@@ -25,6 +25,15 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. Check your .env file.")
 
 APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Manila"))
+SCHEDULE_DAY_TO_ISODOW = {
+    "monday": 1,
+    "tuesday": 2,
+    "wednesday": 3,
+    "thursday": 4,
+    "friday": 5,
+    "saturday": 6,
+    "sunday": 7,
+}
 
 
 def _to_app_timezone(dt: datetime | None) -> datetime | None:
@@ -775,7 +784,62 @@ def get_subject_for_teacher(subject_id: int, teacher_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def get_subject_sessions_for_app_date(subject_id: int, target_date) -> list[dict]:
+    """Return sessions for a subject that fall on the given app-local date."""
+    day_start_local = datetime.combine(target_date, datetime.min.time(), tzinfo=APP_TIMEZONE)
+    day_end_local = day_start_local + timedelta(days=1)
+
+    # DB timestamps are stored without timezone, so query using naive UTC bounds.
+    day_start_utc = day_start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    day_end_utc = day_end_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM sessions
+            WHERE subject_id = %s
+              AND start_time IS NOT NULL
+              AND start_time >= %s
+              AND start_time < %s
+            ORDER BY start_time DESC, id DESC
+            """,
+            (subject_id, day_start_utc, day_end_utc),
+        )
+        return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
+
+
 def create_session(subject_id: int) -> dict:
+    now_local = datetime.now(APP_TIMEZONE)
+    today_app_date = now_local.date()
+    today_isodow = now_local.isoweekday()
+
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            "SELECT day FROM schedules WHERE subject_id = %s",
+            (subject_id,),
+        )
+        schedule_rows = [dict(r) for r in cur.fetchall()]
+
+    if not schedule_rows:
+        raise ValueError("This class has no schedule yet.")
+
+    has_today_schedule = any(
+        SCHEDULE_DAY_TO_ISODOW.get(str((row or {}).get("day", "")).strip().lower()) == today_isodow
+        for row in schedule_rows
+    )
+    if not has_today_schedule:
+        raise ValueError("This class is not scheduled today.")
+
+    existing_today = get_subject_sessions_for_app_date(subject_id, today_app_date)
+
+    active_today = next((s for s in existing_today if s.get("status") == "active"), None)
+    if active_today:
+        return active_today
+
+    if existing_today:
+        raise ValueError("A session for this class already exists today.")
+
     with get_cursor() as cur:
         cur.execute(
             """INSERT INTO sessions (subject_id, status, start_time)
