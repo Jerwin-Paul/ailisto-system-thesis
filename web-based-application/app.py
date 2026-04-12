@@ -2801,9 +2801,9 @@ def _build_report_interpretation_content(
             if has_specific_day and has_specific_time:
                 correlation_detected_line = f"Correlation detected: {focus_label} attention patterns were observed in day and time windows (not always simultaneously for every section)."
             elif has_specific_day:
-                correlation_detected_line = f"Correlation detected: {focus_label} attention patterns were observed by day, with no single dominant time window."
+                correlation_detected_line = f"Correlation detected: {focus_label} attention patterns were observed by day."
             else:
-                correlation_detected_line = f"Correlation detected: {focus_label} attention patterns were observed by time window, with no single dominant day."
+                correlation_detected_line = f"Correlation detected: {focus_label} attention patterns were observed by time window."
         else:
             correlation_detected_line = f"Correlation: none. No strong day-time overlap was detected for {focus_level} attention."
 
@@ -3301,8 +3301,11 @@ def _build_report_pdf(
             )
 
             if s.get("start_time") and s.get("end_time"):
+                start_clock = _clock_display(s.get("start_time"))
+                end_clock = _clock_display(s.get("end_time"))
+                time_text = f"{start_clock} -<br/>{end_clock}" if show_teacher_column else f"{start_clock} - {end_clock}"
                 time_display = Paragraph(
-                    f"{html.escape(_clock_display(s.get('start_time')))} - {html.escape(_clock_display(s.get('end_time')))}",
+                    time_text,
                     cell_text_style,
                 )
             else:
@@ -3311,10 +3314,10 @@ def _build_report_pdf(
             if s.get("start_time") and s.get("end_time"):
                 mins = _duration_minutes_ignore_seconds(s.get("start_time"), s.get("end_time")) or 0
                 hours, rem_mins = divmod(mins, 60)
-                duration = f"{hours} hr {rem_mins} min"
+                duration = f"{hours}&nbsp;hr&nbsp;{rem_mins}&nbsp;min"
             else:
                 duration = "—"
-            duration_display = Paragraph(html.escape(duration), cell_text_style)
+            duration_display = Paragraph(duration, cell_text_style)
             att = Paragraph(html.escape(_attention_cell_text(s)), cell_text_style)
             if show_teacher_column:
                 teacher_first_name = str(s.get("teacher_first_name", "") or "").strip()
@@ -3332,7 +3335,7 @@ def _build_report_pdf(
                 table_data.append([class_display, date_display, time_display, duration_display, att])
 
         if show_teacher_column:
-            col_widths = [3.0 * cm, 3.1 * cm, 2.7 * cm, 3.8 * cm, 1.7 * cm, 2.2 * cm]
+            col_widths = [3.0 * cm, 3.1 * cm, 2.7 * cm, 3.1 * cm, 2.4 * cm, 2.2 * cm]
         else:
             col_widths = [4.0 * cm, 3.0 * cm, 4.3 * cm, 2.0 * cm, 3.2 * cm]
         detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
