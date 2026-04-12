@@ -43,7 +43,7 @@
           </div>
           <div>
             <p class="stat-label">Avg. Attention</p>
-            <h3 class="stat-value" id="summary-avg-attention">{{ stats.avg_attention }}%</h3>
+            <h3 class="stat-value" id="summary-avg-attention">{{ stats.avg_attention_display }}%</h3>
           </div>
         </div>
       </div>
@@ -197,9 +197,11 @@
             <td>
               {% if s.summary_stats and s.summary_stats.avgAttention is defined
               %}
+              {% set avg_attention_value = (s.summary_stats.avgAttention | float) %}
+              {% set avg_attention_rounded = ((avg_attention_value + 0.5) | int) %}
               <span
-                class="font-bold {% if s.summary_stats.avgAttention > 66 %}text-emerald{% elif s.summary_stats.avgAttention > 33 %}text-amber{% else %}text-red{% endif %}"
-                >{{ s.summary_stats.avgAttention }}%</span
+                class="font-bold {% if avg_attention_rounded > 66 %}text-emerald{% elif avg_attention_rounded > 33 %}text-amber{% else %}text-red{% endif %}"
+                >{{ avg_attention_rounded }}%</span
               >
               {% else %}
               <span class="text-slate">—</span>
@@ -660,8 +662,13 @@
     if (attention === null || attention === undefined) {
       return '<span class="text-slate">—</span>';
     }
-    const colorClass = attention > 66 ? 'text-emerald' : (attention > 33 ? 'text-amber' : 'text-red');
-    return `<span class="font-bold ${colorClass}">${attention}%</span>`;
+    const numericAttention = Number.parseFloat(attention);
+    if (Number.isNaN(numericAttention)) {
+      return '<span class="text-slate">—</span>';
+    }
+    const roundedAttention = Math.round(numericAttention);
+    const colorClass = roundedAttention > 66 ? 'text-emerald' : (roundedAttention > 33 ? 'text-amber' : 'text-red');
+    return `<span class="font-bold ${colorClass}">${roundedAttention}%</span>`;
   }
 
   function formatTeacherName(session) {

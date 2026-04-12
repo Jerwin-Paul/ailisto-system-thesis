@@ -4,6 +4,7 @@ import html
 import json
 import logging
 import re
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import secrets
 import string
 import time
@@ -761,6 +762,17 @@ def _render_login_page(**extra_context):
 
 
 # ─── Auth Pages ──────────────────────────────────────────────────────
+
+def _round_percent_half_up(value: float | int | str | None) -> int | None:
+    if value is None:
+        return None
+
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+    return int(parsed.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 def create_supabase_auth_user(email: str, password: str):
     """Mirror a new user into Supabase auth.users via the Admin API.
@@ -1894,7 +1906,10 @@ def history():
 
     selected_month = f"{selected_year:04d}-{selected_month_num:02d}"
     sessions_list = db.get_sessions_for_month(effective_teacher_id, selected_year, selected_month_num)
-    stats = db.get_history_summary_stats(effective_teacher_id)
+    stats = db.get_history_summary_stats(effective_teacher_id) or {}
+    stats["avg_attention_display"] = _round_percent_half_up(stats.get("avg_attention"))
+    if stats["avg_attention_display"] is None:
+        stats["avg_attention_display"] = 0
     subjects = db.get_history_subjects(effective_teacher_id)
     month_values = db.get_session_month_options(effective_teacher_id)
 
@@ -2626,6 +2641,13 @@ def _build_report_interpretation_content(
             return f"{group_id[0]} ({group_id[1]})"
         return str(group_id)
 
+    def _group_display_with_average(group_id, avg_score: float) -> str:
+        rounded_score = _round_percent_half_up(avg_score)
+        percent_display = f"{rounded_score}%" if rounded_score is not None else "—"
+        if include_teacher_context and isinstance(group_id, tuple):
+            return f"{group_id[0]} ({percent_display} | {group_id[1]})"
+        return f"{_group_display_label(group_id)} ({percent_display})"
+
     group_scores = {}
     for item in rows:
         group_id = _row_group_id(item)
@@ -2669,7 +2691,7 @@ def _build_report_interpretation_content(
             key=lambda pair: (pair[1], _group_display_label(pair[0])),
         )
         group_summary_text = _format_top_labels(
-            [(_group_display_label(group_id), score) for group_id, score in group_ranked],
+            [(_group_display_with_average(group_id, score), score) for group_id, score in group_ranked],
             group_empty_text,
         )
 
@@ -2696,7 +2718,7 @@ def _build_report_interpretation_content(
 
         group_table_rows = [
             [
-                _group_display_label(group_id),
+                _group_display_with_average(group_id, score),
                 f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention",
             ]
             for group_id, score in group_ranked[:3]
@@ -2931,6 +2953,61 @@ def _build_report_pdf(
         fontSize=8.5,
         leading=10,
     )
+    summary_value_style = ParagraphStyle(
+        "ReportSummaryValue",
+        parent=normal_style,
+        fontName="Helvetica-Bold",
+        fontSize=10,
+        alignment=1,
+    )
+
+    attention_colors = {
+        "low": "#dc2626",
+        "medium": "#f59e0b",
+        "high": "#16a34a",
+    }
+
+    def _attention_color_for_level(level: str | None) -> str:
+        return attention_colors.get(str(level or "").lower(), "#1e293b")
+
+    def _attention_level_from_percent_value(percent_value: int | float | str | None) -> str | None:
+        rounded = _round_percent_half_up(percent_value)
+        if rounded is None:
+            return None
+        if rounded > 66:
+            return "high"
+        if rounded > 33:
+            return "medium"
+        return "low"
+
+    def _colorized_percent_markup(
+        percent_value: int | float | str | None,
+        *,
+        level: str | None = None,
+    ) -> str:
+        rounded = _round_percent_half_up(percent_value)
+        if rounded is None:
+            return "—"
+        effective_level = level or _attention_level_from_percent_value(rounded)
+        color = _attention_color_for_level(effective_level)
+        return f"<font color='{color}'>{rounded}%</font>"
+
+    def _escape_with_colored_percentages(text: str, *, default_level: str | None = None) -> str:
+        raw_text = str(text or "")
+        parts = []
+        cursor = 0
+        for match in re.finditer(r"(\d+)%", raw_text):
+            start, end = match.span()
+            if start > cursor:
+                parts.append(html.escape(raw_text[cursor:start]))
+            token_value = match.group(1)
+            parts.append(_colorized_percent_markup(token_value, level=default_level))
+            cursor = end
+        if cursor < len(raw_text):
+            parts.append(html.escape(raw_text[cursor:]))
+        if not parts:
+            return html.escape(raw_text)
+        return "".join(parts)
 
     def _strip_label_prefix(text: str, prefix: str) -> str:
         value = str(text or "").strip()
@@ -2971,15 +3048,20 @@ def _build_report_pdf(
 
     report_p_min = _compute_quantile(numeric_attentions, 0.05) if numeric_attentions else None
     report_p_max = _compute_quantile(numeric_attentions, 0.95) if numeric_attentions else None
-    avg_att = round(sum(numeric_attentions) / len(numeric_attentions)) if numeric_attentions else 0
+    avg_att_raw = (sum(numeric_attentions) / len(numeric_attentions)) if numeric_attentions else 0
+    avg_att = _round_percent_half_up(avg_att_raw) or 0
 
     # Keep report table widths consistent across sections.
     report_table_total_width = 16.5 * cm
 
     summary_block = [Paragraph("Summary", section_style)]
+    avg_attention_level = _attention_level_from_score(avg_att_raw, p_min=report_p_min, p_max=report_p_max)
     summary_data = [
         ["Total Sessions", "Avg. Attention"],
-        [str(total), f"{avg_att}%"],
+        [
+            str(total),
+            Paragraph(_colorized_percent_markup(avg_att, level=avg_attention_level), summary_value_style),
+        ],
     ]
     summary_table = Table(summary_data, colWidths=[report_table_total_width / 2, report_table_total_width / 2])
     summary_table.setStyle(TableStyle([
@@ -3039,15 +3121,31 @@ def _build_report_pdf(
 
             interpretation_table_data.append([
                 Paragraph(html.escape(group_title), table_cell_style),
-                Paragraph(html.escape(_join_first_col(group_rows, group_no_match_text)), table_cell_style),
+                Paragraph(
+                    _escape_with_colored_percentages(
+                        _join_first_col(group_rows, group_no_match_text),
+                        default_level=section_data.get("focus_level"),
+                    ),
+                    table_cell_style,
+                ),
             ])
             interpretation_table_data.append([
                 Paragraph(html.escape(day_title), table_cell_style),
-                Paragraph(html.escape(_join_first_col(day_rows, "No day-level pattern was identified.")), table_cell_style),
+                Paragraph(
+                    _escape_with_colored_percentages(
+                        _join_first_col(day_rows, "No day-level pattern was identified."),
+                    ),
+                    table_cell_style,
+                ),
             ])
             interpretation_table_data.append([
                 Paragraph(html.escape(time_title), table_cell_style),
-                Paragraph(html.escape(_join_first_col(time_rows, "No time-of-day pattern was identified.")), table_cell_style),
+                Paragraph(
+                    _escape_with_colored_percentages(
+                        _join_first_col(time_rows, "No time-of-day pattern was identified."),
+                    ),
+                    table_cell_style,
+                ),
             ])
 
             interpretation_table = Table(
@@ -3251,7 +3349,11 @@ def _build_report_pdf(
 
             level = _attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max)
             level_display = str(level or "unknown").capitalize()
-            return f"{score:.2f}% ({level_display})"
+            rounded_score = _round_percent_half_up(score)
+            if rounded_score is None:
+                return "—"
+            color = _attention_color_for_level(level)
+            return f"<font color='{color}'>{rounded_score}% ({level_display})</font>"
 
         def _teacher_name_paragraph(first_name: str, last_name: str) -> Paragraph:
             if last_name and first_name:
@@ -3274,7 +3376,10 @@ def _build_report_pdf(
 
             return Paragraph(html.escape(single_name), cell_text_style)
 
-        avg_attention_header = Paragraph("Avg. Attention<br/>(L: 33% &gt; M: 66% &gt; H: 100%)", header_text_style)
+        avg_attention_header = Paragraph(
+            "Avg. Attention<br/>(<font color='#dc2626'>L: 33%</font> &gt; <font color='#f59e0b'>M: 66%</font> &gt; <font color='#16a34a'>H: 100%</font>)",
+            header_text_style,
+        )
         if show_teacher_column:
             table_data = [["Teacher", "Class", "Date", "Time", "Duration", avg_attention_header]]
         else:
@@ -3308,11 +3413,11 @@ def _build_report_pdf(
             if s.get("start_time") and s.get("end_time"):
                 mins = _duration_minutes_ignore_seconds(s.get("start_time"), s.get("end_time")) or 0
                 hours, rem_mins = divmod(mins, 60)
-                duration = f"{hours}&nbsp;hr&nbsp;{rem_mins}&nbsp;min"
+                duration = f"{hours}h&nbsp;{rem_mins}m"
             else:
                 duration = "—"
             duration_display = Paragraph(duration, cell_text_style)
-            att = Paragraph(html.escape(_attention_cell_text(s)), cell_text_style)
+            att = Paragraph(_attention_cell_text(s), cell_text_style)
             if show_teacher_column:
                 teacher_first_name = str(s.get("teacher_first_name", "") or "").strip()
                 teacher_last_name = str(s.get("teacher_last_name", "") or "").strip()
@@ -3329,9 +3434,9 @@ def _build_report_pdf(
                 table_data.append([class_display, date_display, time_display, duration_display, att])
 
         if show_teacher_column:
-            col_widths = [3.0 * cm, 3.1 * cm, 2.7 * cm, 3.1 * cm, 2.4 * cm, 2.2 * cm]
+            col_widths = [3.0 * cm, 3.1 * cm, 2.7 * cm, 3.1 * cm, 1.7 * cm, 2.9 * cm]
         else:
-            col_widths = [4.0 * cm, 3.0 * cm, 4.3 * cm, 2.0 * cm, 3.2 * cm]
+            col_widths = [4.0 * cm, 3.0 * cm, 4.3 * cm, 1.6 * cm, 3.6 * cm]
         detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
         table_style_commands = [
             ("BACKGROUND", (0, 0), (-1, 0), brand_blue),
