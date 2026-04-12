@@ -152,24 +152,45 @@
       <table class="data-table" id="sessions-table">
         <thead>
           <tr>
+            {% if show_teacher_column %}
+            <th>Teacher</th>
+            {% endif %}
             <th>Class</th>
             <th>Date</th>
             <th>Start Time</th>
             <th>End Time</th>
             <th>Duration</th>
-            <th>Avg. Attention</th>
+            <th>
+              Avg. Attention
+              <span class="text-red">(L: 33%</span>
+              <span class="text-amber">&gt; M: 66%</span>
+              <span class="text-emerald">&gt; H: 100%)</span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {% for s in sessions %}
           <tr data-course-code="{{ s.course_code }}" data-section="{{ s.section }}" data-start-time="{{ s.start_time.isoformat() if s.start_time else '' }}" data-end-time="{{ s.end_time.isoformat() if s.end_time else '' }}" data-avg-attention="{{ s.summary_stats.avgAttention if s.summary_stats and s.summary_stats.avgAttention is defined else '' }}">
+            {% if show_teacher_column %}
+            <td>
+              <strong>
+                {% set teacher_first_name = (s.teacher_first_name or '')|trim %}
+                {% set teacher_last_name = (s.teacher_last_name or '')|trim %}
+                {% if teacher_first_name or teacher_last_name %}
+                  {{ teacher_first_name }} {{ teacher_last_name }}
+                {% else %}
+                  —
+                {% endif %}
+              </strong>
+            </td>
+            {% endif %}
             <td><strong>{{ s.course_code }} {{ s.section }}</strong></td>
             <td>
               {{ s.start_time.strftime('%b %d, %Y') if s.start_time
               else '—' }}
             </td>
-            <td>{{ s.start_time.strftime('%I:%M %p') if s.start_time else '—' }}</td>
-            <td>{{ s.end_time.strftime('%I:%M %p') if s.end_time else '—' }}</td>
+            <td>{{ s.start_time.strftime('%I:%M %p').lstrip('0') if s.start_time else '—' }}</td>
+            <td>{{ s.end_time.strftime('%I:%M %p').lstrip('0') if s.end_time else '—' }}</td>
             <td>
               {% if s.start_time and s.end_time %} {% set start_total = (s.start_time.hour * 60) + s.start_time.minute %} {% set end_total = (s.end_time.hour * 60) + s.end_time.minute %} {% set total_mins = end_total - start_total %} {% if total_mins < 0 %}{% set total_mins = 0 %}{% endif %} {% set hrs = (total_mins // 60) | int %} {% set mins = (total_mins % 60) | int %} {% if hrs > 0 %}{{ hrs }}h {% endif %}{{ mins }}m {% else %}—{% endif %}
             </td>
@@ -177,7 +198,7 @@
               {% if s.summary_stats and s.summary_stats.avgAttention is defined
               %}
               <span
-                class="font-bold {% if s.summary_stats.avgAttention > 75 %}text-emerald{% elif s.summary_stats.avgAttention > 50 %}text-amber{% else %}text-red{% endif %}"
+                class="font-bold {% if s.summary_stats.avgAttention > 66 %}text-emerald{% elif s.summary_stats.avgAttention > 33 %}text-amber{% else %}text-red{% endif %}"
                 >{{ s.summary_stats.avgAttention }}%</span
               >
               {% else %}
@@ -256,6 +277,12 @@
 
 <script>
   const subjectSectionMap = {{ subject_section_map | tojson }};
+  const attentionHeaderMarkup = `
+    Avg. Attention
+    <span class="text-red">(L: 33%</span>
+    <span class="text-amber">&gt; M: 66%</span>
+    <span class="text-emerald">&gt; H: 100%)</span>
+  `;
 
   let historyChartInstance = null;
   let activeChartCanvas = null;
@@ -266,6 +293,35 @@
   let initialCurrentMonthMeta = { month: '', year: '' };
   let sessionsLoadController = null;
   let sessionsLoadSequence = 0;
+  let currentShowTeacherColumn = {{ 'true' if show_teacher_column else 'false' }};
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function updateSessionsTableHeader(showTeacherColumn) {
+    const sessionsTable = document.getElementById('sessions-table');
+    if (!sessionsTable) return;
+
+    const headerRow = sessionsTable.querySelector('thead tr');
+    if (!headerRow) return;
+
+    const teacherHeader = showTeacherColumn ? '<th>Teacher</th>' : '';
+    headerRow.innerHTML = `
+      ${teacherHeader}
+      <th>Class</th>
+      <th>Date</th>
+      <th>Start Time</th>
+      <th>End Time</th>
+      <th>Duration</th>
+      <th>${attentionHeaderMarkup}</th>
+    `;
+  }
 
   function getElements() {
     const sessionsTable = document.getElementById('sessions-table');
@@ -604,8 +660,15 @@
     if (attention === null || attention === undefined) {
       return '<span class="text-slate">—</span>';
     }
-    const colorClass = attention > 75 ? 'text-emerald' : (attention > 50 ? 'text-amber' : 'text-red');
+    const colorClass = attention > 66 ? 'text-emerald' : (attention > 33 ? 'text-amber' : 'text-red');
     return `<span class="font-bold ${colorClass}">${attention}%</span>`;
+  }
+
+  function formatTeacherName(session) {
+    const firstName = String(session.teacher_first_name || '').trim();
+    const lastName = String(session.teacher_last_name || '').trim();
+    const fullName = `${firstName} ${lastName}`.trim();
+    return fullName || '—';
   }
 
   function addSessionRow(session) {
@@ -624,15 +687,21 @@
       : '—';
 
     const startTime = session.start_time
-      ? new Date(session.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      ? new Date(session.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
       : '—';
 
     const endTime = session.end_time
-      ? new Date(session.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      ? new Date(session.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
       : '—';
 
+    const classLabel = `${session.course_code || '—'} ${session.section || '—'}`;
+    const teacherCell = currentShowTeacherColumn
+      ? `<td><strong>${escapeHtml(formatTeacherName(session))}</strong></td>`
+      : '';
+
     tr.innerHTML = `
-      <td><strong>${session.course_code || '—'} ${session.section || '—'}</strong></td>
+      ${teacherCell}
+      <td><strong>${escapeHtml(classLabel)}</strong></td>
       <td>${dateOnly}</td>
       <td>${startTime}</td>
       <td>${endTime}</td>
@@ -643,9 +712,14 @@
     sessionsTbody.appendChild(tr);
   }
 
-  function setSessionsRows(sessions) {
+  function setSessionsRows(sessions, showTeacherColumn) {
     const { sessionsTbody, monthFilter, yearFilter, teacherFilter, subjectFilter, sectionFilter } = getElements();
     if (!sessionsTbody) return;
+
+    if (typeof showTeacherColumn === 'boolean') {
+      currentShowTeacherColumn = showTeacherColumn;
+    }
+    updateSessionsTableHeader(currentShowTeacherColumn);
 
     sessionsTbody.innerHTML = '';
     sessionsTbody.dataset.loadedMonth = monthFilter ? monthFilter.value : '';
@@ -718,7 +792,7 @@
       }
       const data = await response.json();
       if (requestSequence !== sessionsLoadSequence) return;
-      setSessionsRows(data.sessions || []);
+      setSessionsRows(data.sessions || [], data.show_teacher_column);
     } catch (error) {
       if (error && error.name === 'AbortError') return;
       console.error('Error loading sessions for month:', error);
@@ -799,6 +873,7 @@
     }
 
     const { monthFilter, yearFilter, sessionsTbody } = getElements();
+    updateSessionsTableHeader(currentShowTeacherColumn);
 
     const selectedMonth = monthFilter ? monthFilter.value : '';
     const selectedYear = yearFilter ? yearFilter.value : '';

@@ -709,7 +709,10 @@ def get_sessions_for_month(teacher_id: int | None, year: int, month: int) -> lis
         if teacher_id is None:
             cur.execute(
                 """
-                SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+                SELECT
+                    s.*, sub.name AS subject_name, sub.course_code, sub.section,
+                    u.first_name AS teacher_first_name,
+                    u.last_name AS teacher_last_name
                 FROM sessions s
                 JOIN subjects sub ON s.subject_id = sub.id
                 JOIN users u ON u.id = sub.teacher_id
@@ -725,9 +728,13 @@ def get_sessions_for_month(teacher_id: int | None, year: int, month: int) -> lis
         else:
             cur.execute(
                 """
-                SELECT s.*, sub.name AS subject_name, sub.course_code, sub.section
+                SELECT
+                    s.*, sub.name AS subject_name, sub.course_code, sub.section,
+                    u.first_name AS teacher_first_name,
+                    u.last_name AS teacher_last_name
                 FROM sessions s
                 JOIN subjects sub ON s.subject_id = sub.id
+                JOIN users u ON u.id = sub.teacher_id
                 WHERE sub.teacher_id = %s
                   AND s.status = 'completed'
                   AND s.start_time >= %s

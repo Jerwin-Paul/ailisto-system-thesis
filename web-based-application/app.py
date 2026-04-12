@@ -1880,6 +1880,8 @@ def history():
             else:
                 session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
 
+    show_teacher_column = user.get("role") == "admin" and selected_teacher is None
+
     now = datetime.now()
     selected_year = request.args.get("year", type=int) or now.year
     selected_month_num = request.args.get("month_num", type=int) or now.month
@@ -1939,6 +1941,7 @@ def history():
         "history.html",
         user=user,
         sessions=sessions_list,
+        show_teacher_column=show_teacher_column,
         stats=stats,
         subjects=subjects,
         subject_filters=subject_filters,
@@ -2470,24 +2473,10 @@ def _attention_level_from_score(
 
     value = float(score)
 
-    if p_min is not None and p_max is not None:
-        denom = float(p_max) - float(p_min)
-        if denom == 0:
-            normalized_score = 0.5
-        else:
-            normalized_score = (value - float(p_min)) / denom
-            normalized_score = max(0.0, min(1.0, normalized_score))
-
-        if normalized_score >= 0.66:
-            return "high"
-        if normalized_score >= 0.33:
-            return "medium"
-        return "low"
-
-    # Fallback when report quantiles are unavailable.
-    if value > 75:
+    # Use fixed percentage bands across the application.
+    if value > 66:
         return "high"
-    if value > 50:
+    if value > 33:
         return "medium"
     return "low"
 
@@ -3576,6 +3565,7 @@ def api_get_sessions():
     try:
         # Admin can filter by teacher
         teacher_id = user["id"]
+        show_teacher_column = False
         if user.get("role") == "admin":
             teacher_id = None
             teacher_arg_present = "teacher_id" in request.args
@@ -3601,6 +3591,8 @@ def api_get_sessions():
                     teacher_id = selected_teacher_id
                 else:
                     session.pop(ADMIN_HISTORY_TEACHER_SESSION_KEY, None)
+
+            show_teacher_column = teacher_id is None
         
         sessions_list = db.get_sessions_for_month(teacher_id, selected_year, selected_month_num)
         
@@ -3612,6 +3604,8 @@ def api_get_sessions():
                 "course_code": s.get("course_code"),
                 "section": s.get("section"),
                 "subject_name": s.get("subject_name"),
+                "teacher_first_name": s.get("teacher_first_name"),
+                "teacher_last_name": s.get("teacher_last_name"),
                 "start_time": s.get("start_time").isoformat() if s.get("start_time") else None,
                 "end_time": s.get("end_time").isoformat() if s.get("end_time") else None,
                 "duration_minutes": _duration_minutes_ignore_seconds(s.get("start_time"), s.get("end_time")),
@@ -3621,6 +3615,7 @@ def api_get_sessions():
         return jsonify({
             "sessions": formatted_sessions,
             "month": selected_month,
+            "show_teacher_column": show_teacher_column,
         }), 200
     except Exception as exc:
         logging.exception("Failed to get paginated sessions for user=%s", user["id"])

@@ -1616,9 +1616,9 @@
     }
 
     function attentionLabelToScore(label) {
-      if (label === "High") return 90;
-      if (label === "Medium") return 70;
-      if (label === "Low") return 45;
+      if (label === "High") return 100;
+      if (label === "Medium") return 66;
+      if (label === "Low") return 33;
       return null;
     }
 
@@ -1633,8 +1633,8 @@
     }
 
     function scoreToAttentionLabel(score) {
-      if (score > 80) return "High";
-      if (score > 60) return "Medium";
+      if (score > 66) return "High";
+      if (score > 33) return "Medium";
       return "Low";
     }
 
