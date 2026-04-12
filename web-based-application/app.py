@@ -2643,7 +2643,7 @@ def _build_report_interpretation_content(
 
     def _group_display_with_average(group_id, avg_score: float) -> str:
         rounded_score = _round_percent_half_up(avg_score)
-        percent_display = f"{rounded_score}%" if rounded_score is not None else "—"
+        percent_display = f"Avg: {rounded_score}%" if rounded_score is not None else "—"
         if include_teacher_context and isinstance(group_id, tuple):
             return f"{group_id[0]} ({percent_display} | {group_id[1]})"
         return f"{_group_display_label(group_id)} ({percent_display})"
