@@ -560,6 +560,10 @@
     var isPaused = false;
     var cameraToggle = localStorage.getItem("cameraToggle") === "on";
     var attentionHistory = [];
+    var attentionTimeline = [];
+    var timelineSampleIntervalMs = 5000;
+    var lastTimelineSampleAtMs = 0;
+    var lastAttentionScore = null;
     var trendChart = null;
     var simInterval = null;
     var inferLoopTimeout = null;
@@ -1189,16 +1193,62 @@
 
     // ─── Session Functions ───
     function getSessionSummaryStats() {
-      if (!attentionHistory.length) {
+      var source = attentionTimeline.length
+        ? attentionTimeline.map(function (point) {
+            return Number(point.attentionPercent);
+          })
+        : attentionHistory.map(function (point) {
+            return Number(point.value);
+          });
+
+      source = source.filter(function (value) {
+        return Number.isFinite(value);
+      });
+
+      if (!source.length) {
         return {};
       }
 
-      const total = attentionHistory.reduce((sum, point) => sum + point.value, 0);
-      const avg = Math.round(total / attentionHistory.length);
+      const total = source.reduce((sum, value) => sum + value, 0);
+      const avg = Math.round(total / source.length);
       return {
         avgAttention: avg,
-        sampleCount: attentionHistory.length,
+        sampleCount: source.length,
       };
+    }
+
+    function getSessionAttentionTimeline() {
+      var timeline = attentionTimeline.slice();
+      if (isSessionActive && lastAttentionScore !== null) {
+        var finalOffset = Math.max(0, Math.round(elapsedSessionSeconds));
+        var lastSample = timeline.length ? timeline[timeline.length - 1] : null;
+        if (!lastSample || Math.abs(Number(lastSample.offsetSeconds || 0) - finalOffset) >= 1) {
+          timeline.push({
+            offsetSeconds: finalOffset,
+            attentionPercent: Math.max(0, Math.min(100, Math.round(lastAttentionScore))),
+            capturedAt: new Date().toISOString(),
+          });
+        }
+      }
+      return timeline;
+    }
+
+    function recordAttentionTimelineSample(score, forceCapture) {
+      if (!isSessionActive || isPaused) return;
+      const numericScore = Number(score);
+      if (!Number.isFinite(numericScore)) return;
+
+      const nowMs = Date.now();
+      if (!forceCapture && lastTimelineSampleAtMs && nowMs - lastTimelineSampleAtMs < timelineSampleIntervalMs) {
+        return;
+      }
+
+      attentionTimeline.push({
+        offsetSeconds: Math.max(0, Math.round(elapsedSessionSeconds)),
+        attentionPercent: Math.max(0, Math.min(100, Math.round(numericScore))),
+        capturedAt: new Date(nowMs).toISOString(),
+      });
+      lastTimelineSampleAtMs = nowMs;
     }
 
     function getEndSessionUrl(sessionId) {
@@ -1330,6 +1380,9 @@
       inferenceInFlight = false;
       inferFailureCount = 0;
       attentionHistory = [];
+      attentionTimeline = [];
+      lastTimelineSampleAtMs = 0;
+      lastAttentionScore = null;
       startSessionTimer();
 
       // Keep local camera preview visible and draw detections on top.
@@ -1391,6 +1444,7 @@
       const shouldSaveSession = saveSession !== false;
       const sessionIdToEnd = currentSessionId;
       const summaryStats = getSessionSummaryStats();
+      const attentionTimelinePayload = getSessionAttentionTimeline();
 
       if (sessionIdToEnd && !shouldSaveSession) {
         try {
@@ -1416,6 +1470,9 @@
       isPaused = false;
       inferenceInFlight = false;
       attentionHistory = [];
+      attentionTimeline = [];
+      lastTimelineSampleAtMs = 0;
+      lastAttentionScore = null;
       currentSessionId = null;
       activeSessionLabel = "";
       stopSessionTimer();
@@ -1458,7 +1515,10 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
-            body: JSON.stringify({ summaryStats: summaryStats }),
+            body: JSON.stringify({
+              summaryStats: summaryStats,
+              attentionTimeline: attentionTimelinePayload,
+            }),
           });
           if (!resp.ok) {
             const data = await resp.json().catch(() => ({}));
@@ -1693,8 +1753,10 @@
     function applyAttentionUpdate(score, level, statusOverride, insightOverride) {
       if (score === null || score === undefined || level === null) return;
 
+      lastAttentionScore = score;
       attentionHistory.push({ time: Date.now(), value: score });
       if (attentionHistory.length > 30) attentionHistory.shift();
+      recordAttentionTimelineSample(score, false);
 
       attentionValue.textContent = level;
       attentionValue.className =

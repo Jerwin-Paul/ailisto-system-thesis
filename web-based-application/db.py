@@ -9,6 +9,8 @@ import os
 import json
 import hashlib
 import secrets
+import random
+import math
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -173,6 +175,19 @@ def init_db():
                 summary_stats JSONB
             );
         """)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_attention_samples (
+                id                SERIAL PRIMARY KEY,
+                session_id        INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                sample_time       TIMESTAMP NOT NULL,
+                offset_seconds    INTEGER NOT NULL DEFAULT 0,
+                attention_percent NUMERIC(5,2) NOT NULL,
+                created_at        TIMESTAMP DEFAULT NOW(),
+                CHECK (attention_percent >= 0 AND attention_percent <= 100)
+            );
+            """,
+        )
         # Keep older databases compatible by backfilling missing session columns.
         cur.execute("""
             ALTER TABLE sessions
@@ -190,6 +205,36 @@ def init_db():
             ALTER TABLE sessions
             ADD COLUMN IF NOT EXISTS summary_stats JSONB;
         """)
+        cur.execute(
+            """
+            ALTER TABLE session_attention_samples
+            ADD COLUMN IF NOT EXISTS sample_time TIMESTAMP;
+            """,
+        )
+        cur.execute(
+            """
+            ALTER TABLE session_attention_samples
+            ADD COLUMN IF NOT EXISTS offset_seconds INTEGER NOT NULL DEFAULT 0;
+            """,
+        )
+        cur.execute(
+            """
+            ALTER TABLE session_attention_samples
+            ADD COLUMN IF NOT EXISTS attention_percent NUMERIC(5,2);
+            """,
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_attention_samples_session_id
+            ON session_attention_samples(session_id);
+            """,
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_attention_samples_session_time
+            ON session_attention_samples(session_id, sample_time);
+            """,
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS user_terms_agreements (
@@ -743,7 +788,10 @@ def get_sessions_for_month(teacher_id: int | None, year: int, month: int) -> lis
                 """,
                 (teacher_id, month_start, month_end),
             )
-        return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
+
+        sessions = [dict(r) for r in cur.fetchall()]
+        sessions = _apply_sample_averages_to_sessions(sessions)
+        return [_normalize_session_times(session) for session in sessions]
 
 
 def get_session_month_options(teacher_id: int | None) -> list[str]:
@@ -856,14 +904,373 @@ def create_session(subject_id: int) -> dict:
         return _normalize_session_times(dict(cur.fetchone()))
 
 
-def end_session(session_id: int, summary_stats: dict) -> dict:
+def _normalize_timeline_datetime(raw_value) -> datetime | None:
+    if raw_value is None:
+        return None
+
+    if isinstance(raw_value, datetime):
+        dt_value = raw_value
+    else:
+        try:
+            dt_value = datetime.fromisoformat(str(raw_value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+
+    if dt_value.tzinfo is not None:
+        dt_value = dt_value.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt_value
+
+
+def _replace_session_attention_samples_with_cursor(
+    cur,
+    session_id: int,
+    timeline_samples: list[dict] | None,
+    session_start_time: datetime | None,
+):
+    cur.execute("DELETE FROM session_attention_samples WHERE session_id = %s", (session_id,))
+
+    if not timeline_samples:
+        return
+
+    prepared_rows = []
+    seen_offsets = set()
+
+    for item in timeline_samples:
+        if not isinstance(item, dict):
+            continue
+
+        score_raw = item.get("attentionPercent")
+        if score_raw is None:
+            score_raw = item.get("attention_percent")
+        try:
+            score = float(score_raw)
+        except (TypeError, ValueError):
+            continue
+        score = max(0.0, min(100.0, score))
+
+        offset_raw = item.get("offsetSeconds")
+        if offset_raw is None:
+            offset_raw = item.get("offset_seconds")
+        try:
+            offset_seconds = max(0, int(float(offset_raw)))
+        except (TypeError, ValueError):
+            offset_seconds = 0
+
+        sample_time = _normalize_timeline_datetime(item.get("capturedAt") or item.get("sample_time"))
+        if sample_time is None and session_start_time is not None:
+            sample_time = session_start_time + timedelta(seconds=offset_seconds)
+
+        if sample_time is None:
+            continue
+
+        if offset_seconds in seen_offsets:
+            continue
+        seen_offsets.add(offset_seconds)
+
+        prepared_rows.append((session_id, sample_time, offset_seconds, score))
+
+    if not prepared_rows:
+        return
+
+    cur.executemany(
+        """
+        INSERT INTO session_attention_samples (
+            session_id,
+            sample_time,
+            offset_seconds,
+            attention_percent
+        )
+        VALUES (%s, %s, %s, %s)
+        """,
+        prepared_rows,
+    )
+
+
+def end_session(
+    session_id: int,
+    summary_stats: dict,
+    attention_timeline: list[dict] | None = None,
+) -> dict:
     with get_cursor() as cur:
         cur.execute(
             """UPDATE sessions SET status = 'completed', end_time = NOW(),
                summary_stats = %s WHERE id = %s RETURNING *""",
             (json.dumps(summary_stats), session_id),
         )
-        return _normalize_session_times(dict(cur.fetchone()))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("Session not found.")
+
+        session_row = dict(row)
+        _replace_session_attention_samples_with_cursor(
+            cur,
+            session_id=session_id,
+            timeline_samples=attention_timeline,
+            session_start_time=session_row.get("start_time"),
+        )
+        return _normalize_session_times(session_row)
+
+
+def get_attention_samples_by_session_ids(session_ids: list[int]) -> dict[int, list[dict]]:
+    normalized_ids = []
+    for session_id in session_ids or []:
+        try:
+            normalized_ids.append(int(session_id))
+        except (TypeError, ValueError):
+            continue
+
+    if not normalized_ids:
+        return {}
+
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT
+                session_id,
+                sample_time,
+                offset_seconds,
+                attention_percent
+            FROM session_attention_samples
+            WHERE session_id = ANY(%s)
+            ORDER BY session_id ASC, sample_time ASC
+            """,
+            (normalized_ids,),
+        )
+        rows = cur.fetchall()
+
+    grouped: dict[int, list[dict]] = {session_id: [] for session_id in normalized_ids}
+    for row in rows:
+        session_id = int(row["session_id"])
+        grouped.setdefault(session_id, []).append(
+            {
+                "sample_time": _to_app_timezone(row.get("sample_time")),
+                "offset_seconds": int(row.get("offset_seconds") or 0),
+                "attention_percent": float(row.get("attention_percent")),
+            }
+        )
+
+    return grouped
+
+
+def get_attention_sample_averages_by_session_ids(session_ids: list[int]) -> dict[int, dict]:
+    normalized_ids = []
+    for session_id in session_ids or []:
+        try:
+            normalized_ids.append(int(session_id))
+        except (TypeError, ValueError):
+            continue
+
+    if not normalized_ids:
+        return {}
+
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT
+                session_id,
+                AVG(attention_percent)::float AS avg_attention,
+                COUNT(*) AS sample_count
+            FROM session_attention_samples
+            WHERE session_id = ANY(%s)
+            GROUP BY session_id
+            """,
+            (normalized_ids,),
+        )
+        rows = cur.fetchall()
+
+    averages = {}
+    for row in rows:
+        session_id = int(row["session_id"])
+        avg_attention = row.get("avg_attention")
+        sample_count = int(row.get("sample_count") or 0)
+        if avg_attention is None or sample_count <= 0:
+            continue
+        averages[session_id] = {
+            "avg_attention": round(float(avg_attention), 2),
+            "sample_count": sample_count,
+        }
+    return averages
+
+
+def _apply_sample_averages_to_sessions(sessions: list[dict]) -> list[dict]:
+    if not sessions:
+        return sessions
+
+    session_ids = []
+    for session in sessions:
+        try:
+            session_ids.append(int(session.get("id")))
+        except (TypeError, ValueError):
+            continue
+
+    if not session_ids:
+        return sessions
+
+    averages_by_session = get_attention_sample_averages_by_session_ids(session_ids)
+    if not averages_by_session:
+        return sessions
+
+    for session in sessions:
+        try:
+            session_id = int(session.get("id"))
+        except (TypeError, ValueError):
+            continue
+
+        average_entry = averages_by_session.get(session_id)
+        if not average_entry:
+            continue
+
+        summary_stats = session.get("summary_stats")
+        if not isinstance(summary_stats, dict):
+            summary_stats = {}
+
+        summary_stats["avgAttention"] = average_entry["avg_attention"]
+        summary_stats["sampleCount"] = average_entry["sample_count"]
+        summary_stats["source"] = "timeline"
+        session["summary_stats"] = summary_stats
+
+    return sessions
+
+
+def _generate_fluctuating_timeline_samples(
+    session_start_time: datetime,
+    session_end_time: datetime,
+    seed: int,
+    baseline_score: float | None = None,
+) -> list[dict]:
+    total_seconds = max(0, int((session_end_time - session_start_time).total_seconds()))
+    offsets = list(range(0, total_seconds + 1, 5))
+    if not offsets:
+        offsets = [0]
+    if offsets[-1] != total_seconds:
+        offsets.append(total_seconds)
+
+    rng = random.Random(seed)
+    center = float(baseline_score) if baseline_score is not None else rng.uniform(48.0, 78.0)
+    center = max(25.0, min(95.0, center))
+    amplitude = rng.uniform(7.0, 16.0)
+    phase_shift = rng.uniform(0.0, math.pi * 2.0)
+    drift = rng.uniform(-0.035, 0.035)
+
+    samples = []
+    total_steps = max(1, len(offsets) - 1)
+    for index, offset_seconds in enumerate(offsets):
+        progress = index / total_steps
+        wave = math.sin((progress * math.pi * 2.5) + phase_shift)
+        noise = rng.uniform(-5.5, 5.5)
+        score = center + (wave * amplitude) + (drift * index) + noise
+        score = max(0.0, min(100.0, score))
+
+        sample_time = session_start_time + timedelta(seconds=offset_seconds)
+        samples.append(
+            {
+                "offsetSeconds": offset_seconds,
+                "attentionPercent": round(score, 2),
+                "capturedAt": sample_time,
+            }
+        )
+
+    return samples
+
+
+def backfill_session_attention_samples_for_existing_sessions(force: bool = False) -> dict:
+    """Populate 5-second timeline samples for completed sessions that don't have samples yet."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                s.id,
+                s.start_time,
+                s.end_time,
+                s.summary_stats,
+                COALESCE(sample_counts.sample_count, 0) AS sample_count
+            FROM sessions s
+            LEFT JOIN (
+                SELECT session_id, COUNT(*) AS sample_count
+                FROM session_attention_samples
+                GROUP BY session_id
+            ) AS sample_counts ON sample_counts.session_id = s.id
+            WHERE s.status = 'completed'
+              AND s.start_time IS NOT NULL
+              AND s.end_time IS NOT NULL
+              AND s.end_time > s.start_time
+            ORDER BY s.id ASC
+            """,
+        )
+        session_rows = [dict(row) for row in cur.fetchall()]
+
+        created_sessions = 0
+        skipped_sessions = 0
+        total_samples = 0
+
+        for row in session_rows:
+            existing_samples = int(row.get("sample_count") or 0)
+            if existing_samples > 0 and not force:
+                skipped_sessions += 1
+                continue
+
+            session_id = int(row["id"])
+            start_time = row.get("start_time")
+            end_time = row.get("end_time")
+            if not start_time or not end_time:
+                skipped_sessions += 1
+                continue
+
+            summary_stats = row.get("summary_stats") if isinstance(row.get("summary_stats"), dict) else {}
+            baseline_score = None
+            if isinstance(summary_stats, dict):
+                try:
+                    baseline_score = float(summary_stats.get("avgAttention"))
+                except (TypeError, ValueError):
+                    baseline_score = None
+
+            timeline_samples = _generate_fluctuating_timeline_samples(
+                session_start_time=start_time,
+                session_end_time=end_time,
+                seed=session_id,
+                baseline_score=baseline_score,
+            )
+            _replace_session_attention_samples_with_cursor(
+                cur,
+                session_id=session_id,
+                timeline_samples=timeline_samples,
+                session_start_time=start_time,
+            )
+
+            if timeline_samples:
+                avg_attention = round(
+                    sum(float(item["attentionPercent"]) for item in timeline_samples)
+                    / len(timeline_samples),
+                    2,
+                )
+                cur.execute(
+                    """
+                    UPDATE sessions
+                    SET summary_stats = COALESCE(summary_stats, '{}'::jsonb) || %s::jsonb
+                    WHERE id = %s
+                    """,
+                    (
+                        json.dumps(
+                            {
+                                "avgAttention": avg_attention,
+                                "sampleCount": len(timeline_samples),
+                                "source": "timeline-backfill",
+                            }
+                        ),
+                        session_id,
+                    ),
+                )
+
+            created_sessions += 1
+            total_samples += len(timeline_samples)
+
+    return {
+        "sessions_seen": len(session_rows),
+        "sessions_backfilled": created_sessions,
+        "sessions_skipped": skipped_sessions,
+        "samples_inserted": total_samples,
+        "force": bool(force),
+    }
 
 
 def cancel_session(session_id: int) -> dict | None:
@@ -913,7 +1320,10 @@ def get_sessions_by_date_range(
             section,
             section,
         ))
-        return [_normalize_session_times(dict(r)) for r in cur.fetchall()]
+
+        sessions = [dict(r) for r in cur.fetchall()]
+        sessions = _apply_sample_averages_to_sessions(sessions)
+        return [_normalize_session_times(session) for session in sessions]
 
 
 def get_dashboard_stats(teacher_id: int) -> dict:
@@ -1121,16 +1531,26 @@ def get_history_summary_stats(teacher_id: int | None) -> dict:
                 SELECT
                     COUNT(s.id) AS total_sessions,
                     AVG(
-                        CASE
-                            WHEN s.summary_stats IS NOT NULL
-                             AND s.summary_stats->>'avgAttention' IS NOT NULL
-                            THEN (s.summary_stats->>'avgAttention')::float
-                            ELSE NULL
-                        END
+                        COALESCE(
+                            sample_averages.avg_attention,
+                            CASE
+                                WHEN s.summary_stats IS NOT NULL
+                                 AND s.summary_stats->>'avgAttention' IS NOT NULL
+                                THEN (s.summary_stats->>'avgAttention')::float
+                                ELSE NULL
+                            END
+                        )
                     ) AS avg_attention
                 FROM sessions s
                 JOIN subjects sub ON s.subject_id = sub.id
                 JOIN users u ON u.id = sub.teacher_id
+                LEFT JOIN (
+                    SELECT
+                        session_id,
+                        AVG(attention_percent)::float AS avg_attention
+                    FROM session_attention_samples
+                    GROUP BY session_id
+                ) AS sample_averages ON sample_averages.session_id = s.id
                 WHERE u.role = 'teacher'
                   AND u.approval_status = 'approved'
                   AND s.status = 'completed'
@@ -1142,15 +1562,25 @@ def get_history_summary_stats(teacher_id: int | None) -> dict:
                 SELECT
                     COUNT(s.id) AS total_sessions,
                     AVG(
-                        CASE
-                            WHEN s.summary_stats IS NOT NULL
-                             AND s.summary_stats->>'avgAttention' IS NOT NULL
-                            THEN (s.summary_stats->>'avgAttention')::float
-                            ELSE NULL
-                        END
+                        COALESCE(
+                            sample_averages.avg_attention,
+                            CASE
+                                WHEN s.summary_stats IS NOT NULL
+                                 AND s.summary_stats->>'avgAttention' IS NOT NULL
+                                THEN (s.summary_stats->>'avgAttention')::float
+                                ELSE NULL
+                            END
+                        )
                     ) AS avg_attention
                 FROM subjects sub
                 LEFT JOIN sessions s ON s.subject_id = sub.id AND s.status = 'completed'
+                LEFT JOIN (
+                    SELECT
+                        session_id,
+                        AVG(attention_percent)::float AS avg_attention
+                    FROM session_attention_samples
+                    GROUP BY session_id
+                ) AS sample_averages ON sample_averages.session_id = s.id
                 WHERE sub.teacher_id = %s
                 """,
                 (teacher_id,),

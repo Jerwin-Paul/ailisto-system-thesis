@@ -2427,7 +2427,14 @@ def api_end_session(session_id):
         return jsonify({"error": "Session not found for your account."}), 404
 
     try:
-        s = db.end_session(session_id, data.get("summaryStats", {}))
+        attention_timeline = data.get("attentionTimeline")
+        if not isinstance(attention_timeline, list):
+            attention_timeline = []
+        s = db.end_session(
+            session_id,
+            data.get("summaryStats", {}),
+            attention_timeline=attention_timeline,
+        )
     except Exception as exc:
         logging.exception("Failed to end session %s for user %s", session_id, user["id"])
         return jsonify({"error": f"Could not end session: {exc}"}), 500
@@ -2529,6 +2536,7 @@ def _build_report_interpretation_content(
     subject_filter: str = "",
     section_filter: str = "",
     include_teacher_context: bool = False,
+    attention_samples_by_session: dict[int, list[dict]] | None = None,
 ) -> dict:
     rows = []
     for session_item in sessions_list:
@@ -2562,11 +2570,13 @@ def _build_report_interpretation_content(
 
         rows.append(
             {
+                "session_id": session_item.get("id"),
                 "score": score,
                 "course_code": course_code or "Unspecified Subject",
                 "section": section_display,
                 "class_label": class_label,
                 "teacher_display": teacher_display,
+                "start_time": start_time,
                 "weekday": start_time.strftime("%A"),
                 "hour": int(start_time.hour),
             }
@@ -2578,11 +2588,50 @@ def _build_report_interpretation_content(
             "no_data_message": "No interpretation could be generated because there are no sessions with valid attention data in the selected date range.",
         }
 
-    session_scores = [item["score"] for item in rows]
-    report_p_min = _compute_quantile(session_scores, 0.05)
-    report_p_max = _compute_quantile(session_scores, 0.95)
+    attention_samples_by_session = attention_samples_by_session or {}
+    sample_rows = []
+    for session_row in rows:
+        session_id = session_row.get("session_id")
+        if session_id is None:
+            continue
+        for sample in attention_samples_by_session.get(int(session_id), []):
+            sample_score_raw = sample.get("attention_percent")
+            try:
+                sample_score = float(sample_score_raw)
+            except (TypeError, ValueError):
+                continue
+
+            sample_time = sample.get("sample_time")
+            if not isinstance(sample_time, datetime):
+                sample_time = session_row.get("start_time")
+            if not sample_time:
+                continue
+
+            sample_rows.append(
+                {
+                    "session_id": session_id,
+                    "score": sample_score,
+                    "course_code": session_row["course_code"],
+                    "section": session_row["section"],
+                    "class_label": session_row["class_label"],
+                    "teacher_display": session_row["teacher_display"],
+                    "weekday": sample_time.strftime("%A"),
+                    "hour": int(sample_time.hour),
+                }
+            )
+
+    score_basis_rows = sample_rows if sample_rows else rows
+    score_basis = [item["score"] for item in score_basis_rows]
+    report_p_min = _compute_quantile(score_basis, 0.05)
+    report_p_max = _compute_quantile(score_basis, 0.95)
 
     for item in rows:
+        item["level"] = _attention_level_from_score(
+            item["score"],
+            p_min=report_p_min,
+            p_max=report_p_max,
+        )
+    for item in sample_rows:
         item["level"] = _attention_level_from_score(
             item["score"],
             p_min=report_p_min,
@@ -2601,21 +2650,100 @@ def _build_report_interpretation_content(
         "Sunday": 6,
     }
 
-    def _most_common(values: list, *, limit: int = 2, order_map: dict | None = None) -> list:
-        if not values:
-            return []
-        counts = {}
-        for value in values:
-            counts[value] = counts.get(value, 0) + 1
-        ranked_items = sorted(
-            counts.items(),
-            key=lambda pair: (
-                -pair[1],
-                (order_map or {}).get(pair[0], 999),
-                str(pair[0]),
-            ),
+    def _rank_focus_buckets(
+        source_rows: list[dict],
+        *,
+        focus_level: str,
+        bucket_key: str,
+        order_map: dict | None = None,
+    ) -> list[dict]:
+        bucket_stats = {}
+        for item in source_rows:
+            bucket_value = item.get(bucket_key)
+            if bucket_value is None:
+                continue
+
+            stats = bucket_stats.setdefault(
+                bucket_value,
+                {
+                    "total_samples": 0,
+                    "focus_samples": 0,
+                    "focus_scores": [],
+                    "session_ids": set(),
+                    "focus_session_ids": set(),
+                },
+            )
+            stats["total_samples"] += 1
+
+            session_id = item.get("session_id")
+            if session_id is not None:
+                stats["session_ids"].add(session_id)
+
+            if item.get("level") == focus_level:
+                stats["focus_samples"] += 1
+                stats["focus_scores"].append(float(item.get("score") or 0.0))
+                if session_id is not None:
+                    stats["focus_session_ids"].add(session_id)
+
+        ranked = []
+        for bucket_value, stats in bucket_stats.items():
+            focus_samples = int(stats["focus_samples"])
+            total_samples = int(stats["total_samples"])
+            if focus_samples <= 0 or total_samples <= 0:
+                continue
+
+            ratio = focus_samples / total_samples
+            focus_scores = stats["focus_scores"]
+            avg_focus_score = (sum(focus_scores) / len(focus_scores)) if focus_scores else None
+            ranked.append(
+                {
+                    "bucket": bucket_value,
+                    "focus_ratio": ratio,
+                    "focus_samples": focus_samples,
+                    "total_samples": total_samples,
+                    "focus_session_count": len(stats["focus_session_ids"]),
+                    "session_count": len(stats["session_ids"]),
+                    "avg_focus_score": avg_focus_score,
+                }
+            )
+
+        ranked.sort(
+            key=lambda item: (
+                -item["focus_ratio"],
+                -item["focus_samples"],
+                -item["focus_session_count"],
+                (order_map or {}).get(item["bucket"], 999),
+                str(item["bucket"]),
+            )
         )
-        return [value for value, _ in ranked_items[:limit]]
+        return ranked
+
+    def _pick_dominant_bucket(
+        ranked_buckets: list[dict],
+        *,
+        total_distinct_buckets: int,
+    ):
+        # If data only exists in one bucket (e.g., fixed schedule), avoid treating it as correlation.
+        if total_distinct_buckets <= 1:
+            return None
+
+        for item in ranked_buckets:
+            if (
+                item["focus_ratio"] >= 0.55
+                and item["focus_samples"] >= 6
+                and item["focus_session_count"] >= 2
+            ):
+                return item
+
+        for item in ranked_buckets:
+            if (
+                item["focus_ratio"] >= 0.45
+                and item["focus_samples"] >= 4
+                and item["focus_session_count"] >= 2
+            ):
+                return item
+
+        return None
 
     if not subject_filter and not section_filter:
         group_key = "class_label"
@@ -2675,6 +2803,7 @@ def _build_report_interpretation_content(
         target_levels = ["medium"]
 
     sections = []
+    temporal_rows = sample_rows if sample_rows else rows
 
     for focus_level in target_levels:
         focus_label = focus_level.capitalize()
@@ -2695,26 +2824,18 @@ def _build_report_interpretation_content(
             group_empty_text,
         )
 
-        day_scores = {}
-        for item in rows:
-            day_scores.setdefault(item["weekday"], []).append(item["score"])
-        day_ranked = []
-        for day_name, values in day_scores.items():
-            avg_score = sum(values) / len(values)
-            if _attention_level_from_score(avg_score, p_min=report_p_min, p_max=report_p_max) == focus_level:
-                day_ranked.append((day_name, avg_score))
-        day_ranked.sort(key=lambda pair: (pair[1], weekday_order.get(pair[0], 99), pair[0]))
+        day_ranked = _rank_focus_buckets(
+            temporal_rows,
+            focus_level=focus_level,
+            bucket_key="weekday",
+            order_map=weekday_order,
+        )
 
-        hour_scores = {}
-        for item in rows:
-            hour_scores.setdefault(item["hour"], []).append(item["score"])
-        hour_ranked = []
-        for hour, values in hour_scores.items():
-            avg_score = sum(values) / len(values)
-            if _attention_level_from_score(avg_score, p_min=report_p_min, p_max=report_p_max) == focus_level:
-                hour_ranked.append((hour, avg_score))
-        hour_ranked.sort(key=lambda pair: (pair[1], pair[0]))
-        top_focus_hours = {hour for hour, _ in hour_ranked[:3]}
+        hour_ranked = _rank_focus_buckets(
+            temporal_rows,
+            focus_level=focus_level,
+            bucket_key="hour",
+        )
 
         group_table_rows = [
             [
@@ -2725,13 +2846,13 @@ def _build_report_interpretation_content(
         ]
         day_table_title = f"Days that most often showed {focus_level} attention"
         day_table_rows = [
-            [day_name, f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention"]
-            for day_name, score in day_ranked[:3]
+            [str(item["bucket"]), attention_label]
+            for item in day_ranked[:3]
         ]
         time_table_title = f"Time windows that usually showed {focus_level} attention"
         time_table_rows = [
-            [_hour_window_label(hour), f"{_attention_level_from_score(score, p_min=report_p_min, p_max=report_p_max).capitalize()} Attention"]
-            for hour, score in hour_ranked[:3]
+            [_hour_window_label(int(item["bucket"])), attention_label]
+            for item in hour_ranked[:3]
         ]
 
         focus_line = f"Interpretation focus: {focus_label} attention level patterns across the selected sessions."
@@ -2742,74 +2863,77 @@ def _build_report_interpretation_content(
             )
         focus_block_line = focus_line if not fallback_line else f"{focus_line} {fallback_line}"
 
-        top_days = {day_name for day_name, _ in day_ranked[:2]}
-        top_hours = {hour for hour, _ in hour_ranked[:2]}
         correlation_rows = []
 
-        if top_days or top_hours:
-            for group_id, _ in group_ranked[:3]:
-                focused_rows = [
-                    item for item in rows if _row_group_id(item) == group_id and item["level"] == focus_level
-                ]
-                if not focused_rows:
-                    continue
+        for group_id, _ in group_ranked[:3]:
+            group_rows = [item for item in temporal_rows if _row_group_id(item) == group_id]
+            focus_group_rows = [item for item in group_rows if item.get("level") == focus_level]
+            if not focus_group_rows:
+                continue
+            group_session_count = len({item.get("session_id") for item in group_rows if item.get("session_id") is not None})
 
-                day_matches = [item for item in focused_rows if item["weekday"] in top_days] if top_days else []
-                hour_matches = [item for item in focused_rows if item["hour"] in top_hours] if top_hours else []
-                overlap_rows = [
-                    item
-                    for item in focused_rows
-                    if (not top_days or item["weekday"] in top_days)
-                    and (not top_hours or item["hour"] in top_hours)
-                ] if (top_days and top_hours) else []
+            day_ranked_group = _rank_focus_buckets(
+                group_rows,
+                focus_level=focus_level,
+                bucket_key="weekday",
+                order_map=weekday_order,
+            )
+            hour_ranked_group = _rank_focus_buckets(
+                group_rows,
+                focus_level=focus_level,
+                bucket_key="hour",
+            )
 
-                if overlap_rows:
-                    candidate_rows = overlap_rows
-                    has_day_pattern = True
-                    has_time_pattern = True
-                elif day_matches and hour_matches:
-                    candidate_rows = day_matches if len(day_matches) >= len(hour_matches) else hour_matches
-                    has_day_pattern = True
-                    has_time_pattern = True
-                elif day_matches:
-                    candidate_rows = day_matches
-                    has_day_pattern = True
-                    has_time_pattern = False
-                elif hour_matches:
-                    candidate_rows = hour_matches
-                    has_day_pattern = False
-                    has_time_pattern = True
-                else:
-                    continue
+            dominant_day_item = _pick_dominant_bucket(
+                day_ranked_group,
+                total_distinct_buckets=len({item.get("weekday") for item in group_rows}),
+            )
+            dominant_hour_item = _pick_dominant_bucket(
+                hour_ranked_group,
+                total_distinct_buckets=len({item.get("hour") for item in group_rows}),
+            )
 
-                top_day = _most_common(
-                    [item["weekday"] for item in candidate_rows],
-                    limit=1,
-                    order_map=weekday_order,
-                ) if has_day_pattern else []
-                top_hour = _most_common([item["hour"] for item in candidate_rows], limit=1) if has_time_pattern else []
+            if dominant_day_item is None and dominant_hour_item is None:
+                continue
 
-                representative = candidate_rows[0]
-                if group_key == "class_label":
-                    subject_value = representative["course_code"]
-                    section_value = representative["section"]
-                elif group_key == "section":
-                    subject_value = str(subject_filter or representative["course_code"]).strip() or representative["course_code"]
-                    section_value = representative["section"]
-                else:
-                    subject_value = representative["course_code"]
-                    section_value = normalized_section_filter or representative["section"]
+            dominant_day = dominant_day_item["bucket"] if dominant_day_item else None
+            dominant_hour = dominant_hour_item["bucket"] if dominant_hour_item else None
 
-                correlation_rows.append(
-                    {
-                        "teacher": representative.get("teacher_display") or "Unspecified Teacher",
-                        "subject": subject_value,
-                        "section": section_value,
-                        "attention_level": attention_label,
-                        "day": top_day[0] if top_day else "Not specific",
-                        "time_window": _hour_window_label(top_hour[0]) if top_hour else "Not specific",
-                    }
-                )
+            representative = focus_group_rows[0]
+            if group_key == "class_label":
+                subject_value = representative["course_code"]
+                section_value = representative["section"]
+            elif group_key == "section":
+                subject_value = str(subject_filter or representative["course_code"]).strip() or representative["course_code"]
+                section_value = representative["section"]
+            else:
+                subject_value = representative["course_code"]
+                section_value = normalized_section_filter or representative["section"]
+
+            correlation_rows.append(
+                {
+                    "teacher": representative.get("teacher_display") or "Unspecified Teacher",
+                    "subject": subject_value,
+                    "section": section_value,
+                    "attention_level": attention_label,
+                    "day": dominant_day if dominant_day is not None else "Not specific",
+                    "time_window": _hour_window_label(int(dominant_hour)) if dominant_hour is not None else "Not specific",
+                        "day_evidence": {
+                            "ratio": float(dominant_day_item["focus_ratio"]),
+                            "focus_samples": int(dominant_day_item["focus_samples"]),
+                            "total_samples": int(dominant_day_item["total_samples"]),
+                            "focus_sessions": int(dominant_day_item["focus_session_count"]),
+                            "group_sessions": int(group_session_count),
+                        } if dominant_day_item else None,
+                        "time_evidence": {
+                            "ratio": float(dominant_hour_item["focus_ratio"]),
+                            "focus_samples": int(dominant_hour_item["focus_samples"]),
+                            "total_samples": int(dominant_hour_item["total_samples"]),
+                            "focus_sessions": int(dominant_hour_item["focus_session_count"]),
+                            "group_sessions": int(group_session_count),
+                        } if dominant_hour_item else None,
+                }
+            )
 
         if correlation_rows:
             has_specific_day = any(row.get("day") and row["day"] != "Not specific" for row in correlation_rows)
@@ -3084,6 +3208,9 @@ def _build_report_pdf(
         subject_filter=subject_filter,
         section_filter=section_filter,
         include_teacher_context=show_teacher_column,
+        attention_samples_by_session=db.get_attention_samples_by_session_ids(
+            [int(s["id"]) for s in sessions_list if s.get("id") is not None]
+        ) if sessions_list else {},
     )
 
     sections = interpretation_content.get("sections", [])
