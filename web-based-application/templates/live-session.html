@@ -573,6 +573,7 @@
     var elapsedSessionSeconds = 0;
     var sessionTimerInterval = null;
     var yoloInferUrl = "{{ url_for('yolo_infer') }}";
+    var yoloHealthUrl = "{{ url_for('yolo_health') }}";
     var sessionsApiUrl = "{{ url_for('api_start_session') }}";
     var endSessionUrlTemplate = "{{ url_for('api_end_session', session_id=0) }}";
     var cancelSessionUrlTemplate = "{{ url_for('api_cancel_session', session_id=0) }}";
@@ -639,12 +640,13 @@
     var isCancelSubmitting = false;
     var isEndSubmitting = false;
     var isStartingSession = false;
-    var inferCaptureWidth = 224;
-    var inferJpegQuality = 0.55;
-    var inferMinWidth = 160;
-    var inferMaxWidth = 320;
-    var inferMinQuality = 0.45;
-    var inferMaxQuality = 0.72;
+    var inferCaptureWidth = 416;
+    var inferJpegQuality = 0.78;
+    var inferMinWidth = 256;
+    var inferMaxWidth = 640;
+    var inferMinQuality = 0.6;
+    var inferMaxQuality = 0.9;
+    var yoloHintFetchInFlight = null;
     var mediumRecommendationOptions = [
       "You might ask a short question to the class.",
       "It may help to call on a student to explain the last point.",
@@ -673,6 +675,243 @@
       lowPool: [],
       rotationInterval: null,
     };
+
+    var DETECTION_CLASS_ID_TO_LABEL = {
+      0: "handraise",
+      1: "upright",
+      2: "write",
+      3: "yawn",
+      4: "sleep",
+      5: "turnhead",
+    };
+
+    var ALLOWED_DETECTION_LABELS = {
+      handraise: true,
+      upright: true,
+      write: true,
+      yawn: true,
+      sleep: true,
+      turnhead: true,
+    };
+
+    function canonicalizeDetectionLabel(rawValue) {
+      if (rawValue === null || rawValue === undefined) return null;
+      var label = String(rawValue).trim().toLowerCase();
+      if (!label) return null;
+
+      var aliases = {
+        handrise: "handraise",
+        hand_raise: "handraise",
+        raisehand: "handraise",
+        raisedhand: "handraise",
+        writing: "write",
+        sleeping: "sleep",
+        turn_head: "turnhead",
+        turnheadleft: "turnhead",
+        turnheadright: "turnhead",
+      };
+      return aliases[label] || label;
+    }
+
+    function getDetectionBoxArray(det) {
+      if (!det || typeof det !== "object") return null;
+
+      var direct = det.box || det.bbox || det.xyxy;
+      if (Array.isArray(direct) && direct.length === 4) {
+        return direct;
+      }
+      if (
+        Array.isArray(direct) &&
+        direct.length === 1 &&
+        Array.isArray(direct[0]) &&
+        direct[0].length === 4
+      ) {
+        return direct[0];
+      }
+
+      var x1 = det.x1 !== undefined ? det.x1 : det.left;
+      var y1 = det.y1 !== undefined ? det.y1 : det.top;
+      var x2 = det.x2 !== undefined ? det.x2 : det.right;
+      var y2 = det.y2 !== undefined ? det.y2 : det.bottom;
+      if (
+        x1 !== undefined &&
+        y1 !== undefined &&
+        x2 !== undefined &&
+        y2 !== undefined
+      ) {
+        return [x1, y1, x2, y2];
+      }
+
+      var x = det.x;
+      var y = det.y;
+      var w = det.w !== undefined ? det.w : det.width;
+      var h = det.h !== undefined ? det.h : det.height;
+      if (x !== undefined && y !== undefined && w !== undefined && h !== undefined) {
+        return [x, y, Number(x) + Number(w), Number(y) + Number(h)];
+      }
+
+      return null;
+    }
+
+    function resolveDetectionLabel(det) {
+      if (!det || typeof det !== "object") return "person";
+
+      var clsNum = Number(det.cls);
+      var clsLabel = Number.isFinite(clsNum)
+        ? DETECTION_CLASS_ID_TO_LABEL[Math.round(clsNum)] || null
+        : null;
+      var rawLabel = canonicalizeDetectionLabel(
+        det.label || det.class_name || det.className || det.name,
+      );
+      var normalizedLabel = canonicalizeDetectionLabel(det.label_normalized);
+
+      if (rawLabel && rawLabel !== "write") return rawLabel;
+      if (normalizedLabel && normalizedLabel !== "write") return normalizedLabel;
+      if (clsLabel && clsLabel !== "write") return clsLabel;
+      return rawLabel || normalizedLabel || clsLabel || "person";
+    }
+
+    function normalizeDetections(rawDetections, srcWidth, srcHeight) {
+      var width = Number(srcWidth);
+      var height = Number(srcHeight);
+      var hasSourceSize =
+        Number.isFinite(width) &&
+        width > 1 &&
+        Number.isFinite(height) &&
+        height > 1;
+
+      if (!Array.isArray(rawDetections)) return [];
+
+      return rawDetections
+        .map(function (det) {
+          var boxRaw = getDetectionBoxArray(det);
+          if (!boxRaw) return null;
+
+          var x1 = Number(boxRaw[0]);
+          var y1 = Number(boxRaw[1]);
+          var x2 = Number(boxRaw[2]);
+          var y2 = Number(boxRaw[3]);
+          if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+
+          if (x2 < x1) {
+            var tmpX = x1;
+            x1 = x2;
+            x2 = tmpX;
+          }
+          if (y2 < y1) {
+            var tmpY = y1;
+            y1 = y2;
+            y2 = tmpY;
+          }
+
+          var normalizedCoords =
+            x1 >= 0 &&
+            y1 >= 0 &&
+            x2 <= 1.5 &&
+            y2 <= 1.5 &&
+            x2 > x1 &&
+            y2 > y1;
+
+          if (normalizedCoords && hasSourceSize) {
+            x1 *= width;
+            x2 *= width;
+            y1 *= height;
+            y2 *= height;
+          }
+
+          var trackId = det.track_id;
+          if (trackId === undefined || trackId === null) {
+            trackId = det.trackId;
+          }
+          if (trackId === undefined || trackId === null) {
+            trackId = det.id;
+          }
+
+          var conf = Number(det.conf);
+          if (!Number.isFinite(conf)) {
+            conf = Number(det.score);
+          }
+          if (!Number.isFinite(conf)) {
+            conf = 0;
+          }
+
+          var label = resolveDetectionLabel(det);
+          if (!ALLOWED_DETECTION_LABELS[label]) {
+            return null;
+          }
+          return {
+            box: [x1, y1, x2, y2],
+            conf: conf,
+            cls: Number.isFinite(Number(det.cls)) ? Number(det.cls) : null,
+            label: label,
+            label_normalized: label,
+            track_id: trackId,
+          };
+        })
+        .filter(function (det) {
+          return det !== null;
+        });
+    }
+
+    function applyYoloRuntimeHints(healthData) {
+      if (!healthData || typeof healthData !== "object") return;
+
+      var payload = null;
+      var endpoint = healthData.endpoint;
+      var tried = healthData.tried;
+      if (tried && endpoint && tried[endpoint] && tried[endpoint].payload) {
+        payload = tried[endpoint].payload;
+      }
+      if (!payload && tried && typeof tried === "object") {
+        Object.keys(tried).some(function (path) {
+          var item = tried[path];
+          if (item && item.payload && typeof item.payload === "object") {
+            payload = item.payload;
+            return true;
+          }
+          return false;
+        });
+      }
+
+      var inferredImgsz = Number(payload && payload.inference_imgsz);
+      if (!Number.isFinite(inferredImgsz) || inferredImgsz < 160) return;
+
+      // Keep camera upload close to server inference size for better class separation.
+      var tunedWidth = Math.round(
+        Math.max(inferMinWidth, Math.min(inferMaxWidth, inferredImgsz * 0.85)),
+      );
+      inferCaptureWidth = tunedWidth;
+      inferJpegQuality = Math.max(inferJpegQuality, 0.74);
+    }
+
+    function fetchYoloRuntimeHints() {
+      if (yoloHintFetchInFlight) return yoloHintFetchInFlight;
+
+      yoloHintFetchInFlight = fetch(yoloHealthUrl, {
+        method: "GET",
+        credentials: "same-origin",
+      })
+        .then(function (resp) {
+          if (!resp.ok) return null;
+          return resp.json().catch(function () {
+            return null;
+          });
+        })
+        .then(function (data) {
+          if (data && data.reachable) {
+            applyYoloRuntimeHints(data);
+          }
+          return data;
+        })
+        .catch(function () {
+          return null;
+        })
+        .finally(function () {
+          yoloHintFetchInFlight = null;
+        });
+
+      return yoloHintFetchInFlight;
+    }
 
     function setInsightHeading(text) {
       if (!insightHeading) return;
@@ -957,6 +1196,7 @@
       populateSubjectOptions();
       populateSectionOptions();
       updateControls();
+      fetchYoloRuntimeHints();
 
       // Check if mediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -1336,15 +1576,25 @@
       updateControls();
       attentionStatus.textContent = "Starting session...";
       aiInsight.textContent = "Preparing session and connecting to the YOLO server...";
-
-      let startedSession = null;
       try {
-        const resp = await fetch(sessionsApiUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ subjectId: selectedSubjectId }),
-        });
+        const controller = new AbortController();
+        const startTimeout = setTimeout(function () {
+          controller.abort();
+        }, 12000);
+
+        let resp;
+        try {
+          resp = await fetch(sessionsApiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            signal: controller.signal,
+            body: JSON.stringify({ subjectId: selectedSubjectId }),
+          });
+        } finally {
+          clearTimeout(startTimeout);
+        }
+
         const raw = await resp.text();
         let data = {};
         try {
@@ -1352,6 +1602,7 @@
         } catch (_) {
           data = {};
         }
+
         if (!resp.ok) {
           throw new Error(
             data.error ||
@@ -1361,52 +1612,73 @@
               "Could not start session.",
           );
         }
-        startedSession = data;
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Server returned an invalid session payload.");
+        }
+        if (!Number.isFinite(Number(data.id))) {
+          throw new Error("Session start did not return a valid session id.");
+        }
+
+        currentSessionId = Number(data.id);
+        isSessionActive = true;
+        isPaused = false;
+        activeSessionLabel =
+          selectedSubjectName + " | Section: " + selectedSectionName;
+        inferenceInFlight = false;
+        inferFailureCount = 0;
+        attentionHistory = [];
+        attentionTimeline = [];
+        lastTimelineSampleAtMs = 0;
+        lastAttentionScore = null;
+        startSessionTimer();
+
+        // Keep local camera preview visible and draw detections on top.
+        videoEl.style.display = "block";
+        canvasEl.style.display = "block";
+        yoloStream.src = "";
+        yoloStream.style.display = "none";
+        yoloSpinner.style.display = "block";
+        yoloStatusText.textContent = "Connecting to YOLO server\u2026";
+        yoloStatusSub.textContent = "";
+        yoloStatusOverlay.style.display = "flex";
+        setClassroomWindowCardVisible(true);
+        setText(windowStatusEl, "Warming up (0/30)");
+        setText(windowSizeEl, "Window size: --");
+
+        updateBadge();
+        updateSessionMeta();
+        attentionStatus.textContent = "Connecting\u2026";
+        aiInsight.textContent = "Connecting to the YOLO inference server\u2026";
+        fetchYoloRuntimeHints();
+
+        // Start inference immediately. The loop already handles retries/backoff,
+        // so a separate blocking health check only creates false negatives.
+        runInferenceLoop();
       } catch (err) {
-        isStartingSession = false;
-        updateControls();
+        console.error("Start session failed:", err);
         const msg = err && err.message ? err.message : "Could not start session.";
+
+        isSessionActive = false;
+        isPaused = false;
+        currentSessionId = null;
+        activeSessionLabel = "";
+        inferenceInFlight = false;
+        stopSessionTimer();
+
+        yoloSpinner.style.display = "none";
+        yoloStatusText.textContent = "\u26A0\uFE0F Session start failed";
+        yoloStatusSub.textContent = msg;
+        yoloStatusOverlay.style.display = "flex";
+        pausedOverlay.style.display = "none";
+
         attentionStatus.textContent = "Session start failed";
         aiInsight.textContent = "Session could not be started: " + msg;
-        return;
+      } finally {
+        isStartingSession = false;
+        updateControls();
+        updateSessionMeta();
       }
-
-      isStartingSession = false;
-      currentSessionId = startedSession.id;
-      isSessionActive = true;
-      isPaused = false;
-      activeSessionLabel =
-        selectedSubjectName + " | Section: " + selectedSectionName;
-      inferenceInFlight = false;
-      inferFailureCount = 0;
-      attentionHistory = [];
-      attentionTimeline = [];
-      lastTimelineSampleAtMs = 0;
-      lastAttentionScore = null;
-      startSessionTimer();
-
-      // Keep local camera preview visible and draw detections on top.
-      videoEl.style.display = "block";
-      canvasEl.style.display = "block";
-      yoloStream.src = "";
-      yoloStream.style.display = "none";
-      yoloSpinner.style.display = "block";
-      yoloStatusText.textContent = "Connecting to YOLO server\u2026";
-      yoloStatusSub.textContent = "";
-      yoloStatusOverlay.style.display = "flex";
-      setClassroomWindowCardVisible(true);
-      setText(windowStatusEl, "Warming up (0/30)");
-      setText(windowSizeEl, "Window size: --");
-
-      updateBadge();
-      updateControls();
-      updateSessionMeta();
-      attentionStatus.textContent = "Connecting\u2026";
-      aiInsight.textContent = "Connecting to the YOLO inference server\u2026";
-
-      // Start inference immediately. The loop already handles retries/backoff,
-      // so a separate blocking health check only creates false negatives.
-      runInferenceLoop();
     }
 
     function showYoloError(title, detail) {
@@ -1600,21 +1872,27 @@
     function tuneInferencePayload(rttMs) {
       if (!Number.isFinite(rttMs)) return;
 
-      if (rttMs > 900) {
+      if (rttMs > 1200) {
+        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 64);
+        inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.1);
+        return;
+      }
+
+      if (rttMs > 850) {
         inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 32);
         inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.06);
         return;
       }
 
-      if (rttMs > 600) {
+      if (rttMs > 550) {
         inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 16);
         inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.04);
         return;
       }
 
-      if (rttMs < 220) {
+      if (rttMs < 260) {
         inferCaptureWidth = Math.min(inferMaxWidth, inferCaptureWidth + 8);
-        inferJpegQuality = Math.min(inferMaxQuality, inferJpegQuality + 0.01);
+        inferJpegQuality = Math.min(inferMaxQuality, inferJpegQuality + 0.02);
       }
     }
 
@@ -2001,7 +2279,11 @@
 
         if (!isSessionActive) return;
 
-        const detections = data.detections || [];
+        const detections = normalizeDetections(
+          data.detections,
+          data.width,
+          data.height,
+        );
         const aggregation =
           data.classroom_aggregation ||
           data.classroomAggregation ||
@@ -2084,7 +2366,11 @@
     }
 
     function updateControls() {
-      startBtn.disabled = !isCameraReady || !getSelectedSubjectId() || isStartingSession;
+      var currentStartBtn = document.getElementById("start-btn") || startBtn;
+      if (currentStartBtn) {
+        currentStartBtn.disabled =
+          !isCameraReady || !getSelectedSubjectId() || isStartingSession;
+      }
 
       if (isSessionActive) {
         controls.innerHTML = `

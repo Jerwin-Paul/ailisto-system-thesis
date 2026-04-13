@@ -867,24 +867,6 @@ def get_subject_sessions_for_app_date(subject_id: int, target_date) -> list[dict
 def create_session(subject_id: int) -> dict:
     now_local = datetime.now(APP_TIMEZONE)
     today_app_date = now_local.date()
-    today_isodow = now_local.isoweekday()
-
-    with get_cursor(commit=False) as cur:
-        cur.execute(
-            "SELECT day FROM schedules WHERE subject_id = %s",
-            (subject_id,),
-        )
-        schedule_rows = [dict(r) for r in cur.fetchall()]
-
-    if not schedule_rows:
-        raise ValueError("This class has no schedule yet.")
-
-    has_today_schedule = any(
-        SCHEDULE_DAY_TO_ISODOW.get(str((row or {}).get("day", "")).strip().lower()) == today_isodow
-        for row in schedule_rows
-    )
-    if not has_today_schedule:
-        raise ValueError("This class is not scheduled today.")
 
     existing_today = get_subject_sessions_for_app_date(subject_id, today_app_date)
 
