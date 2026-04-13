@@ -278,7 +278,8 @@
 </style>
 
 <script>
-  const subjectSectionMap = {{ subject_section_map | tojson }};
+  const historySubjectFiltersByTeacher = {{ history_subject_filters_by_teacher | tojson }};
+  const historySubjectSectionMapByTeacher = {{ history_subject_section_map_by_teacher | tojson }};
   const attentionHeaderMarkup = `
     Avg. Attention
     <span class="text-red">(L: 33%</span>
@@ -340,6 +341,48 @@
       chartLoading: document.getElementById('chart-loading'),
       tableLoading: document.getElementById('table-loading'),
     };
+  }
+
+  function getSelectedTeacherKey() {
+    const { teacherFilter } = getElements();
+    if (!teacherFilter) return '';
+    return teacherFilter.value || '';
+  }
+
+  function getActiveSubjectFilters() {
+    const teacherKey = getSelectedTeacherKey();
+    return historySubjectFiltersByTeacher[teacherKey] || historySubjectFiltersByTeacher[''] || [];
+  }
+
+  function getActiveSubjectSectionMap() {
+    const teacherKey = getSelectedTeacherKey();
+    return historySubjectSectionMapByTeacher[teacherKey] || historySubjectSectionMapByTeacher[''] || {};
+  }
+
+  function syncSubjectOptionsWithTeacher() {
+    const { subjectFilter } = getElements();
+    if (!subjectFilter) return;
+
+    const previousSubject = subjectFilter.value;
+    const subjectFilters = getActiveSubjectFilters();
+
+    subjectFilter.innerHTML = '<option value="">All Subjects</option>';
+    subjectFilters.forEach(function (subj) {
+      const option = document.createElement('option');
+      option.value = subj.course_code;
+      option.textContent = subj.name
+        ? `${subj.course_code} - ${subj.name}`
+        : subj.course_code;
+      subjectFilter.appendChild(option);
+    });
+
+    if (previousSubject && subjectFilters.some(function (subj) { return subj.course_code === previousSubject; })) {
+      subjectFilter.value = previousSubject;
+    } else {
+      subjectFilter.value = '';
+    }
+
+    updateSectionOptions(subjectFilter.value || '');
   }
 
   function showLoading() {
@@ -419,9 +462,10 @@
 
     resetSelectToDefault(monthFilter);
     resetSelectToDefault(yearFilter);
-    resetSelectToDefault(subjectFilter);
 
     if (subjectFilter) {
+      syncSubjectOptionsWithTeacher();
+      resetSelectToDefault(subjectFilter);
       updateSectionOptions(subjectFilter.value);
     }
 
@@ -482,6 +526,8 @@
   function updateSectionOptions(selectedSubject) {
     const { sectionFilter } = getElements();
     if (!sectionFilter) return;
+
+    const subjectSectionMap = getActiveSubjectSectionMap();
 
     const currentSection = sectionFilter.value;
     sectionFilter.innerHTML = '<option value="">All Sections</option>';
@@ -817,6 +863,9 @@
     if (!target || !target.id) return;
 
     if (target.id === 'teacher-filter') {
+      showLoading();
+      syncSubjectOptionsWithTeacher();
+
       const url = new URL(window.location.href);
       const { monthFilter, yearFilter } = getElements();
       const selectedMonth = monthFilter ? monthFilter.value : '';
@@ -830,6 +879,9 @@
       window.history.replaceState({}, '', url.toString());
       if (selectedMonth) {
         loadSessionsForMonth(String(selectedMonth));
+      } else {
+        applySessionFilters();
+        hideLoading();
       }
       return;
     }
@@ -879,8 +931,12 @@
       }
     }
 
-    const { monthFilter, yearFilter, sessionsTbody } = getElements();
+    const { monthFilter, yearFilter, sessionsTbody, teacherFilter } = getElements();
     updateSessionsTableHeader(currentShowTeacherColumn);
+
+    if (teacherFilter) {
+      syncSubjectOptionsWithTeacher();
+    }
 
     const selectedMonth = monthFilter ? monthFilter.value : '';
     const selectedYear = yearFilter ? yearFilter.value : '';

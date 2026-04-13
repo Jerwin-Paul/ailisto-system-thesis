@@ -1931,26 +1931,27 @@ def history():
         for i in range(1, 13)
     ]
 
-    seen_course_codes = set()
-    subject_filters = []
-    subject_section_map = {}  # { course_code: [section, ...] }
-    section_filters = sorted({str(s.get("section", "")).strip() for s in subjects if s.get("section")})
+    subject_filters, section_filters, subject_section_map = _build_subject_filter_context(subjects)
 
-    for subj in subjects:
-        code = str(subj.get("course_code", "")).strip()
-        name = str(subj.get("name", "")).strip()
-        section = str(subj.get("section", "")).strip()
-        if not code:
-            continue
-        if code not in seen_course_codes:
-            seen_course_codes.add(code)
-            subject_filters.append({"course_code": code, "name": name})
-        if code not in subject_section_map:
-            subject_section_map[code] = []
-        if section and section not in subject_section_map[code]:
-            subject_section_map[code].append(section)
+    history_subject_filters_by_teacher = {"": subject_filters}
+    history_subject_section_map_by_teacher = {"": subject_section_map}
 
-    subject_filters.sort(key=lambda s: s["course_code"])
+    if user.get("role") == "admin":
+        all_subjects = db.get_history_subjects(None)
+        all_subject_filters, _, all_subject_section_map = _build_subject_filter_context(all_subjects)
+        history_subject_filters_by_teacher[""] = all_subject_filters
+        history_subject_section_map_by_teacher[""] = all_subject_section_map
+
+        for teacher in teachers:
+            teacher_id = teacher.get("id")
+            if not teacher_id:
+                continue
+
+            teacher_subjects = db.get_history_subjects(teacher_id)
+            teacher_filters, _, teacher_section_map = _build_subject_filter_context(teacher_subjects)
+            teacher_key = str(teacher_id)
+            history_subject_filters_by_teacher[teacher_key] = teacher_filters
+            history_subject_section_map_by_teacher[teacher_key] = teacher_section_map
 
     return render_template(
         "history.html",
@@ -1964,6 +1965,8 @@ def history():
         teachers=teachers,
         selected_teacher=selected_teacher,
         subject_section_map=subject_section_map,
+        history_subject_filters_by_teacher=history_subject_filters_by_teacher,
+        history_subject_section_map_by_teacher=history_subject_section_map_by_teacher,
         year_options=year_options,
         month_name_options=month_name_options,
         selected_year=selected_year,
