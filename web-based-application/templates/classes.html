@@ -142,11 +142,19 @@
       </div>
       <div class="form-group">
         <label class="form-label">Schedule</label>
+        <div style="display:grid; grid-template-columns:1.2fr 1fr auto 1fr auto; align-items:end; gap:0.5rem; margin-bottom:0.35rem; padding:0 0.2rem;">
+          <label class="form-label" style="margin-bottom:0;">Day</label>
+          <label class="form-label" style="margin-bottom:0;">Start</label>
+          <span aria-hidden="true"></span>
+          <label class="form-label" style="margin-bottom:0;">End</label>
+          <span aria-hidden="true"></span>
+        </div>
         <div id="sect-schedule-entries" class="space-y-2">
-          <div class="form-row schedule-row" style="grid-template-columns:1.2fr 1fr 1fr auto; align-items:end;">
+          <div class="form-row schedule-row" style="grid-template-columns:1.2fr 1fr auto 1fr auto; align-items:end;">
             <div>
               <select class="form-select" style="height:40px;">
                 <option value="">Day</option>
+                <option>Everyday</option>
                 <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
                 <option>Thursday</option><option>Friday</option>
               </select>
@@ -158,6 +166,7 @@
                 <select class="form-select" data-time-period="true" style="height:40px; padding:0 0.55rem;"></select>
               </div>
             </div>
+            <div style="height:40px; display:flex; align-items:center; justify-content:center; color:var(--text-500); font-weight:600;">-</div>
             <div>
               <div class="time-wheel-picker" data-time-picker="true" data-value="" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.35rem;">
                 <select class="form-select" data-time-hour="true" style="height:40px; padding:0 0.55rem;"></select>
@@ -196,6 +205,13 @@
     <div class="form-group" style="margin-bottom:0.75rem;">
       <label class="form-label" for="section-editor-room">Room Number</label>
       <input class="form-input" type="text" id="section-editor-room" placeholder="e.g. Room 1" />
+    </div>
+    <div style="display:grid; grid-template-columns:1.2fr 1fr auto 1fr auto; align-items:end; gap:0.5rem; margin-bottom:0.35rem; padding:0 0.2rem;">
+      <label class="form-label" style="margin-bottom:0;">Day</label>
+      <label class="form-label" style="margin-bottom:0;">Start</label>
+      <span aria-hidden="true"></span>
+      <label class="form-label" style="margin-bottom:0;">End</label>
+      <span aria-hidden="true"></span>
     </div>
     <div id="section-schedule-list" class="space-y-2"></div>
     <button type="button" class="btn btn-outline w-full" style="margin-top:0.75rem; border-style:dashed;" onclick="addEditorScheduleRow()">
@@ -697,15 +713,17 @@
     const container = document.getElementById('sect-schedule-entries');
     const row = document.createElement('div');
     row.className = 'form-row schedule-row';
-    row.style.gridTemplateColumns = '1.2fr 1fr 1fr auto';
+    row.style.gridTemplateColumns = '1.2fr 1fr auto 1fr auto';
     row.style.alignItems = 'end';
     row.innerHTML =
       '<div><select class="form-select" style="height:40px;">'
       + '<option value="">Day</option>'
+      + '<option>Everyday</option>'
       + '<option>Monday</option><option>Tuesday</option><option>Wednesday</option>'
       + '<option>Thursday</option><option>Friday</option>'
       + '</select></div>'
       + '<div>' + buildTimePickerHtml('') + '</div>'
+      + '<div style="height:40px; display:flex; align-items:center; justify-content:center; color:var(--text-500); font-weight:600;">-</div>'
       + '<div>' + buildTimePickerHtml('') + '</div>'
       + '<div><button type="button" onclick="removeScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Remove">&#x2715;</button></div>';
     container.appendChild(row);
@@ -739,11 +757,29 @@
 
   function normalizeTimeText(value) {
     if (!value) return '';
-    const raw = String(value);
-    const parts = raw.split(':');
-    if (parts.length >= 2) {
-      return parts[0].padStart(2, '0') + ':' + parts[1].padStart(2, '0');
+    const raw = String(value).trim();
+
+    const match24 = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (match24) {
+      const hour = parseInt(match24[1], 10);
+      const minute = parseInt(match24[2], 10);
+      if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        return String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+      }
     }
+
+    const match12 = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+    if (match12) {
+      const hour12 = parseInt(match12[1], 10);
+      const minute = parseInt(match12[2], 10);
+      const period = match12[3].toUpperCase();
+      if (hour12 >= 1 && hour12 <= 12 && minute >= 0 && minute <= 59) {
+        let hour24 = hour12 % 12;
+        if (period === 'PM') hour24 += 12;
+        return String(hour24).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+      }
+    }
+
     return raw;
   }
 
@@ -777,11 +813,12 @@
     const row = document.createElement('div');
     row.className = 'form-row editor-schedule-row';
     row.dataset.existing = schedule && schedule.day ? 'true' : 'false';
-    row.style.gridTemplateColumns = '1.2fr 1fr 1fr auto';
+    row.style.gridTemplateColumns = '1.2fr 1fr auto 1fr auto';
     row.style.alignItems = 'end';
     row.innerHTML =
       '<div><select class="form-select" style="height:40px;">'
       + '<option value="">Day</option>'
+      + '<option' + ((schedule.day || '') === 'Everyday' ? ' selected' : '') + '>Everyday</option>'
       + '<option' + ((schedule.day || '') === 'Monday' ? ' selected' : '') + '>Monday</option>'
       + '<option' + ((schedule.day || '') === 'Tuesday' ? ' selected' : '') + '>Tuesday</option>'
       + '<option' + ((schedule.day || '') === 'Wednesday' ? ' selected' : '') + '>Wednesday</option>'
@@ -789,6 +826,7 @@
       + '<option' + ((schedule.day || '') === 'Friday' ? ' selected' : '') + '>Friday</option>'
       + '</select></div>'
       + '<div>' + buildTimePickerHtml(schedule.start_time || '') + '</div>'
+      + '<div style="height:40px; display:flex; align-items:center; justify-content:center; color:var(--text-500); font-weight:600;">-</div>'
       + '<div>' + buildTimePickerHtml(schedule.end_time || '') + '</div>'
       + '<div><button type="button" onclick="removeEditorScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Delete schedule">&#x2715;</button></div>';
     initializeTimeWheelPickers(row);
@@ -842,6 +880,16 @@
     if (!selectedSectionId) return;
     const sharedRoom = document.getElementById('section-editor-room').value.trim();
     const schedules = [];
+    const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const uniqueScheduleKeys = new Set();
+
+    function addSchedule(dayValue, startValue, endValue) {
+      const key = [dayValue, startValue, endValue].join('|');
+      if (uniqueScheduleKeys.has(key)) return;
+      uniqueScheduleKeys.add(key);
+      schedules.push({ day: dayValue, startTime: startValue, endTime: endValue, room: sharedRoom });
+    }
+
     let hasIncompleteRow = false;
     document.querySelectorAll('#section-schedule-list .editor-schedule-row').forEach(function(row) {
       const day = row.querySelector('select').value;
@@ -854,7 +902,13 @@
         hasIncompleteRow = true;
       }
       if (isComplete) {
-        schedules.push({ day: day, startTime: startTime, endTime: endTime, room: sharedRoom });
+        if (day === 'Everyday') {
+          weekdays.forEach(function(weekday) {
+            addSchedule(weekday, startTime, endTime);
+          });
+        } else {
+          addSchedule(day, startTime, endTime);
+        }
       }
     });
 
@@ -1001,13 +1055,29 @@
     const defaultRoom = document.getElementById('sect-room').value.trim();
     if (!courseCode || !section) return;
     const scheduleEntries = [];
+    const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const uniqueScheduleKeys = new Set();
+
+    function addScheduleEntry(dayValue, startValue, endValue) {
+      const key = [dayValue, startValue, endValue].join('|');
+      if (uniqueScheduleKeys.has(key)) return;
+      uniqueScheduleKeys.add(key);
+      scheduleEntries.push({ day: dayValue, startTime: startValue, endTime: endValue, room: defaultRoom });
+    }
+
     document.querySelectorAll('#sect-schedule-entries .schedule-row').forEach(function(row) {
       const day = row.querySelector('select').value;
       const timePickers = row.querySelectorAll('[data-time-picker="true"]');
       const startTime = timePickers[0] ? getTimeValueFromPicker(timePickers[0]) : '';
       const endTime = timePickers[1] ? getTimeValueFromPicker(timePickers[1]) : '';
       if (day && startTime && endTime) {
-        scheduleEntries.push({ day: day, startTime: startTime, endTime: endTime, room: defaultRoom });
+        if (day === 'Everyday') {
+          weekdays.forEach(function(weekday) {
+            addScheduleEntry(weekday, startTime, endTime);
+          });
+        } else {
+          addScheduleEntry(day, startTime, endTime);
+        }
       }
     });
     const btn = document.getElementById('add-sect-btn');
