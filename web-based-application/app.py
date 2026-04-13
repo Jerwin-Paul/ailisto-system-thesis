@@ -3504,7 +3504,7 @@ def _build_report_pdf(
             return Paragraph(html.escape(single_name), cell_text_style)
 
         avg_attention_header = Paragraph(
-            "Avg. Attention<br/>(<font color='#dc2626'>L: 33%</font> &gt; <font color='#f59e0b'>M: 66%</font> &gt; <font color='#16a34a'>H: 100%</font>)",
+            "Avg. Attention<br/>(<font color='#ef4444'><b>L: 33%</b></font> &gt; <font color='#f59e0b'><b>M: 66%</b></font> &gt; <font color='#22c55e'><b>H: 100%</b></font>)",
             header_text_style,
         )
         if show_teacher_column:
