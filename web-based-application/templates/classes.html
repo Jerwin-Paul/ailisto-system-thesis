@@ -152,12 +152,19 @@
         <div id="sect-schedule-entries" class="space-y-2">
           <div class="form-row schedule-row" style="grid-template-columns:1.2fr 1fr auto 1fr auto; align-items:end;">
             <div>
-              <select class="form-select" style="height:40px;">
-                <option value="">Day</option>
-                <option>Everyday</option>
-                <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
-                <option>Thursday</option><option>Friday</option>
-              </select>
+              <div data-day-multiselect="true" style="position:relative;">
+                <button type="button" class="form-select" data-day-trigger="true" style="height:40px; width:100%; display:flex; align-items:center; justify-content:space-between; gap:0.5rem; text-align:left;">
+                  <span data-day-label="true" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-500);">Day</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-400);"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div data-day-menu="true" hidden style="position:absolute; top:calc(100% + 0.35rem); left:0; right:0; z-index:60; background:#fff; border:1px solid var(--border); border-radius:0.75rem; box-shadow:0 12px 28px rgba(15,23,42,0.14); padding:0.35rem; max-height:220px; overflow:auto;">
+                  <label style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.5rem; border-radius:0.55rem; cursor:pointer;"><span style="font-size:0.875rem; color:var(--text-700);">Monday</span><input type="checkbox" data-day-option="true" value="Monday" style="width:16px; height:16px; cursor:pointer;"></label>
+                  <label style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.5rem; border-radius:0.55rem; cursor:pointer;"><span style="font-size:0.875rem; color:var(--text-700);">Tuesday</span><input type="checkbox" data-day-option="true" value="Tuesday" style="width:16px; height:16px; cursor:pointer;"></label>
+                  <label style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.5rem; border-radius:0.55rem; cursor:pointer;"><span style="font-size:0.875rem; color:var(--text-700);">Wednesday</span><input type="checkbox" data-day-option="true" value="Wednesday" style="width:16px; height:16px; cursor:pointer;"></label>
+                  <label style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.5rem; border-radius:0.55rem; cursor:pointer;"><span style="font-size:0.875rem; color:var(--text-700);">Thursday</span><input type="checkbox" data-day-option="true" value="Thursday" style="width:16px; height:16px; cursor:pointer;"></label>
+                  <label style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.5rem; border-radius:0.55rem; cursor:pointer;"><span style="font-size:0.875rem; color:var(--text-700);">Friday</span><input type="checkbox" data-day-option="true" value="Friday" style="width:16px; height:16px; cursor:pointer;"></label>
+                </div>
+              </div>
             </div>
             <div>
               <div class="time-wheel-picker" data-time-picker="true" data-value="" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.35rem;">
@@ -310,6 +317,8 @@
   }
 
   var DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  var WEEKDAY_OPTIONS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  var dayMultiSelectHandlersBound = false;
 
   function escapeHtml(value) {
     return String(value || '')
@@ -592,7 +601,126 @@
       + '</div>';
   }
 
+  function normalizeSelectedDays(value) {
+    if (Array.isArray(value)) {
+      return value.filter(function(day) { return WEEKDAY_OPTIONS.includes(day); });
+    }
+    const raw = String(value || '').trim();
+    if (!raw) return [];
+    if (raw === 'Everyday') return WEEKDAY_OPTIONS.slice();
+    if (raw.includes(',')) {
+      return raw.split(',').map(function(item) { return item.trim(); }).filter(function(day) {
+        return WEEKDAY_OPTIONS.includes(day);
+      });
+    }
+    return WEEKDAY_OPTIONS.includes(raw) ? [raw] : [];
+  }
+
+  function buildDayMultiSelectHtml(selectedDays) {
+    const normalizedDays = normalizeSelectedDays(selectedDays);
+    let optionsHtml = '';
+    WEEKDAY_OPTIONS.forEach(function(day) {
+      const checkedAttr = normalizedDays.includes(day) ? ' checked' : '';
+      optionsHtml += '<label style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.5rem; border-radius:0.55rem; cursor:pointer;">'
+        + '<span style="font-size:0.875rem; color:var(--text-700);">' + day + '</span>'
+        + '<input type="checkbox" data-day-option="true" value="' + day + '"' + checkedAttr + ' style="width:16px; height:16px; cursor:pointer;">'
+        + '</label>';
+    });
+
+    return '<div data-day-multiselect="true" style="position:relative;">'
+      + '<button type="button" class="form-select" data-day-trigger="true" style="height:40px; width:100%; display:flex; align-items:center; justify-content:space-between; gap:0.5rem; text-align:left;">'
+      + '<span data-day-label="true" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-500);">Day</span>'
+      + '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-400);"><polyline points="6 9 12 15 18 9"/></svg>'
+      + '</button>'
+      + '<div data-day-menu="true" hidden style="position:absolute; top:calc(100% + 0.35rem); left:0; right:0; z-index:60; background:#fff; border:1px solid var(--border); border-radius:0.75rem; box-shadow:0 12px 28px rgba(15,23,42,0.14); padding:0.35rem; max-height:220px; overflow:auto;">'
+      + optionsHtml
+      + '</div>'
+      + '</div>';
+  }
+
+  function getSelectedDaysFromPicker(picker) {
+    if (!picker) return [];
+    return Array.from(picker.querySelectorAll('input[data-day-option="true"]:checked')).map(function(checkbox) {
+      return checkbox.value;
+    });
+  }
+
+  function updateDayMultiSelectLabel(picker) {
+    if (!picker) return;
+    const label = picker.querySelector('[data-day-label="true"]');
+    if (!label) return;
+    const selectedDays = getSelectedDaysFromPicker(picker);
+    let text = 'Day';
+    if (selectedDays.length === 1) {
+      text = selectedDays[0];
+    } else if (selectedDays.length > 1) {
+      text = selectedDays[0] + ' +' + (selectedDays.length - 1);
+    }
+    label.textContent = text;
+    label.style.color = selectedDays.length ? 'var(--text-700)' : 'var(--text-500)';
+    picker.dataset.days = selectedDays.join('|');
+  }
+
+  function clearDayMultiSelect(picker) {
+    if (!picker) return;
+    picker.querySelectorAll('input[data-day-option="true"]').forEach(function(checkbox) {
+      checkbox.checked = false;
+    });
+    updateDayMultiSelectLabel(picker);
+  }
+
+  function closeAllDayMultiSelectMenus(exceptPicker) {
+    document.querySelectorAll('[data-day-multiselect="true"]').forEach(function(picker) {
+      if (exceptPicker && picker === exceptPicker) return;
+      const menu = picker.querySelector('[data-day-menu="true"]');
+      if (menu) menu.hidden = true;
+    });
+  }
+
+  function initializeDayMultiSelects(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-day-multiselect="true"]').forEach(function(picker) {
+      const trigger = picker.querySelector('[data-day-trigger="true"]');
+      const menu = picker.querySelector('[data-day-menu="true"]');
+      if (!trigger || !menu) return;
+
+      if (picker.dataset.initialized !== 'true') {
+        trigger.addEventListener('click', function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          const willOpen = menu.hidden;
+          closeAllDayMultiSelectMenus(picker);
+          menu.hidden = !willOpen;
+        });
+
+        menu.addEventListener('click', function(event) {
+          event.stopPropagation();
+        });
+
+        picker.querySelectorAll('input[data-day-option="true"]').forEach(function(checkbox) {
+          checkbox.addEventListener('change', function() {
+            updateDayMultiSelectLabel(picker);
+          });
+        });
+
+        picker.dataset.initialized = 'true';
+      }
+
+      updateDayMultiSelectLabel(picker);
+    });
+
+    if (!dayMultiSelectHandlersBound) {
+      document.addEventListener('click', function(event) {
+        if (!event.target.closest('[data-day-multiselect="true"]')) {
+          closeAllDayMultiSelectMenus();
+        }
+      });
+      dayMultiSelectHandlersBound = true;
+    }
+  }
+
   initializeTimeWheelPickers(document);
+  initializeDayMultiSelects(document);
 
   /* ── Subject detail modal ── */
   function showSubjectDetail(index) {
@@ -616,8 +744,9 @@
         });
         const sectionRoom = roomSchedule ? roomSchedule.room : 'Not set';
         let schedHtml = '';
-        if (sect.schedules && sect.schedules.length > 0) {
-          sect.schedules.forEach(function(sch) {
+        const sortedSectionSchedules = sortSchedulesForUi(sect.schedules || []);
+        if (sortedSectionSchedules.length > 0) {
+          sortedSectionSchedules.forEach(function(sch) {
             const timeRange = formatTimeRange12Hour(sch.start_time, sch.end_time);
             schedHtml +=
               '<div style="display:grid; grid-template-columns:repeat(2,minmax(140px,1fr)); gap:0.5rem; margin-top:0.625rem; padding:0.7rem 0.8rem; border-radius:0.75rem; background:#fff; border:1px solid var(--border-light);">'
@@ -716,18 +845,14 @@
     row.style.gridTemplateColumns = '1.2fr 1fr auto 1fr auto';
     row.style.alignItems = 'end';
     row.innerHTML =
-      '<div><select class="form-select" style="height:40px;">'
-      + '<option value="">Day</option>'
-      + '<option>Everyday</option>'
-      + '<option>Monday</option><option>Tuesday</option><option>Wednesday</option>'
-      + '<option>Thursday</option><option>Friday</option>'
-      + '</select></div>'
+      '<div>' + buildDayMultiSelectHtml([]) + '</div>'
       + '<div>' + buildTimePickerHtml('') + '</div>'
       + '<div style="height:40px; display:flex; align-items:center; justify-content:center; color:var(--text-500); font-weight:600;">-</div>'
       + '<div>' + buildTimePickerHtml('') + '</div>'
       + '<div><button type="button" onclick="removeScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Remove">&#x2715;</button></div>';
     container.appendChild(row);
     initializeTimeWheelPickers(row);
+    initializeDayMultiSelects(row);
   }
 
   function removeScheduleRow(btn) {
@@ -792,6 +917,26 @@
     };
   }
 
+  function sortSchedulesForUi(schedules) {
+    return (Array.isArray(schedules) ? schedules.slice() : []).sort(function(a, b) {
+      const dayA = String((a && a.day) || '').trim();
+      const dayB = String((b && b.day) || '').trim();
+      const dayIndexA = DAY_ORDER.indexOf(dayA);
+      const dayIndexB = DAY_ORDER.indexOf(dayB);
+      const safeDayIndexA = dayIndexA === -1 ? Number.POSITIVE_INFINITY : dayIndexA;
+      const safeDayIndexB = dayIndexB === -1 ? Number.POSITIVE_INFINITY : dayIndexB;
+      if (safeDayIndexA !== safeDayIndexB) return safeDayIndexA - safeDayIndexB;
+
+      const startA = parseTimeToMinutes(normalizeTimeText((a && (a.start_time || a.startTime)) || ''));
+      const startB = parseTimeToMinutes(normalizeTimeText((b && (b.start_time || b.startTime)) || ''));
+      if (startA !== startB) return startA - startB;
+
+      const endA = parseTimeToMinutes(normalizeTimeText((a && (a.end_time || a.endTime)) || ''));
+      const endB = parseTimeToMinutes(normalizeTimeText((b && (b.end_time || b.endTime)) || ''));
+      return endA - endB;
+    });
+  }
+
   async function readApiErrorMessage(response, fallbackMessage) {
     try {
       const payload = await response.json();
@@ -810,26 +955,20 @@
   }
 
   function buildScheduleEditorRow(schedule) {
+    const selectedDays = normalizeSelectedDays(schedule.day || schedule.days || []);
     const row = document.createElement('div');
     row.className = 'form-row editor-schedule-row';
     row.dataset.existing = schedule && schedule.day ? 'true' : 'false';
     row.style.gridTemplateColumns = '1.2fr 1fr auto 1fr auto';
     row.style.alignItems = 'end';
     row.innerHTML =
-      '<div><select class="form-select" style="height:40px;">'
-      + '<option value="">Day</option>'
-      + '<option' + ((schedule.day || '') === 'Everyday' ? ' selected' : '') + '>Everyday</option>'
-      + '<option' + ((schedule.day || '') === 'Monday' ? ' selected' : '') + '>Monday</option>'
-      + '<option' + ((schedule.day || '') === 'Tuesday' ? ' selected' : '') + '>Tuesday</option>'
-      + '<option' + ((schedule.day || '') === 'Wednesday' ? ' selected' : '') + '>Wednesday</option>'
-      + '<option' + ((schedule.day || '') === 'Thursday' ? ' selected' : '') + '>Thursday</option>'
-      + '<option' + ((schedule.day || '') === 'Friday' ? ' selected' : '') + '>Friday</option>'
-      + '</select></div>'
+      '<div>' + buildDayMultiSelectHtml(selectedDays) + '</div>'
       + '<div>' + buildTimePickerHtml(schedule.start_time || '') + '</div>'
       + '<div style="height:40px; display:flex; align-items:center; justify-content:center; color:var(--text-500); font-weight:600;">-</div>'
       + '<div>' + buildTimePickerHtml(schedule.end_time || '') + '</div>'
       + '<div><button type="button" onclick="removeEditorScheduleRow(this)" style="height:40px; padding:0 0.5rem; background:none; border:none; cursor:pointer; color:var(--text-400); font-size:1.1rem;" title="Delete schedule">&#x2715;</button></div>';
     initializeTimeWheelPickers(row);
+    initializeDayMultiSelects(row);
     return row;
   }
 
@@ -842,8 +981,9 @@
     document.getElementById('section-editor-room').value = (result.section.schedules && result.section.schedules[0] && result.section.schedules[0].room) ? result.section.schedules[0].room : '';
     const container = document.getElementById('section-schedule-list');
     container.innerHTML = '';
-    if (result.section.schedules && result.section.schedules.length) {
-      result.section.schedules.forEach(function(schedule) {
+    const sortedEditorSchedules = sortSchedulesForUi(result.section.schedules || []);
+    if (sortedEditorSchedules.length) {
+      sortedEditorSchedules.forEach(function(schedule) {
         container.appendChild(buildScheduleEditorRow(schedule));
       });
     } else {
@@ -868,7 +1008,8 @@
       targetRow.remove();
     } else {
       const row = rows[0];
-      row.querySelector('select').value = '';
+      const dayPicker = row.querySelector('[data-day-multiselect="true"]');
+      if (dayPicker) clearDayMultiSelect(dayPicker);
       const timePickers = row.querySelectorAll('[data-time-picker="true"]');
       if (timePickers[0]) clearTimePicker(timePickers[0]);
       if (timePickers[1]) clearTimePicker(timePickers[1]);
@@ -880,7 +1021,6 @@
     if (!selectedSectionId) return;
     const sharedRoom = document.getElementById('section-editor-room').value.trim();
     const schedules = [];
-    const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     const uniqueScheduleKeys = new Set();
 
     function addSchedule(dayValue, startValue, endValue) {
@@ -892,23 +1032,20 @@
 
     let hasIncompleteRow = false;
     document.querySelectorAll('#section-schedule-list .editor-schedule-row').forEach(function(row) {
-      const day = row.querySelector('select').value;
+      const dayPicker = row.querySelector('[data-day-multiselect="true"]');
+      const selectedDays = getSelectedDaysFromPicker(dayPicker);
       const timePickers = row.querySelectorAll('[data-time-picker="true"]');
       const startTime = timePickers[0] ? getTimeValueFromPicker(timePickers[0]) : '';
       const endTime = timePickers[1] ? getTimeValueFromPicker(timePickers[1]) : '';
-      const hasAnyValue = Boolean(day || startTime || endTime);
-      const isComplete = Boolean(day && startTime && endTime);
+      const hasAnyValue = Boolean(selectedDays.length || startTime || endTime);
+      const isComplete = Boolean(selectedDays.length && startTime && endTime);
       if (hasAnyValue && !isComplete) {
         hasIncompleteRow = true;
       }
       if (isComplete) {
-        if (day === 'Everyday') {
-          weekdays.forEach(function(weekday) {
-            addSchedule(weekday, startTime, endTime);
-          });
-        } else {
+        selectedDays.forEach(function(day) {
           addSchedule(day, startTime, endTime);
-        }
+        });
       }
     });
 
@@ -1055,7 +1192,6 @@
     const defaultRoom = document.getElementById('sect-room').value.trim();
     if (!courseCode || !section) return;
     const scheduleEntries = [];
-    const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     const uniqueScheduleKeys = new Set();
 
     function addScheduleEntry(dayValue, startValue, endValue) {
@@ -1066,18 +1202,15 @@
     }
 
     document.querySelectorAll('#sect-schedule-entries .schedule-row').forEach(function(row) {
-      const day = row.querySelector('select').value;
+      const dayPicker = row.querySelector('[data-day-multiselect="true"]');
+      const selectedDays = getSelectedDaysFromPicker(dayPicker);
       const timePickers = row.querySelectorAll('[data-time-picker="true"]');
       const startTime = timePickers[0] ? getTimeValueFromPicker(timePickers[0]) : '';
       const endTime = timePickers[1] ? getTimeValueFromPicker(timePickers[1]) : '';
-      if (day && startTime && endTime) {
-        if (day === 'Everyday') {
-          weekdays.forEach(function(weekday) {
-            addScheduleEntry(weekday, startTime, endTime);
-          });
-        } else {
+      if (selectedDays.length && startTime && endTime) {
+        selectedDays.forEach(function(day) {
           addScheduleEntry(day, startTime, endTime);
-        }
+        });
       }
     });
     const btn = document.getElementById('add-sect-btn');
