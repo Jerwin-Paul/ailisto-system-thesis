@@ -1214,17 +1214,29 @@
       });
 
       if (videoDevices.length > 0) {
-        // Restore previously selected camera, or use the first one
+        // Restore previously selected camera, or use the first one.
+        // In private/incognito mode, deviceId can be empty before permission,
+        // so selecting by index is more reliable than setting value directly.
         const savedDeviceId = localStorage.getItem("selectedCameraId");
         const savedExists = videoDevices.some(
           (d) => d.deviceId === savedDeviceId,
         );
-        cameraSelect.value = savedExists
-          ? savedDeviceId
-          : videoDevices[0].deviceId;
+
+        let selectedCameraIndex = 0;
+        if (savedExists && savedDeviceId) {
+          selectedCameraIndex = videoDevices.findIndex(
+            (d) => d.deviceId === savedDeviceId,
+          );
+          if (selectedCameraIndex < 0) selectedCameraIndex = 0;
+        }
+
+        // +1 because option[0] is the placeholder.
+        cameraSelect.selectedIndex = selectedCameraIndex + 1;
 
         if (cameraToggle) {
-          startCamera(cameraSelect.value);
+          const selectedDevice = videoDevices[selectedCameraIndex];
+          const selectedDeviceId = (selectedDevice && selectedDevice.deviceId) || null;
+          startCamera(selectedDeviceId);
         }
       }
     }
@@ -1375,8 +1387,14 @@
         cameraStream.getTracks().forEach((t) => t.stop());
       }
       try {
+        const requestedDeviceId =
+          typeof deviceId === "string" ? deviceId.trim() : "";
+        const videoConstraint = requestedDeviceId
+          ? { deviceId: { exact: requestedDeviceId } }
+          : true;
+
         cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: deviceId } },
+          video: videoConstraint,
         });
         // Store on window so SPA re-entry can clean it up
         window.__ailisto_stream = cameraStream;
@@ -1464,12 +1482,22 @@
     }
 
     function handleCameraChange() {
-      if (cameraSelect.value) {
-        localStorage.setItem("selectedCameraId", cameraSelect.value);
-        if (cameraToggle) {
-          startCamera(cameraSelect.value);
-        }
+      if (cameraSelect.selectedIndex <= 0) return;
+
+      const selectedOption = cameraSelect.options[cameraSelect.selectedIndex];
+      const selectedValue = selectedOption ? selectedOption.value : "";
+
+      localStorage.setItem("selectedCameraId", selectedValue || "");
+
+      // In incognito/private mode, selecting from dropdown is a user gesture;
+      // automatically enable preview even if the camera toggle started as off.
+      if (!cameraToggle) {
+        cameraToggle = true;
+        localStorage.setItem("cameraToggle", "on");
+        updateToggleIcon();
       }
+
+      startCamera(selectedValue || null);
     }
 
     // ─── Session Functions ───
