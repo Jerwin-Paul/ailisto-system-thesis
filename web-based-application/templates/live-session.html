@@ -1222,18 +1222,20 @@
           (d) => d.deviceId === savedDeviceId,
         );
 
-        let selectedCameraIndex = 0;
+        let selectedCameraIndex = -1;
         if (savedExists && savedDeviceId) {
           selectedCameraIndex = videoDevices.findIndex(
             (d) => d.deviceId === savedDeviceId,
           );
-          if (selectedCameraIndex < 0) selectedCameraIndex = 0;
         }
 
-        // +1 because option[0] is the placeholder.
-        cameraSelect.selectedIndex = selectedCameraIndex + 1;
+        // Keep placeholder selected when no saved device exists so the user
+        // can explicitly pick a camera and trigger `change` in all browsers.
+        cameraSelect.selectedIndex = selectedCameraIndex >= 0
+          ? selectedCameraIndex + 1
+          : 0;
 
-        if (cameraToggle) {
+        if (cameraToggle && selectedCameraIndex >= 0) {
           const selectedDevice = videoDevices[selectedCameraIndex];
           const selectedDeviceId = (selectedDevice && selectedDevice.deviceId) || null;
           startCamera(selectedDeviceId);
