@@ -938,10 +938,18 @@
         return "Inference timed out. Auto-retrying with lower frame quality.";
       }
 
+      var healthUrl = getYoloBaseUrl() + "/health";
+
       // Browser fetch failures to https://localhost commonly mean
-      // untrusted self-signed cert or local server unreachable.
+      // untrusted self-signed cert, local server unreachable, or
+      // browser/client blocking (e.g., ERR_BLOCKED_BY_CLIENT).
       if (!message || message === "Failed to fetch") {
-        return "Cannot reach local YOLO server. Open https://localhost:5000/health and accept the certificate warning, then retry.";
+        return (
+          "Cannot reach local YOLO server. Open " +
+          healthUrl +
+          " and accept the certificate warning, then retry. " +
+          "If DevTools shows ERR_BLOCKED_BY_CLIENT, disable ad/privacy blocking for this site or allow localhost requests."
+        );
       }
 
       return message;
