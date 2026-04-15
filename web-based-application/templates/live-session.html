@@ -926,6 +926,27 @@
       return yoloHintFetchInFlight;
     }
 
+    function describeYoloFetchFailure(err) {
+      if (!err) {
+        return "Could not process camera frame on YOLO server.";
+      }
+
+      var name = String(err.name || "");
+      var message = String(err.message || "");
+
+      if (name === "AbortError") {
+        return "Inference timed out. Auto-retrying with lower frame quality.";
+      }
+
+      // Browser fetch failures to https://localhost commonly mean
+      // untrusted self-signed cert or local server unreachable.
+      if (!message || message === "Failed to fetch") {
+        return "Cannot reach local YOLO server. Open https://localhost:5000/health and accept the certificate warning, then retry.";
+      }
+
+      return message;
+    }
+
     function setInsightHeading(text) {
       if (!insightHeading) return;
       insightHeading.textContent = text;
@@ -1209,7 +1230,6 @@
       populateSubjectOptions();
       populateSectionOptions();
       updateControls();
-      fetchYoloRuntimeHints();
 
       // Check if mediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -2355,13 +2375,7 @@
             );
             nextDelay = retryMs;
 
-            const reason =
-              err && err.name === "AbortError"
-                ? "Inference timed out. Auto-retrying with lower frame quality."
-                :
-              err && err.message
-                ? err.message
-                : "Could not process camera frame on YOLO server.";
+            const reason = describeYoloFetchFailure(err);
             yoloSpinner.style.display = "block";
             yoloStatusText.textContent = "YOLO reconnecting...";
             yoloStatusSub.textContent =
