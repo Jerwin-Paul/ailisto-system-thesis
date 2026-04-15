@@ -578,7 +578,7 @@
     var sessionTimerInterval = null;
     // ── YOLO server URL (direct browser → local server) ──
     function getYoloBaseUrl() {
-      return "https://localhost:5000";
+      return "http://localhost:5000";
     }
     var sessionsApiUrl = "{{ url_for('api_start_session') }}";
     var endSessionUrlTemplate = "{{ url_for('api_end_session', session_id=0) }}";
