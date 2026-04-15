@@ -1393,9 +1393,22 @@
           ? { deviceId: { exact: requestedDeviceId } }
           : true;
 
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: videoConstraint,
-        });
+        try {
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraint,
+          });
+        } catch (primaryErr) {
+          // In private/incognito sessions, exact device IDs can be unstable.
+          // Retry with a generic camera request before failing hard.
+          if (requestedDeviceId) {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+            });
+          } else {
+            throw primaryErr;
+          }
+        }
+
         // Store on window so SPA re-entry can clean it up
         window.__ailisto_stream = cameraStream;
         videoEl.srcObject = cameraStream;
@@ -1422,6 +1435,20 @@
         refreshCameraLabels();
       } catch (err) {
         console.error("Camera error:", err);
+        stopCamera();
+
+        var errName = String((err && err.name) || "");
+        var hint =
+          "Camera could not start. Allow camera access in browser settings, then try again.";
+        if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
+          hint = "Camera permission was denied. Allow camera for this site in incognito, then retry.";
+        } else if (errName === "NotReadableError" || errName === "TrackStartError") {
+          hint = "Camera is busy or blocked by another app. Close other apps using camera, then retry.";
+        }
+        if (placeholder) {
+          var msg = placeholder.querySelector("p");
+          if (msg) msg.textContent = hint;
+        }
       }
     }
 
