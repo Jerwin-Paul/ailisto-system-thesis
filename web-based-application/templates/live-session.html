@@ -496,6 +496,10 @@
               <p id="class-write" style="font-weight: 600">--</p>
             </div>
             <div>
+              <p class="text-xs" style="color: var(--text-400)">Upright</p>
+              <p id="class-upright" style="font-weight: 600">--</p>
+            </div>
+            <div>
               <p class="text-xs" style="color: var(--text-400)">Yawn</p>
               <p id="class-yawn" style="font-weight: 600">--</p>
             </div>
@@ -572,8 +576,10 @@
     var currentSessionId = null;
     var elapsedSessionSeconds = 0;
     var sessionTimerInterval = null;
-    var yoloInferUrl = "{{ url_for('yolo_infer') }}";
-    var yoloHealthUrl = "{{ url_for('yolo_health') }}";
+    // ── YOLO server URL (direct browser → local server) ──
+    function getYoloBaseUrl() {
+      return "http://localhost:5000";
+    }
     var sessionsApiUrl = "{{ url_for('api_start_session') }}";
     var endSessionUrlTemplate = "{{ url_for('api_end_session', session_id=0) }}";
     var cancelSessionUrlTemplate = "{{ url_for('api_cancel_session', session_id=0) }}";
@@ -617,6 +623,7 @@
     var classStabilityEl = document.getElementById("class-stability");
     var classContextAlignEl = document.getElementById("class-context-alignment");
     var classWriteEl = document.getElementById("class-write");
+    var classUprightEl = document.getElementById("class-upright");
     var classHandriseEl = document.getElementById("class-handrise");
     var classSleepEl = document.getElementById("class-sleep");
     var classYawnEl = document.getElementById("class-yawn");
@@ -640,12 +647,12 @@
     var isCancelSubmitting = false;
     var isEndSubmitting = false;
     var isStartingSession = false;
-    var inferCaptureWidth = 416;
-    var inferJpegQuality = 0.78;
-    var inferMinWidth = 256;
-    var inferMaxWidth = 640;
-    var inferMinQuality = 0.6;
-    var inferMaxQuality = 0.9;
+    var inferCaptureWidth = 320;
+    var inferJpegQuality = 0.64;
+    var inferMinWidth = 224;
+    var inferMaxWidth = 448;
+    var inferMinQuality = 0.5;
+    var inferMaxQuality = 0.8;
     var yoloHintFetchInFlight = null;
     var mediumRecommendationOptions = [
       "You might ask a short question to the class.",
@@ -704,6 +711,8 @@
         hand_raise: "handraise",
         raisehand: "handraise",
         raisedhand: "handraise",
+        up_right: "upright",
+        uprightpose: "upright",
         writing: "write",
         sleeping: "sleep",
         turn_head: "turnhead",
@@ -878,18 +887,17 @@
 
       // Keep camera upload close to server inference size for better class separation.
       var tunedWidth = Math.round(
-        Math.max(inferMinWidth, Math.min(inferMaxWidth, inferredImgsz * 0.85)),
+        Math.max(inferMinWidth, Math.min(inferMaxWidth, inferredImgsz * 0.65)),
       );
       inferCaptureWidth = tunedWidth;
-      inferJpegQuality = Math.max(inferJpegQuality, 0.74);
+      inferJpegQuality = Math.max(inferJpegQuality, 0.68);
     }
 
     function fetchYoloRuntimeHints() {
       if (yoloHintFetchInFlight) return yoloHintFetchInFlight;
 
-      yoloHintFetchInFlight = fetch(yoloHealthUrl, {
+      yoloHintFetchInFlight = fetch(getYoloBaseUrl() + "/health", {
         method: "GET",
-        credentials: "same-origin",
       })
         .then(function (resp) {
           if (!resp.ok) return null;
@@ -898,8 +906,13 @@
           });
         })
         .then(function (data) {
-          if (data && data.reachable) {
-            applyYoloRuntimeHints(data);
+          if (data && (data.reachable || data.status === "ok")) {
+            var hintsData = data.reachable ? data : {
+              reachable: true,
+              endpoint: "/health",
+              tried: { "/health": { status: 200, payload: data } },
+            };
+            applyYoloRuntimeHints(hintsData);
           }
           return data;
         })
@@ -1872,34 +1885,40 @@
     function tuneInferencePayload(rttMs) {
       if (!Number.isFinite(rttMs)) return;
 
-      if (rttMs > 1200) {
-        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 64);
+      if (rttMs > 1400) {
+        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 80);
         inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.1);
         return;
       }
 
-      if (rttMs > 850) {
-        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 32);
-        inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.06);
+      if (rttMs > 900) {
+        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 48);
+        inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.08);
         return;
       }
 
-      if (rttMs > 550) {
-        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 16);
-        inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.04);
+      if (rttMs > 600) {
+        inferCaptureWidth = Math.max(inferMinWidth, inferCaptureWidth - 24);
+        inferJpegQuality = Math.max(inferMinQuality, inferJpegQuality - 0.05);
         return;
       }
 
       if (rttMs < 260) {
         inferCaptureWidth = Math.min(inferMaxWidth, inferCaptureWidth + 8);
-        inferJpegQuality = Math.min(inferMaxQuality, inferJpegQuality + 0.02);
+        inferJpegQuality = Math.min(inferMaxQuality, inferJpegQuality + 0.01);
       }
     }
 
     function drawDetections(detections, srcWidth, srcHeight) {
       const ctx = canvasEl.getContext("2d");
-      const renderWidth = videoEl.videoWidth || 1280;
-      const renderHeight = videoEl.videoHeight || 720;
+      const renderWidth = Math.max(
+        1,
+        Math.round(canvasEl.clientWidth || videoEl.clientWidth || videoEl.videoWidth || 1280),
+      );
+      const renderHeight = Math.max(
+        1,
+        Math.round(canvasEl.clientHeight || videoEl.clientHeight || videoEl.videoHeight || 720),
+      );
 
       if (canvasEl.width !== renderWidth || canvasEl.height !== renderHeight) {
         canvasEl.width = renderWidth;
@@ -1910,8 +1929,14 @@
 
       if (!detections || detections.length === 0) return;
 
-      const sx = canvasEl.width / (srcWidth || canvasEl.width);
-      const sy = canvasEl.height / (srcHeight || canvasEl.height);
+      const sourceWidth = Math.max(1, Number(srcWidth) || videoEl.videoWidth || canvasEl.width);
+      const sourceHeight = Math.max(1, Number(srcHeight) || videoEl.videoHeight || canvasEl.height);
+      const coverScale = Math.max(
+        canvasEl.width / sourceWidth,
+        canvasEl.height / sourceHeight,
+      );
+      const offsetX = (canvasEl.width - sourceWidth * coverScale) / 2;
+      const offsetY = (canvasEl.height - sourceHeight * coverScale) / 2;
 
       ctx.lineWidth = 2;
       ctx.font = "16px Arial";
@@ -1922,12 +1947,17 @@
         const box = det.box || [];
         if (box.length !== 4) return;
 
-        const x1 = box[0] * sx;
-        const y1 = box[1] * sy;
-        const x2 = box[2] * sx;
-        const y2 = box[3] * sy;
+        const x1 = box[0] * coverScale + offsetX;
+        const y1 = box[1] * coverScale + offsetY;
+        const x2 = box[2] * coverScale + offsetX;
+        const y2 = box[3] * coverScale + offsetY;
         const w = x2 - x1;
         const h = y2 - y1;
+
+        if (w <= 0 || h <= 0) return;
+        if (x2 < 0 || y2 < 0 || x1 > canvasEl.width || y1 > canvasEl.height) {
+          return;
+        }
 
         ctx.strokeRect(x1, y1, w, h);
 
@@ -2072,10 +2102,10 @@
         if (!label) return;
         if (
           label === "write" ||
+          label === "upright" ||
           label === "handrise" ||
           label === "handraise" ||
-          label === "hand_raise" ||
-          label === "upright"
+          label === "hand_raise"
         ) {
           engaged += 1;
           return;
@@ -2149,6 +2179,7 @@
         setText(classStabilityEl, "--");
         setText(classContextAlignEl, "--");
         setText(classWriteEl, "--");
+        setText(classUprightEl, "--");
         setText(classHandriseEl, "--");
         setText(classSleepEl, "--");
         setText(classYawnEl, "--");
@@ -2186,6 +2217,7 @@
         formatRatio(classroom.class_context_alignment, 2),
       );
       setText(classWriteEl, formatRatio(classroom.class_write, 2));
+      setText(classUprightEl, formatRatio(classroom.class_upright, 2));
       setText(classHandriseEl, formatRatio(classroom.class_handrise, 2));
       setText(classSleepEl, formatRatio(classroom.class_sleep, 2));
       setText(classYawnEl, formatRatio(classroom.class_yawn, 2));
@@ -2194,7 +2226,7 @@
 
     async function runInferenceLoop() {
       if (!isSessionActive) return;
-      let nextDelay = 60;
+      let nextDelay = 90;
       let stopLoop = false;
 
       if (isPaused) {
@@ -2242,12 +2274,11 @@
         const requestStartedAt = performance.now();
         const abortTimer = setTimeout(function () {
           controller.abort();
-        }, 2600);
+        }, 4500);
 
-        const resp = await fetch(yoloInferUrl, {
+        const resp = await fetch(getYoloBaseUrl() + "/infer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
           signal: controller.signal,
           body: JSON.stringify(payload),
         });
@@ -2295,7 +2326,12 @@
         drawDetections(detections, data.width, data.height);
         updateClassroomAggregation(aggregation, data.window_size);
         updateAttentionFromAggregation(aggregation, detections, data.window_size);
-        nextDelay = 20;
+        var serverTotalMs = Number(data.server_perf && data.server_perf.total_ms);
+        var observedMs = performance.now() - requestStartedAt;
+        if (Number.isFinite(serverTotalMs) && serverTotalMs > 0) {
+          observedMs = Math.max(observedMs, serverTotalMs);
+        }
+        nextDelay = Math.max(90, Math.min(220, Math.round(observedMs * 0.35)));
       } catch (err) {
         if (isSessionActive) {
           if (err && err.message === "__YOLO_SERVER_DOWN__") {
