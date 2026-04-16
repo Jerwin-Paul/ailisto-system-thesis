@@ -267,6 +267,37 @@
         </button>
       </div>
 
+      <div class="card card-borderless">
+        <div class="card-content" style="padding: 1rem 1.25rem">
+          <p class="stat-label" style="margin-bottom: 0.25rem">Classroom Rows</p>
+          <p class="text-xs" style="color: var(--text-400); margin-bottom: 0.75rem">
+            Bottom row is Row 1. New detected rows appear at the top.
+          </p>
+          <div style="overflow-x: auto">
+            <table
+              id="student-rows-table"
+              style="width: 100%; border-collapse: separate; border-spacing: 0.4rem"
+            >
+              <tbody id="student-rows-table-body">
+                <tr>
+                  <td
+                    style="
+                      padding: 0.5rem 0.6rem;
+                      text-align: center;
+                      color: var(--text-400);
+                      font-size: 0.8rem;
+                      font-style: italic;
+                    "
+                  >
+                    Waiting for detections...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div
         id="cancel-session-modal"
         style="
@@ -565,7 +596,7 @@
     var fallbackClassroomHistories = {};
     // ── YOLO server URL (direct browser → local server) ──
     function getYoloBaseUrl() {
-      return "https://127.0.0.1:5000";
+      return "https://127.0.0.1:5001";
     }
     var sessionsApiUrl = "{{ url_for('api_start_session') }}";
     var endSessionUrlTemplate = "{{ url_for('api_end_session', session_id=0) }}";
@@ -612,6 +643,7 @@
     var classSleepEl = document.getElementById("class-sleep");
     var classYawnEl = document.getElementById("class-yawn");
     var classTurnheadEl = document.getElementById("class-turnhead");
+    var studentRowsTableBody = document.getElementById("student-rows-table-body");
     var pausedOverlay = document.getElementById("paused-overlay");
     var yoloStatusOverlay = document.getElementById("yolo-status-overlay");
     var yoloSpinner = document.getElementById("yolo-spinner");
@@ -1714,6 +1746,7 @@
         lastTimelineSampleAtMs = 0;
         lastAttentionScore = null;
         resetFallbackClassroomState();
+        renderStudentRowsTable([]);
         startSessionTimer();
 
         // Keep local camera preview visible and draw detections on top.
@@ -1851,6 +1884,7 @@
       resetRecommendationState();
       resetFallbackClassroomState();
       updateClassroomAggregation(null);
+      renderStudentRowsTable([]);
       attentionValue.textContent = "--";
       attentionValue.className = "attention-score-value";
       attentionStatus.textContent = "Updated in real-time";
@@ -2088,6 +2122,147 @@
     function setText(el, text) {
       if (!el) return;
       el.textContent = text;
+    }
+
+    function getStudentNumber(det, fallbackNumber) {
+      if (!det || typeof det !== "object") return fallbackNumber;
+
+      var rawId = det.track_id;
+      if (rawId === undefined || rawId === null || rawId === "") {
+        rawId = det.trackId;
+      }
+      if (rawId === undefined || rawId === null || rawId === "") {
+        rawId = det.student_id;
+      }
+      if (rawId === undefined || rawId === null || rawId === "") {
+        rawId = det.studentId;
+      }
+
+      var numeric = Number(rawId);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return Math.round(numeric);
+      }
+
+      var idText = String(rawId || "");
+      var idMatch = idText.match(/\d+/);
+      if (idMatch) {
+        var parsed = Number(idMatch[0]);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return Math.round(parsed);
+        }
+      }
+
+      return fallbackNumber;
+    }
+
+    function renderStudentRowsTable(detections) {
+      if (!studentRowsTableBody) return;
+
+      var items = Array.isArray(detections)
+        ? detections
+            .map(function (det, index) {
+              var box = det && det.box;
+              if (!Array.isArray(box) || box.length !== 4) return null;
+
+              var x1 = Number(box[0]);
+              var y1 = Number(box[1]);
+              var x2 = Number(box[2]);
+              var y2 = Number(box[3]);
+              if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+
+              return {
+                studentNumber: getStudentNumber(det, index + 1),
+                cx: (x1 + x2) / 2,
+                cy: (y1 + y2) / 2,
+                height: Math.max(1, Math.abs(y2 - y1)),
+              };
+            })
+            .filter(function (item) {
+              return item !== null;
+            })
+        : [];
+
+      if (!items.length) {
+        studentRowsTableBody.innerHTML =
+          '<tr><td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--text-400); font-size: 0.8rem; font-style: italic;">No students detected.</td></tr>';
+        return;
+      }
+
+      var minY = items[0].cy;
+      var maxY = items[0].cy;
+      var totalHeight = 0;
+      items.forEach(function (item) {
+        if (item.cy < minY) minY = item.cy;
+        if (item.cy > maxY) maxY = item.cy;
+        totalHeight += item.height;
+      });
+
+      var avgHeight = totalHeight / Math.max(1, items.length);
+      var rowTolerance = Math.max(
+        18,
+        Math.min(90, Math.round(Math.max(avgHeight * 0.45, (maxY - minY) * 0.12))),
+      );
+
+      items.sort(function (a, b) {
+        if (Math.abs(b.cy - a.cy) > rowTolerance) {
+          return b.cy - a.cy;
+        }
+        if (Math.abs(a.cx - b.cx) > 1) {
+          return a.cx - b.cx;
+        }
+        return a.studentNumber - b.studentNumber;
+      });
+
+      var rowsBottomFirst = [];
+      var activeRow = [items[0]];
+      var rowAnchorY = items[0].cy;
+
+      for (var i = 1; i < items.length; i += 1) {
+        var item = items[i];
+        if (Math.abs(item.cy - rowAnchorY) <= rowTolerance) {
+          activeRow.push(item);
+        } else {
+          rowsBottomFirst.push(activeRow);
+          activeRow = [item];
+          rowAnchorY = item.cy;
+        }
+      }
+      rowsBottomFirst.push(activeRow);
+
+      rowsBottomFirst.forEach(function (row) {
+        row.sort(function (a, b) {
+          if (Math.abs(a.cx - b.cx) > 1) {
+            return a.cx - b.cx;
+          }
+          return a.studentNumber - b.studentNumber;
+        });
+      });
+
+      var rowsForDisplay = rowsBottomFirst.slice().reverse();
+      var totalRows = rowsBottomFirst.length;
+
+      var html = rowsForDisplay
+        .map(function (row, displayIndex) {
+          var rowNumber = totalRows - displayIndex;
+          var cells = [];
+          cells.push(
+            '<td style="min-width: 3.2rem; padding-right: 0.35rem; text-align: right; font-size: 0.72rem; color: var(--text-400); font-weight: 600; white-space: nowrap;">Row ' +
+              rowNumber +
+              "</td>",
+          );
+          for (var col = 0; col < row.length; col += 1) {
+            var seat = row[col];
+            cells.push(
+              '<td style="min-width: 2.2rem; height: 2.2rem; text-align: center; font-weight: 700; color: var(--text-700); background: rgba(148, 163, 184, 0.12); border: 1px solid var(--border-subtle); border-radius: 0.45rem;">' +
+                (seat ? String(seat.studentNumber) : "") +
+                "</td>",
+            );
+          }
+          return "<tr>" + cells.join("") + "</tr>";
+        })
+        .join("");
+
+      studentRowsTableBody.innerHTML = html;
     }
 
     function resetFallbackClassroomState() {
@@ -2684,6 +2859,7 @@
         inferFailureCount = 0;
         yoloStatusOverlay.style.display = "none";
         drawDetections(detections, data.width, data.height);
+        renderStudentRowsTable(detections);
         updateClassroomAggregation(aggregation);
         updateAttentionFromAggregation(aggregation, detections, data.window_size);
         var serverTotalMs = Number(data.server_perf && data.server_perf.total_ms);
