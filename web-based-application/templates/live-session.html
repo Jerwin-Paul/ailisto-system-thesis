@@ -460,22 +460,6 @@
         </div>
       </div>
 
-      <!-- Classroom Window -->
-      <div class="card card-borderless" id="classroom-window-card">
-        <div class="card-content">
-          <p class="stat-label" style="margin-bottom: 0.5rem">Classroom Window</p>
-          <div
-            id="window-status"
-            style="font-size: 1.1rem; font-weight: 600; color: var(--text-700)"
-          >
-            --
-          </div>
-          <p id="window-size" class="text-xs" style="color: var(--text-400)">
-            Window size: --
-          </p>
-        </div>
-      </div>
-
       <!-- Classroom Features -->
       <div class="card card-borderless">
         <div class="card-content">
@@ -614,9 +598,6 @@
     var aiInsight = document.getElementById("ai-insight");
     var trendPlaceholder = document.getElementById("trend-placeholder");
     var yoloStream = document.getElementById("yolo-stream");
-    var classroomWindowCardEl = document.getElementById("classroom-window-card");
-    var windowStatusEl = document.getElementById("window-status");
-    var windowSizeEl = document.getElementById("window-size");
     var classEngagedEl = document.getElementById("class-engaged");
     var classFatigueEl = document.getElementById("class-fatigue");
     var classOfftaskEl = document.getElementById("class-offtask");
@@ -1740,9 +1721,6 @@
         yoloStatusText.textContent = "Connecting to YOLO server\u2026";
         yoloStatusSub.textContent = "";
         yoloStatusOverlay.style.display = "flex";
-        setClassroomWindowCardVisible(true);
-        setText(windowStatusEl, "Warming up (0/30)");
-        setText(windowSizeEl, "Window size: --");
 
         updateBadge();
         updateSessionMeta();
@@ -2107,11 +2085,6 @@
       el.textContent = text;
     }
 
-    function setClassroomWindowCardVisible(isVisible) {
-      if (!classroomWindowCardEl) return;
-      classroomWindowCardEl.style.display = isVisible ? "" : "none";
-    }
-
     function getWindowProgressState(aggregation, fallbackWindowSize) {
       var rawWindowSize = Number(
         (aggregation && (aggregation.window_size || aggregation.windowSize)) ||
@@ -2255,9 +2228,6 @@
 
     function updateClassroomAggregation(aggregation, fallbackWindowSize) {
       if (!aggregation || typeof aggregation !== "object") {
-        setClassroomWindowCardVisible(true);
-        setText(windowStatusEl, "--");
-        setText(windowSizeEl, "Window size: --");
         setText(classEngagedEl, "--");
         setText(classFatigueEl, "--");
         setText(classOfftaskEl, "--");
@@ -2271,22 +2241,6 @@
         setText(classTurnheadEl, "--");
         return;
       }
-
-      var windowState = getWindowProgressState(aggregation, fallbackWindowSize);
-      var windowSize = windowState.windowSize;
-      var frameIndex = windowState.frameIndex;
-      var windowReady = windowState.windowReady;
-      var progress = windowState.progress;
-      var statusText = windowReady
-        ? "Window ready"
-        : "Warming up (" + progress + "/" + (windowSize || "--") + ")";
-
-      setClassroomWindowCardVisible(!windowReady);
-      setText(windowStatusEl, statusText);
-      setText(
-        windowSizeEl,
-        "Window size: " + (windowSize ? windowSize + " frames" : "--"),
-      );
 
       var classroom =
         aggregation.classroom_features ||
