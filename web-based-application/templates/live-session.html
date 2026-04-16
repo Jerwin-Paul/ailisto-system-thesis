@@ -560,6 +560,9 @@
     var currentSessionId = null;
     var elapsedSessionSeconds = 0;
     var sessionTimerInterval = null;
+    var fallbackClassroomWindowSize = 30;
+    var fallbackClassroomFrameIndex = 0;
+    var fallbackClassroomHistories = {};
     // ── YOLO server URL (direct browser → local server) ──
     function getYoloBaseUrl() {
       return "https://127.0.0.1:5001";
@@ -1710,6 +1713,7 @@
         attentionTimeline = [];
         lastTimelineSampleAtMs = 0;
         lastAttentionScore = null;
+        resetFallbackClassroomState();
         startSessionTimer();
 
         // Keep local camera preview visible and draw detections on top.
@@ -1845,6 +1849,7 @@
       updateControls();
       updateSessionMeta();
       resetRecommendationState();
+      resetFallbackClassroomState();
       updateClassroomAggregation(null);
       attentionValue.textContent = "--";
       attentionValue.className = "attention-score-value";
@@ -2085,6 +2090,320 @@
       el.textContent = text;
     }
 
+    function resetFallbackClassroomState() {
+      fallbackClassroomWindowSize = 30;
+      fallbackClassroomFrameIndex = 0;
+      fallbackClassroomHistories = {};
+    }
+
+    function getClassroomFeatureRow(aggregation) {
+      if (!aggregation || typeof aggregation !== "object") return null;
+
+      var candidates = [
+        aggregation.classroom_features,
+        aggregation.classroomFeatures,
+        aggregation.class_features,
+        aggregation.classFeatures,
+        aggregation.features,
+        aggregation.metrics,
+        aggregation,
+      ];
+
+      for (var i = 0; i < candidates.length; i += 1) {
+        var candidate = candidates[i];
+        if (!candidate || typeof candidate !== "object") continue;
+        if (
+          candidate.class_engaged !== undefined ||
+          candidate.classEngaged !== undefined ||
+          candidate.class_write !== undefined ||
+          candidate.classWrite !== undefined ||
+          candidate.class_handrise !== undefined ||
+          candidate.classHandrise !== undefined ||
+          candidate.class_upright !== undefined ||
+          candidate.classUpright !== undefined ||
+          candidate.class_yawn !== undefined ||
+          candidate.classYawn !== undefined ||
+          candidate.class_sleep !== undefined ||
+          candidate.classSleep !== undefined ||
+          candidate.class_turnhead !== undefined ||
+          candidate.classTurnhead !== undefined ||
+          candidate.class_fatigue !== undefined ||
+          candidate.classFatigue !== undefined ||
+          candidate.class_offtask !== undefined ||
+          candidate.classOfftask !== undefined ||
+          candidate.class_stability !== undefined ||
+          candidate.classStability !== undefined ||
+          candidate.class_context_alignment !== undefined ||
+          candidate.classContextAlignment !== undefined ||
+          candidate.percent_engaged !== undefined ||
+          candidate.percentEngaged !== undefined
+        ) {
+          return candidate;
+        }
+      }
+
+      return null;
+    }
+
+    function readMetricValue(source, keys) {
+      if (!source || typeof source !== "object" || !Array.isArray(keys)) {
+        return null;
+      }
+
+      for (var i = 0; i < keys.length; i += 1) {
+        var key = keys[i];
+        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        var numeric = Number(source[key]);
+        if (Number.isFinite(numeric)) {
+          return numeric;
+        }
+      }
+
+      return null;
+    }
+
+    function normalizeClassroomFeatureRow(source) {
+      if (!source || typeof source !== "object") return null;
+
+      var normalized = {
+        class_engaged: readMetricValue(source, ["class_engaged", "classEngaged", "engaged"]),
+        class_fatigue: readMetricValue(source, ["class_fatigue", "classFatigue", "fatigue"]),
+        class_offtask: readMetricValue(source, ["class_offtask", "classOfftask", "offtask"]),
+        class_stability: readMetricValue(source, ["class_stability", "classStability", "stability"]),
+        class_context_alignment: readMetricValue(source, [
+          "class_context_alignment",
+          "classContextAlignment",
+          "context_alignment",
+          "contextAlignment",
+        ]),
+        class_write: readMetricValue(source, ["class_write", "classWrite", "write"]),
+        class_upright: readMetricValue(source, ["class_upright", "classUpright", "upright"]),
+        class_handrise: readMetricValue(source, ["class_handrise", "classHandrise", "class_handraise", "classHandraise", "handrise", "handraise"]),
+        class_sleep: readMetricValue(source, ["class_sleep", "classSleep", "sleep"]),
+        class_yawn: readMetricValue(source, ["class_yawn", "classYawn", "yawn"]),
+        class_turnhead: readMetricValue(source, ["class_turnhead", "classTurnhead", "turnhead"]),
+        percent_engaged: readMetricValue(source, ["percent_engaged", "percentEngaged"]),
+        attention_label:
+          source.attention_label !== undefined && source.attention_label !== null
+            ? source.attention_label
+            : source.attentionLabel,
+      };
+
+      var hasValues =
+        normalized.class_engaged !== null ||
+        normalized.class_fatigue !== null ||
+        normalized.class_offtask !== null ||
+        normalized.class_stability !== null ||
+        normalized.class_context_alignment !== null ||
+        normalized.class_write !== null ||
+        normalized.class_upright !== null ||
+        normalized.class_handrise !== null ||
+        normalized.class_sleep !== null ||
+        normalized.class_yawn !== null ||
+        normalized.class_turnhead !== null ||
+        normalized.percent_engaged !== null ||
+        normalized.attention_label !== undefined;
+
+      return hasValues ? normalized : null;
+    }
+
+    function computeStudentFeaturesFromHistory(history) {
+      var seq = Array.isArray(history) ? history : [];
+      var n = seq.length;
+      if (!n) {
+        return {
+          handrise_ratio: 0,
+          write_ratio: 0,
+          upright_ratio: 0,
+          yawn_ratio: 0,
+          sleep_ratio: 0,
+          turnhead_ratio: 0,
+          behavior_switch_rate: 0,
+          behavior_stability: 0,
+          context_alignment_score: 0,
+          engaged_score: 0,
+          fatigue_score: 0,
+          offtask_score: 0,
+        };
+      }
+
+      var counts = {};
+      seq.forEach(function (label) {
+        counts[label] = (counts[label] || 0) + 1;
+      });
+
+      function ratio(name) {
+        return (counts[name] || 0) / n;
+      }
+
+      var handriseRatio = ratio("handraise");
+      var writeRatio = ratio("write");
+      var uprightRatio = ratio("upright");
+      var yawnRatio = ratio("yawn");
+      var sleepRatio = ratio("sleep");
+      var turnheadRatio = ratio("turnhead");
+
+      var switches = 0;
+      for (var i = 1; i < n; i += 1) {
+        if (seq[i] !== seq[i - 1]) {
+          switches += 1;
+        }
+      }
+
+      var maxCount = 0;
+      Object.keys(counts).forEach(function (key) {
+        if (counts[key] > maxCount) {
+          maxCount = counts[key];
+        }
+      });
+
+      var positive = writeRatio + uprightRatio + handriseRatio;
+      var negative = yawnRatio + sleepRatio + turnheadRatio;
+
+      return {
+        handrise_ratio: handriseRatio,
+        write_ratio: writeRatio,
+        upright_ratio: uprightRatio,
+        yawn_ratio: yawnRatio,
+        sleep_ratio: sleepRatio,
+        turnhead_ratio: turnheadRatio,
+        behavior_switch_rate: switches / Math.max(1, n - 1),
+        behavior_stability: maxCount / n,
+        context_alignment_score: positive / (positive + negative + 1e-6),
+        engaged_score: positive,
+        fatigue_score: yawnRatio + sleepRatio,
+        offtask_score: turnheadRatio,
+      };
+    }
+
+    function buildFallbackClassroomAggregation(detections, fallbackWindowSize) {
+      var windowSize = Number(fallbackWindowSize);
+      if (!Number.isFinite(windowSize) || windowSize < 1) {
+        windowSize = fallbackClassroomWindowSize || 30;
+      } else {
+        windowSize = Math.max(1, Math.round(windowSize));
+      }
+
+      fallbackClassroomWindowSize = windowSize;
+      fallbackClassroomFrameIndex += 1;
+      var frameIndex = fallbackClassroomFrameIndex;
+
+      var items = Array.isArray(detections) ? detections : [];
+      items.forEach(function (det, index) {
+        var label = canonicalizeDetectionLabel(
+          det && (det.label_normalized || det.label || ""),
+        );
+        if (!label || !ALLOWED_DETECTION_LABELS[label]) {
+          return;
+        }
+
+        var trackId = det && det.track_id;
+        if (trackId === undefined || trackId === null || trackId === "") {
+          trackId = det && det.trackId;
+        }
+        if (trackId === undefined || trackId === null || trackId === "") {
+          trackId = det && det.student_id;
+        }
+
+        var key =
+          trackId === undefined || trackId === null || trackId === ""
+            ? "anon-" + String(index)
+            : "sid-" + String(trackId);
+
+        var entry = fallbackClassroomHistories[key];
+        if (!entry) {
+          entry = { labels: [], lastSeenFrame: frameIndex };
+        }
+
+        entry.labels.push(label);
+        if (entry.labels.length > windowSize) {
+          entry.labels.shift();
+        }
+        entry.lastSeenFrame = frameIndex;
+        fallbackClassroomHistories[key] = entry;
+      });
+
+      var maxStaleFrames = Math.max(windowSize * 2, 45);
+      Object.keys(fallbackClassroomHistories).forEach(function (key) {
+        var entry = fallbackClassroomHistories[key];
+        if (!entry || frameIndex - Number(entry.lastSeenFrame || 0) > maxStaleFrames) {
+          delete fallbackClassroomHistories[key];
+        }
+      });
+
+      var keys = Object.keys(fallbackClassroomHistories);
+      if (!keys.length) {
+        return null;
+      }
+
+      var studentFeatures = [];
+      var hasFullWindow = false;
+      keys.forEach(function (key) {
+        var entry = fallbackClassroomHistories[key];
+        if (!entry || !Array.isArray(entry.labels) || !entry.labels.length) {
+          return;
+        }
+        if (entry.labels.length >= windowSize) {
+          hasFullWindow = true;
+        }
+        studentFeatures.push(computeStudentFeaturesFromHistory(entry.labels));
+      });
+
+      if (!studentFeatures.length) {
+        return null;
+      }
+
+      function meanOf(metricKey) {
+        var sum = 0;
+        studentFeatures.forEach(function (row) {
+          sum += Number(row[metricKey]) || 0;
+        });
+        return sum / studentFeatures.length;
+      }
+
+      var classRow = {
+        class_write: meanOf("write_ratio"),
+        class_handrise: meanOf("handrise_ratio"),
+        class_upright: meanOf("upright_ratio"),
+        class_sleep: meanOf("sleep_ratio"),
+        class_yawn: meanOf("yawn_ratio"),
+        class_turnhead: meanOf("turnhead_ratio"),
+        class_engaged: meanOf("engaged_score"),
+        class_fatigue: meanOf("fatigue_score"),
+        class_offtask: meanOf("offtask_score"),
+        class_stability: meanOf("behavior_stability"),
+        class_context_alignment: meanOf("context_alignment_score"),
+        percent_engaged:
+          studentFeatures.filter(function (row) {
+            return Number(row.engaged_score) > 0.5;
+          }).length / studentFeatures.length,
+      };
+
+      return {
+        frame_index: frameIndex,
+        window_size: windowSize,
+        window_ready: hasFullWindow,
+        tracked_students: studentFeatures.length,
+        classroom_features: classRow,
+      };
+    }
+
+    function resolveClassroomAggregation(aggregation, detections, fallbackWindowSize) {
+      var classroomRow = normalizeClassroomFeatureRow(
+        getClassroomFeatureRow(aggregation),
+      );
+      if (classroomRow) {
+        var base =
+          aggregation && typeof aggregation === "object"
+            ? Object.assign({}, aggregation)
+            : {};
+        base.classroom_features = classroomRow;
+        return base;
+      }
+
+      return buildFallbackClassroomAggregation(detections, fallbackWindowSize);
+    }
+
     function getWindowProgressState(aggregation, fallbackWindowSize) {
       var rawWindowSize = Number(
         (aggregation && (aggregation.window_size || aggregation.windowSize)) ||
@@ -2191,12 +2510,13 @@
     }
 
     function updateAttentionFromAggregation(aggregation, detections, fallbackWindowSize) {
-      const classroom = aggregation && aggregation.classroom_features;
+      const classroom = normalizeClassroomFeatureRow(getClassroomFeatureRow(aggregation));
       const windowState = getWindowProgressState(aggregation, fallbackWindowSize);
       const windowReady = windowState.windowReady;
       if (classroom) {
         const modelLabel = modelAttentionToUiLabel(
-          classroom.attention_label || aggregation.attention_label,
+          classroom.attention_label ||
+            (aggregation && (aggregation.attention_label || aggregation.attentionLabel)),
         );
         const percentEngaged =
           typeof classroom.percent_engaged === "number"
@@ -2226,8 +2546,9 @@
       updateAttentionFromDetections(detections);
     }
 
-    function updateClassroomAggregation(aggregation, fallbackWindowSize) {
-      if (!aggregation || typeof aggregation !== "object") {
+    function updateClassroomAggregation(aggregation) {
+      var classroom = normalizeClassroomFeatureRow(getClassroomFeatureRow(aggregation));
+      if (!classroom) {
         setText(classEngagedEl, "--");
         setText(classFatigueEl, "--");
         setText(classOfftaskEl, "--");
@@ -2242,11 +2563,6 @@
         return;
       }
 
-      var classroom =
-        aggregation.classroom_features ||
-        aggregation.classroomFeatures ||
-        aggregation.features ||
-        {};
       setText(classEngagedEl, formatRatio(classroom.class_engaged, 2));
       setText(classFatigueEl, formatRatio(classroom.class_fatigue, 2));
       setText(classOfftaskEl, formatRatio(classroom.class_offtask, 2));
@@ -2354,16 +2670,21 @@
           data.width,
           data.height,
         );
-        const aggregation =
+        const aggregationRaw =
           data.classroom_aggregation ||
           data.classroomAggregation ||
           data.classroom_agg ||
           data.classroom ||
           {};
+        const aggregation = resolveClassroomAggregation(
+          aggregationRaw,
+          detections,
+          data.window_size,
+        );
         inferFailureCount = 0;
         yoloStatusOverlay.style.display = "none";
         drawDetections(detections, data.width, data.height);
-        updateClassroomAggregation(aggregation, data.window_size);
+        updateClassroomAggregation(aggregation);
         updateAttentionFromAggregation(aggregation, detections, data.window_size);
         var serverTotalMs = Number(data.server_perf && data.server_perf.total_ms);
         var observedMs = performance.now() - requestStartedAt;
