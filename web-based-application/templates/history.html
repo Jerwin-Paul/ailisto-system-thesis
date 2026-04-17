@@ -237,8 +237,13 @@
     style="
       position: fixed;
       inset: 0;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      box-sizing: border-box;
       background: rgba(15, 23, 42, 0.55);
-      z-index: 70;
+      z-index: 1200;
       align-items: center;
       justify-content: center;
       padding: 1rem;
@@ -425,6 +430,13 @@
       studentActionsModalMeta: document.getElementById('student-actions-modal-meta'),
       studentActionsModalBody: document.getElementById('student-actions-modal-body'),
     };
+  }
+
+  function mountStudentActionsModalToBody() {
+    const { studentActionsModal } = getElements();
+    if (!studentActionsModal || studentActionsModal.parentNode === document.body) return;
+    studentActionsModal.dataset.bodyMounted = 'true';
+    document.body.appendChild(studentActionsModal);
   }
 
   function canonicalizeActionKey(rawValue) {
@@ -1229,6 +1241,7 @@
     }
 
     const { monthFilter, yearFilter, sessionsTbody, teacherFilter } = getElements();
+    mountStudentActionsModalToBody();
     updateSessionsTableHeader(currentShowTeacherColumn);
 
     if (teacherFilter) {
@@ -1253,6 +1266,17 @@
   }
 
   captureInitialCurrentMonthRows();
+
+  // Prevent SPA overlay leaks after moving the modal node to body.
+  window.__pageCleanup = function () {
+    resetHistoryChart();
+    activeChartCanvas = null;
+    const { studentActionsModal } = getElements();
+    if (studentActionsModal && studentActionsModal.dataset.bodyMounted === 'true') {
+      studentActionsModal.remove();
+    }
+  };
+
   initialiseHistoryPage(true);
   window.addEventListener('load', function () {
     initialiseHistoryPage(false);
