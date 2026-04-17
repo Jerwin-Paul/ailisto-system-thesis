@@ -170,7 +170,7 @@
         </thead>
         <tbody>
           {% for s in sessions %}
-          <tr data-course-code="{{ s.course_code }}" data-section="{{ s.section }}" data-start-time="{{ s.start_time.isoformat() if s.start_time else '' }}" data-end-time="{{ s.end_time.isoformat() if s.end_time else '' }}" data-avg-attention="{{ s.summary_stats.avgAttention if s.summary_stats and s.summary_stats.avgAttention is defined else '' }}">
+          <tr data-session-id="{{ s.id }}" data-course-code="{{ s.course_code }}" data-section="{{ s.section }}" data-start-time="{{ s.start_time.isoformat() if s.start_time else '' }}" data-end-time="{{ s.end_time.isoformat() if s.end_time else '' }}" data-avg-attention="{{ s.summary_stats.avgAttention if s.summary_stats and s.summary_stats.avgAttention is defined else '' }}" data-student-action-tallies='{{ (session_action_tallies_by_id.get(s.id|string, {}) if session_action_tallies_by_id else {}) | tojson | forceescape }}'>
             {% if show_teacher_column %}
             <td>
               <strong>
@@ -230,6 +230,59 @@
       </div>
     </div>
   </div>
+
+  <div
+    id="student-actions-modal"
+    hidden
+    style="
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      z-index: 70;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    "
+  >
+    <div
+      class="card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="student-actions-modal-title"
+      style="
+        width: min(980px, 100%);
+        border-radius: 1rem;
+        box-shadow: 0 30px 60px rgba(2, 6, 23, 0.35);
+        border: 1px solid var(--border-subtle);
+      "
+    >
+      <div class="card-content" style="padding: 1.1rem 1.1rem 0.9rem 1.1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+          <div>
+            <h3 id="student-actions-modal-title" style="margin: 0; font-size: 1.05rem;">Per-Student Action Counts</h3>
+            <p id="student-actions-modal-meta" class="text-sm" style="margin: 0.3rem 0 0 0; color: var(--text-500);"></p>
+          </div>
+          <button id="student-actions-modal-close" type="button" class="btn btn-outline" style="padding: 0.4rem 0.7rem; min-width: auto;">Close</button>
+        </div>
+        <div style="margin-top: 0.9rem; max-height: 55vh; overflow: auto;">
+          <table class="data-table" id="student-actions-modal-table">
+            <thead>
+              <tr>
+                <th>Student ID</th>
+                <th>Handraise</th>
+                <th>Write</th>
+                <th>Upright</th>
+                <th>Yawn</th>
+                <th>Sleep</th>
+                <th>Turnhead</th>
+              </tr>
+            </thead>
+            <tbody id="student-actions-modal-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <style>
@@ -270,6 +323,23 @@
     animation: spin 0.8s linear infinite;
   }
 
+  .session-row-clickable {
+    cursor: pointer;
+  }
+
+  .session-row-clickable:hover {
+    background: rgba(148, 163, 184, 0.08);
+  }
+
+  .session-row-clickable:focus {
+    outline: 2px solid rgba(59, 130, 246, 0.45);
+    outline-offset: -2px;
+  }
+
+  #student-actions-modal[hidden] {
+    display: none !important;
+  }
+
   @keyframes spin {
     to {
       transform: rotate(360deg);
@@ -280,6 +350,15 @@
 <script>
   const historySubjectFiltersByTeacher = {{ history_subject_filters_by_teacher | tojson }};
   const historySubjectSectionMapByTeacher = {{ history_subject_section_map_by_teacher | tojson }};
+  const sessionActionTalliesById = {{ session_action_tallies_by_id | default({}, true) | tojson }};
+  const trackedActionColumns = [
+    { key: 'handraise', label: 'Handraise' },
+    { key: 'write', label: 'Write' },
+    { key: 'upright', label: 'Upright' },
+    { key: 'yawn', label: 'Yawn' },
+    { key: 'sleep', label: 'Sleep' },
+    { key: 'turnhead', label: 'Turnhead' },
+  ];
   const attentionHeaderMarkup = `
     Avg. Attention
     <span class="text-red">(L: 33%</span>
@@ -297,6 +376,7 @@
   let sessionsLoadController = null;
   let sessionsLoadSequence = 0;
   let currentShowTeacherColumn = {{ 'true' if show_teacher_column else 'false' }};
+  let activeStudentActionsTrigger = null;
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -340,7 +420,218 @@
       historyEmptyState: document.getElementById('history-empty-state'),
       chartLoading: document.getElementById('chart-loading'),
       tableLoading: document.getElementById('table-loading'),
+      studentActionsModal: document.getElementById('student-actions-modal'),
+      studentActionsModalClose: document.getElementById('student-actions-modal-close'),
+      studentActionsModalMeta: document.getElementById('student-actions-modal-meta'),
+      studentActionsModalBody: document.getElementById('student-actions-modal-body'),
     };
+  }
+
+  function canonicalizeActionKey(rawValue) {
+    const raw = String(rawValue || '').trim().toLowerCase();
+    if (!raw) return null;
+
+    const aliases = {
+      handrise: 'handraise',
+      hand_raise: 'handraise',
+      writing: 'write',
+      turn_head: 'turnhead',
+    };
+
+    return aliases[raw] || raw;
+  }
+
+  function normalizeStudentActionTallies(rawTallies) {
+    if (!rawTallies || typeof rawTallies !== 'object') return {};
+
+    const normalized = {};
+    Object.keys(rawTallies).forEach(function (studentKey) {
+      const numericStudent = Number.parseInt(studentKey, 10);
+      if (!Number.isFinite(numericStudent) || numericStudent <= 0) return;
+
+      const rawActions = rawTallies[studentKey];
+      if (!rawActions || typeof rawActions !== 'object') return;
+
+      const actionCounts = {};
+      Object.keys(rawActions).forEach(function (actionKey) {
+        const canonical = canonicalizeActionKey(actionKey);
+        if (!canonical) return;
+        if (!trackedActionColumns.some(function (item) { return item.key === canonical; })) {
+          return;
+        }
+
+        const count = Number(rawActions[actionKey]);
+        if (!Number.isFinite(count) || count <= 0) return;
+        actionCounts[canonical] = Math.round(count);
+      });
+
+      if (Object.keys(actionCounts).length) {
+        normalized[String(numericStudent)] = actionCounts;
+      }
+    });
+
+    return normalized;
+  }
+
+  function parseStudentTalliesFromRow(row) {
+    if (!row) return {};
+
+    let parsed = null;
+    const rowTallies = row.dataset.studentActionTallies;
+    if (rowTallies) {
+      try {
+        parsed = JSON.parse(rowTallies);
+      } catch (_) {
+        parsed = null;
+      }
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      const sessionId = String(row.dataset.sessionId || '').trim();
+      if (sessionId && Object.prototype.hasOwnProperty.call(sessionActionTalliesById, sessionId)) {
+        parsed = sessionActionTalliesById[sessionId];
+      }
+    }
+
+    return normalizeStudentActionTallies(parsed);
+  }
+
+  function buildSessionRowLabel(row) {
+    const courseCode = String(row.dataset.courseCode || '').trim();
+    const section = String(row.dataset.section || '').trim();
+    const classLabel = [courseCode, section].filter(Boolean).join(' ').trim() || 'Unknown class';
+
+    const startRaw = row.dataset.startTime;
+    if (!startRaw) return classLabel;
+
+    const startDate = new Date(startRaw);
+    if (Number.isNaN(startDate.getTime())) return classLabel;
+
+    const dateLabel = startDate.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    return `${classLabel} - ${dateLabel}`;
+  }
+
+  function formatDurationFromSecondsForModal(totalSeconds) {
+    const seconds = Math.max(0, Number(totalSeconds) || 0);
+    const minutes = Math.floor(seconds / 60);
+
+    if (seconds > 0 && minutes === 0) {
+      return '<1 min';
+    }
+
+    if (minutes < 60) {
+      return `${minutes} min`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const remainderMinutes = minutes % 60;
+    return `${hours}h ${remainderMinutes}m`;
+  }
+
+  function formatStudentActionCellValue(actionKey, rawValue) {
+    const numeric = Math.max(0, Number(rawValue) || 0);
+    if (actionKey === 'upright' || actionKey === 'sleep') {
+      return formatDurationFromSecondsForModal(numeric);
+    }
+    return String(Math.round(numeric));
+  }
+
+  function renderStudentActionsModalRows(tallies) {
+    const { studentActionsModalBody } = getElements();
+    if (!studentActionsModalBody) return;
+
+    const studentIds = Object.keys(tallies).sort(function (a, b) {
+      return Number(a) - Number(b);
+    });
+
+    if (!studentIds.length) {
+      studentActionsModalBody.innerHTML =
+        '<tr><td colspan="7" style="text-align: center; color: var(--text-400); font-style: italic;">No per-student actions were recorded for this session.</td></tr>';
+      return;
+    }
+
+    const html = studentIds
+      .map(function (studentId) {
+        const counts = tallies[studentId] || {};
+        const cells = trackedActionColumns
+          .map(function (column) {
+            const value = formatStudentActionCellValue(column.key, counts[column.key] || 0);
+            return `<td>${escapeHtml(value)}</td>`;
+          })
+          .join('');
+        return `<tr><td><strong>${escapeHtml(studentId)}</strong></td>${cells}</tr>`;
+      })
+      .join('');
+
+    studentActionsModalBody.innerHTML = html;
+  }
+
+  function openStudentActionsModal(row) {
+    const {
+      studentActionsModal,
+      studentActionsModalMeta,
+      studentActionsModalClose,
+    } = getElements();
+    if (!studentActionsModal) return;
+
+    const tallies = parseStudentTalliesFromRow(row);
+    renderStudentActionsModalRows(tallies);
+    if (studentActionsModalMeta) {
+      studentActionsModalMeta.textContent = buildSessionRowLabel(row);
+    }
+
+    activeStudentActionsTrigger = row;
+    studentActionsModal.hidden = false;
+    studentActionsModal.style.display = 'flex';
+    if (studentActionsModalClose) {
+      studentActionsModalClose.focus();
+    }
+  }
+
+  function closeStudentActionsModal() {
+    const { studentActionsModal } = getElements();
+    if (!studentActionsModal || studentActionsModal.hidden) return;
+
+    studentActionsModal.hidden = true;
+    studentActionsModal.style.display = '';
+    if (activeStudentActionsTrigger && typeof activeStudentActionsTrigger.focus === 'function') {
+      activeStudentActionsTrigger.focus();
+    }
+    activeStudentActionsTrigger = null;
+  }
+
+  function attachSessionRowInteraction(row) {
+    if (!row || row.dataset.studentActionsBound === '1') return;
+    row.dataset.studentActionsBound = '1';
+    row.classList.add('session-row-clickable');
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('role', 'button');
+    row.setAttribute('aria-label', 'View per-student action counts');
+
+    row.addEventListener('click', function (event) {
+      const interactiveTarget = event.target && event.target.closest('a, button, input, select, textarea, label');
+      if (interactiveTarget) return;
+      openStudentActionsModal(row);
+    });
+
+    row.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openStudentActionsModal(row);
+    });
+  }
+
+  function bindSessionRowsInteractions() {
+    const { sessionsTbody } = getElements();
+    if (!sessionsTbody) return;
+    sessionsTbody.querySelectorAll('tr').forEach(attachSessionRowInteraction);
   }
 
   function getSelectedTeacherKey() {
@@ -734,6 +1025,10 @@
     tr.dataset.startTime = session.start_time || '';
     tr.dataset.endTime = session.end_time || '';
     tr.dataset.avgAttention = session.avg_attention ?? '';
+    tr.dataset.sessionId = session.id != null ? String(session.id) : '';
+    tr.dataset.studentActionTallies = JSON.stringify(
+      normalizeStudentActionTallies(session.student_action_tallies || {}),
+    );
 
     const dateOnly = session.start_time
       ? new Date(session.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -762,6 +1057,7 @@
       <td>${formatAttention(session.avg_attention)}</td>
     `;
 
+    attachSessionRowInteraction(tr);
     sessionsTbody.appendChild(tr);
   }
 
@@ -779,6 +1075,7 @@
     sessionsTbody.dataset.loadedYear = yearFilter ? yearFilter.value : '';
     sessionsTbody.dataset.loadedTeacher = teacherFilter ? teacherFilter.value : '';
     sessions.forEach(addSessionRow);
+    bindSessionRowsInteractions();
 
     // Prevent stale subject/section selections from hiding newly loaded rows.
     if (subjectFilter && subjectFilter.value) {
@@ -946,16 +1243,17 @@
       sessionsTbody.dataset.loadedYear = selectedYear;
     }
 
-    if (monthFilter && monthFilter.value && forceReload && !isLoadedSelectionCurrent()) {
+    if (monthFilter && monthFilter.value && forceReload) {
       loadSessionsForMonth(monthFilter.value);
     }
 
+    bindSessionRowsInteractions();
     applySessionFilters();
     scheduleChartRefresh();
   }
 
   captureInitialCurrentMonthRows();
-  initialiseHistoryPage(false);
+  initialiseHistoryPage(true);
   window.addEventListener('load', function () {
     initialiseHistoryPage(false);
   });
@@ -966,23 +1264,35 @@
   });
 
   window.addEventListener('pageshow', function () {
-    initialiseHistoryPage(false);
+    initialiseHistoryPage(true);
   });
 
   window.addEventListener('spa:content-ready', function () {
-    initialiseHistoryPage(false);
+    initialiseHistoryPage(true);
+  });
+
+  document.addEventListener('click', function (event) {
+    const {
+      studentActionsModal,
+      studentActionsModalClose,
+    } = getElements();
+    if (!studentActionsModal || studentActionsModal.hidden) return;
+
+    if (event.target === studentActionsModal || event.target === studentActionsModalClose) {
+      closeStudentActionsModal();
+    }
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    const { studentActionsModal } = getElements();
+    if (!studentActionsModal || studentActionsModal.hidden) return;
+    closeStudentActionsModal();
   });
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
-      // Reload sessions for current month to show latest data
-      const { monthFilter } = getElements();
-      if (monthFilter && monthFilter.value && !isLoadedSelectionCurrent()) {
-        loadSessionsForMonth(monthFilter.value);
-      } else {
-        applySessionFilters();
-        scheduleChartRefresh();
-      }
+      initialiseHistoryPage(true);
     }
   });
 

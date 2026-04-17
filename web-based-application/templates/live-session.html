@@ -594,6 +594,10 @@
     var fallbackClassroomWindowSize = 30;
     var fallbackClassroomFrameIndex = 0;
     var fallbackClassroomHistories = {};
+    var studentActionTallies = {};
+    var studentActionEpisodeState = {};
+    var studentPresenceEpisodeState = {};
+    var actionEpisodeClearMs = 1600;
     // ── YOLO server URL (direct browser → local server) ──
     function getYoloBaseUrl() {
       return "https://127.0.0.1:5001";
@@ -1746,6 +1750,7 @@
         lastTimelineSampleAtMs = 0;
         lastAttentionScore = null;
         resetFallbackClassroomState();
+        resetStudentActionTallies();
         renderStudentRowsTable([]);
         startSessionTimer();
 
@@ -1830,6 +1835,10 @@
       const sessionIdToEnd = currentSessionId;
       const summaryStats = getSessionSummaryStats();
       const attentionTimelinePayload = getSessionAttentionTimeline();
+      const studentActionTalliesPayload = getStudentActionTalliesPayload();
+      if (Object.keys(studentActionTalliesPayload).length) {
+        summaryStats.studentActionTallies = studentActionTalliesPayload;
+      }
 
       if (sessionIdToEnd && !shouldSaveSession) {
         try {
@@ -1883,6 +1892,7 @@
       updateSessionMeta();
       resetRecommendationState();
       resetFallbackClassroomState();
+      resetStudentActionTallies();
       updateClassroomAggregation(null);
       renderStudentRowsTable([]);
       attentionValue.textContent = "--";
@@ -1905,6 +1915,7 @@
             body: JSON.stringify({
               summaryStats: summaryStats,
               attentionTimeline: attentionTimelinePayload,
+              studentActionTallies: studentActionTalliesPayload,
             }),
           });
           if (!resp.ok) {
@@ -2153,6 +2164,243 @@
       }
 
       return fallbackNumber;
+    }
+
+    function getDetectionStudentId(det) {
+      if (!det || typeof det !== "object") return null;
+
+      var rawId = det.track_id;
+      if (rawId === undefined || rawId === null || rawId === "") {
+        rawId = det.trackId;
+      }
+      if (rawId === undefined || rawId === null || rawId === "") {
+        rawId = det.student_id;
+      }
+      if (rawId === undefined || rawId === null || rawId === "") {
+        rawId = det.studentId;
+      }
+
+      var numeric = Number(rawId);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return Math.round(numeric);
+      }
+
+      var idText = String(rawId || "");
+      var idMatch = idText.match(/\d+/);
+      if (!idMatch) return null;
+
+      var parsed = Number(idMatch[0]);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return Math.round(parsed);
+    }
+
+    function resetStudentActionTallies() {
+      studentActionTallies = {};
+      studentActionEpisodeState = {};
+      studentPresenceEpisodeState = {};
+    }
+
+    function isDurationBehaviorLabel(label) {
+      return label === "sleep";
+    }
+
+    function isDurationAggregateLabel(label) {
+      return label === "sleep" || label === "upright";
+    }
+
+    function addStudentActionDurationSeconds(studentKey, label, startMs, endMs) {
+      if (!studentKey || !label) return;
+      if (!isDurationAggregateLabel(label)) return;
+
+      var safeStart = Number(startMs);
+      var safeEnd = Number(endMs);
+      if (!Number.isFinite(safeStart) || !Number.isFinite(safeEnd)) return;
+      if (safeEnd <= safeStart) return;
+
+      var elapsedSeconds = Math.max(0, Math.round((safeEnd - safeStart) / 1000));
+      if (elapsedSeconds <= 0) return;
+
+      if (!studentActionTallies[studentKey]) {
+        studentActionTallies[studentKey] = {};
+      }
+      studentActionTallies[studentKey][label] =
+        Number(studentActionTallies[studentKey][label] || 0) + elapsedSeconds;
+    }
+
+    function finalizeActiveDurationEpisodes() {
+      Object.keys(studentActionEpisodeState).forEach(function (eventKey) {
+        var state = studentActionEpisodeState[eventKey];
+        if (!state || !state.active) return;
+        if (!isDurationBehaviorLabel(state.label)) return;
+
+        addStudentActionDurationSeconds(
+          state.studentKey,
+          state.label,
+          state.episodeStartAt,
+          state.lastSeenAt,
+        );
+        state.active = false;
+        state.episodeStartAt = 0;
+      });
+    }
+
+    function finalizeActiveStudentPresenceEpisodes() {
+      Object.keys(studentPresenceEpisodeState).forEach(function (studentKey) {
+        var state = studentPresenceEpisodeState[studentKey];
+        if (!state || !state.active) return;
+
+        addStudentActionDurationSeconds(
+          studentKey,
+          "upright",
+          state.episodeStartAt,
+          state.lastSeenAt,
+        );
+        state.active = false;
+        state.episodeStartAt = 0;
+      });
+    }
+
+    function getStudentActionTalliesPayload() {
+      // Flush active duration episodes so upright/sleep reflects full tracked time.
+      finalizeActiveDurationEpisodes();
+      finalizeActiveStudentPresenceEpisodes();
+
+      var payload = {};
+      Object.keys(studentActionTallies).forEach(function (studentIdKey) {
+        var actionCounts = studentActionTallies[studentIdKey];
+        if (!actionCounts || typeof actionCounts !== "object") return;
+
+        var normalizedCounts = {};
+        Object.keys(actionCounts).forEach(function (actionKey) {
+          if (!ALLOWED_DETECTION_LABELS[actionKey]) return;
+          var count = Number(actionCounts[actionKey]);
+          if (!Number.isFinite(count) || count <= 0) return;
+          normalizedCounts[actionKey] = Math.min(100000, Math.round(count));
+        });
+
+        if (Object.keys(normalizedCounts).length) {
+          payload[String(studentIdKey)] = normalizedCounts;
+        }
+      });
+      return payload;
+    }
+
+    function recordStudentActionsFromDetections(detections) {
+      if (!isSessionActive || isPaused || !Array.isArray(detections)) return;
+
+      var nowMs = Date.now();
+      var presentEventKeys = {};
+      var presentStudentKeys = {};
+
+      detections.forEach(function (det) {
+        var studentId = getDetectionStudentId(det);
+        if (!studentId) return;
+        var studentKey = String(studentId);
+        presentStudentKeys[studentKey] = true;
+
+        var label = canonicalizeDetectionLabel(
+          det && (det.label_normalized || det.label || det.class_name || det.className),
+        );
+        if (!label || !ALLOWED_DETECTION_LABELS[label]) return;
+        if (label === "upright") return;
+
+        var eventKey = studentKey + ":" + label;
+        if (presentEventKeys[eventKey]) {
+          return;
+        }
+        presentEventKeys[eventKey] = true;
+
+        var eventState = studentActionEpisodeState[eventKey] || {
+          studentKey: studentKey,
+          label: label,
+          active: false,
+          lastSeenAt: 0,
+          lastStartedAt: 0,
+          episodeStartAt: 0,
+        };
+        eventState.lastSeenAt = nowMs;
+
+        if (isDurationBehaviorLabel(label)) {
+          // Upright/sleep are tracked as durations across active episodes.
+          if (!eventState.active) {
+            eventState.active = true;
+            eventState.episodeStartAt = nowMs;
+            eventState.lastStartedAt = nowMs;
+          }
+        } else {
+          // Other behaviors are counted on rising edge only.
+          if (!eventState.active) {
+            if (!studentActionTallies[studentKey]) {
+              studentActionTallies[studentKey] = {};
+            }
+            studentActionTallies[studentKey][label] =
+              Number(studentActionTallies[studentKey][label] || 0) + 1;
+            eventState.active = true;
+            eventState.lastStartedAt = nowMs;
+          }
+        }
+
+        studentActionEpisodeState[eventKey] = eventState;
+      });
+
+      Object.keys(presentStudentKeys).forEach(function (studentKey) {
+        var state = studentPresenceEpisodeState[studentKey] || {
+          active: false,
+          lastSeenAt: 0,
+          episodeStartAt: 0,
+        };
+        state.lastSeenAt = nowMs;
+        if (!state.active) {
+          state.active = true;
+          state.episodeStartAt = nowMs;
+        }
+        studentPresenceEpisodeState[studentKey] = state;
+      });
+
+      Object.keys(studentActionEpisodeState).forEach(function (eventKey) {
+        var state = studentActionEpisodeState[eventKey];
+        if (!state) return;
+
+        var idleMs = nowMs - Number(state.lastSeenAt || 0);
+        if (state.active && idleMs >= actionEpisodeClearMs) {
+          if (isDurationBehaviorLabel(state.label)) {
+            addStudentActionDurationSeconds(
+              state.studentKey,
+              state.label,
+              state.episodeStartAt,
+              state.lastSeenAt,
+            );
+            state.episodeStartAt = 0;
+          }
+          state.active = false;
+        }
+
+        // Prune stale episode keys to keep memory bounded in long sessions.
+        if (!state.active && idleMs >= actionEpisodeClearMs * 8) {
+          delete studentActionEpisodeState[eventKey];
+        }
+      });
+
+      Object.keys(studentPresenceEpisodeState).forEach(function (studentKey) {
+        var state = studentPresenceEpisodeState[studentKey];
+        if (!state) return;
+
+        var idleMs = nowMs - Number(state.lastSeenAt || 0);
+        if (state.active && idleMs >= actionEpisodeClearMs) {
+          addStudentActionDurationSeconds(
+            studentKey,
+            "upright",
+            state.episodeStartAt,
+            state.lastSeenAt,
+          );
+          state.active = false;
+          state.episodeStartAt = 0;
+        }
+
+        if (!state.active && idleMs >= actionEpisodeClearMs * 8) {
+          delete studentPresenceEpisodeState[studentKey];
+        }
+      });
     }
 
     function renderStudentRowsTable(detections) {
@@ -2860,6 +3108,7 @@
         yoloStatusOverlay.style.display = "none";
         drawDetections(detections, data.width, data.height);
         renderStudentRowsTable(detections);
+        recordStudentActionsFromDetections(detections);
         updateClassroomAggregation(aggregation);
         updateAttentionFromAggregation(aggregation, detections, data.window_size);
         var serverTotalMs = Number(data.server_perf && data.server_perf.total_ms);

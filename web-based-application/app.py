@@ -227,6 +227,71 @@ def _minutes_to_clock(minutes: int) -> str:
     return f"{hour12}:{minute:02d} {period}"
 
 
+_TRACKED_ACTION_ALIASES = {
+    "handraise": "handraise",
+    "handrise": "handraise",
+    "hand_raise": "handraise",
+    "write": "write",
+    "writing": "write",
+    "upright": "upright",
+    "yawn": "yawn",
+    "sleep": "sleep",
+    "turnhead": "turnhead",
+    "turn_head": "turnhead",
+}
+
+
+def _canonicalize_action_label(value) -> str | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    return _TRACKED_ACTION_ALIASES.get(raw)
+
+
+def _sanitize_student_action_tallies(raw_tallies) -> dict:
+    """Normalize student action tallies to a compact JSON-safe dict."""
+    if not isinstance(raw_tallies, dict):
+        return {}
+
+    sanitized = {}
+    for student_key, raw_actions in raw_tallies.items():
+        try:
+            student_id = int(student_key)
+        except (TypeError, ValueError):
+            continue
+        if student_id <= 0:
+            continue
+        if not isinstance(raw_actions, dict):
+            continue
+
+        action_counts = {}
+        for label_key, count_value in raw_actions.items():
+            canonical_label = _canonicalize_action_label(label_key)
+            if not canonical_label:
+                continue
+            try:
+                count = int(count_value)
+            except (TypeError, ValueError):
+                continue
+            if count <= 0:
+                continue
+            action_counts[canonical_label] = min(100000, count)
+
+        if action_counts:
+            sanitized[str(student_id)] = action_counts
+
+    return sanitized
+
+
+def _extract_student_action_tallies(summary_stats) -> dict:
+    if not isinstance(summary_stats, dict):
+        return {}
+    raw_tallies = summary_stats.get("studentActionTallies")
+    if raw_tallies is None:
+        raw_tallies = summary_stats.get("student_action_tallies")
+    return _sanitize_student_action_tallies(raw_tallies)
+
+
 def _normalize_schedule_day(value) -> str:
     return str(value or "").strip().lower()
 
@@ -1906,6 +1971,14 @@ def history():
 
     selected_month = f"{selected_year:04d}-{selected_month_num:02d}"
     sessions_list = db.get_sessions_for_month(effective_teacher_id, selected_year, selected_month_num)
+    session_action_tallies_by_id = {}
+    for s in sessions_list:
+        session_id = s.get("id")
+        if session_id is None:
+            continue
+        session_action_tallies_by_id[str(session_id)] = _extract_student_action_tallies(
+            s.get("summary_stats"),
+        )
     stats = db.get_history_summary_stats(effective_teacher_id) or {}
     stats["avg_attention_display"] = _round_percent_half_up(stats.get("avg_attention"))
     if stats["avg_attention_display"] is None:
@@ -1972,6 +2045,7 @@ def history():
         selected_year=selected_year,
         selected_month_num=selected_month_num,
         selected_month=selected_month,
+        session_action_tallies_by_id=session_action_tallies_by_id,
     )
 
 
@@ -2430,12 +2504,21 @@ def api_end_session(session_id):
         return jsonify({"error": "Session not found for your account."}), 404
 
     try:
+        summary_stats = data.get("summaryStats", {})
+        if not isinstance(summary_stats, dict):
+            summary_stats = {}
+
+        merged_tallies = summary_stats.get("studentActionTallies")
+        if merged_tallies is None:
+            merged_tallies = data.get("studentActionTallies")
+        summary_stats["studentActionTallies"] = _sanitize_student_action_tallies(merged_tallies)
+
         attention_timeline = data.get("attentionTimeline")
         if not isinstance(attention_timeline, list):
             attention_timeline = []
         s = db.end_session(
             session_id,
-            data.get("summaryStats", {}),
+            summary_stats,
             attention_timeline=attention_timeline,
         )
     except Exception as exc:
@@ -3834,6 +3917,7 @@ def api_get_sessions():
         # Format sessions for JSON
         formatted_sessions = []
         for s in sessions_list:
+            student_action_tallies = _extract_student_action_tallies(s.get("summary_stats"))
             formatted_sessions.append({
                 "id": s["id"],
                 "course_code": s.get("course_code"),
@@ -3845,6 +3929,7 @@ def api_get_sessions():
                 "end_time": s.get("end_time").isoformat() if s.get("end_time") else None,
                 "duration_minutes": _duration_minutes_ignore_seconds(s.get("start_time"), s.get("end_time")),
                 "avg_attention": s.get("summary_stats", {}).get("avgAttention") if s.get("summary_stats") else None,
+                "student_action_tallies": student_action_tallies,
             })
         
         return jsonify({
